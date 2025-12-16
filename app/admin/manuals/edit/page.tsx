@@ -1,6 +1,6 @@
 // app/admin/manuals/edit/page.tsx
-export const dynamic = 'force-dynamic';
 "use client";
+export const dynamic = 'force-dynamic';
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
