@@ -1,0 +1,26 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+
+        # === ★ ここが重要 ★ ===
+        # Amplify Secrets → .env.production に書き出す
+        - echo "QBUSINESS_APP_ID=$QBUSINESS_APP_ID" >> .env.production
+        - echo "QBUSINESS_INDEX_ID=$QBUSINESS_INDEX_ID" >> .env.production
+        - echo "QBUSINESS_REGION=$QBUSINESS_REGION" >> .env.production
+        # =======================
+
+    build:
+      commands:
+        - npm run build
+
+  artifacts:
+    baseDirectory: .next
+    files:
+      - "**/*"
+
+  cache:
+    paths:
+      - node_modules/**/*

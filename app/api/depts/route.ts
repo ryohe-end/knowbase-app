@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient, ScanCommand } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
+export const runtime = "nodejs";
 
 // us-east-1 で作っていると言ってたのでデフォルトはそれ
 // ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
