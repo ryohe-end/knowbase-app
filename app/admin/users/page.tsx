@@ -392,11 +392,11 @@ export default function AdminUsersPage() {
                   <div className="kb-user-meta-info">
                     {u.brandIds?.length ? `ブランド: ${u.brandIds.map(id => brandMap[id]?.name || id).join(", ")}` : "ブランド: 全て"}
                     {" / "}
-                    {u.groupIds?.length > 0 && 
-                        <span style={{ color: '#374151' }}>
-                            属性: {u.groupIds.map(id => groupMap[id]?.groupName || id).join(", ")}
-                        </span>
-                    }
+                    {(u.groupIds?.length ?? 0) > 0 && (
+  <span style={{ color: "#374151" }}>
+    属性: {(u.groupIds ?? []).map((id) => groupMap[id]?.groupName || id).join(", ")}
+  </span>
+)}
                     {u.isActive ? '' : ' / [無効]'}
                   </div>
                 </div>
