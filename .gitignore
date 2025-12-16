@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+.env.local
+.DS_Store
+.vscode
+
+# secrets
+keys/
+*.pem
+*.key
+*.p12
+*.pfx
+.env
+.env.local
