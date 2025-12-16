@@ -12,27 +12,20 @@ function mustEnv(name: string) {
 }
 
 function getClient() {
-  // Amplifyでは AWS_ プレフィックスが禁止なので APP_AWS_* を使う
+  // ✅ IAM(Compute role) を使うので access key は不要
+  // region は QBUSINESS_REGION を優先。無ければ AWS_REGION 等へフォールバック
   const region =
     process.env.QBUSINESS_REGION ||
-    process.env.APP_AWS_REGION ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION ||
     "us-east-1";
 
-  const accessKeyId = process.env.APP_AWS_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.APP_AWS_SECRET_ACCESS_KEY;
-
   const applicationId = mustEnv("QBUSINESS_APP_ID");
-
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error(
-      "Missing env APP_AWS_ACCESS_KEY_ID / APP_AWS_SECRET_ACCESS_KEY"
-    );
-  }
 
   return {
     client: new QBusinessClient({
       region,
-      credentials: { accessKeyId, secretAccessKey },
+      // ✅ credentials を渡さない（Compute role が自動で使われる）
     }),
     applicationId,
   };
@@ -43,7 +36,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const prompt = String(body?.prompt ?? "").trim();
     if (!prompt) {
-      return NextResponse.json({ ok: false, error: "prompt が空です。" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "prompt が空です。" },
+        { status: 400 }
+      );
     }
 
     const { client, applicationId } = getClient();
