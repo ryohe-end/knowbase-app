@@ -370,53 +370,50 @@ export default function HomePage() {
   }, [manuals]);
 
   const filteredContacts = useMemo(() => {
-    const kw = contactSearch.trim().toLowerCase();
+  const kw = contactSearch.trim().toLowerCase();
 
-    return contacts
-      .map((c) => {
-        if (
-          selectedBrandId !== ALL_BRAND_ID &&
-          selectedBrandId &&
-          !(c.brandId === "ALL" || c.brandId === selectedBrandId)
-        ) {
-          return null;
-        }
+  return contacts
+    .map((c) => {
+      // ブランド絞り込み
+      if (
+        selectedBrandId !== ALL_BRAND_ID &&
+        selectedBrandId &&
+        !(c.brandId === "ALL" || c.brandId === selectedBrandId)
+      ) {
+        return null;
+      }
 
-        if (
-          selectedDeptId !== ALL_DEPT_ID &&
-          selectedDeptId &&
-          c.deptId !== selectedDeptId
-        ) {
-          return null;
-        }
+      // 部署絞り込み
+      if (
+        selectedDeptId !== ALL_DEPT_ID &&
+        selectedDeptId &&
+        c.deptId !== selectedDeptId
+      ) {
+        return null;
+      }
 
-        if (!kw) {
-          return { ...c, hitTags: [] as string[] };
-        }
+      // キーワードなし → hitTags は空配列で確定
+      if (!kw) {
+        return { ...c, hitTags: [] as string[] };
+      }
 
-        const deptLabel = deptMap[c.deptId]?.name ?? "";
-        const tags = c.tags || [];
+      const deptLabel = deptMap[c.deptId]?.name ?? "";
+      const tags = c.tags ?? []; // ★常に配列
 
-        const haystack = [
-          c.name,
-          c.email,
-          c.role ?? "",
-          deptLabel,
-          ...tags,
-        ]
-          .join(" ")
-          .toLowerCase();
+      const haystack = [c.name, c.email, c.role ?? "", deptLabel, ...tags]
+        .join(" ")
+        .toLowerCase();
 
-        if (!haystack.includes(kw)) return null;
+      if (!haystack.includes(kw)) return null;
 
-        const hitTags = tags.filter((tag) =>
-          tag.toLowerCase().includes(kw)
-        );
+      const hitTags = tags.filter((tag) => tag.toLowerCase().includes(kw));
 
-        return { ...c, hitTags };
-      })
-      .filter((v): v is Contact & { hitTags?: string[] } => !!v);
-  }, [contacts, selectedBrandId, selectedDeptId, contactSearch, deptMap]);
+      // ★常に hitTags: string[]
+      return { ...c, hitTags };
+    })
+    // ★hitTags は必須（undefined を許さない）
+    .filter((v): v is Contact & { hitTags: string[] } => v !== null);
+}, [contacts, selectedBrandId, selectedDeptId, contactSearch, deptMap]);
 
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID
