@@ -1,39 +1,40 @@
 // app/api/dev-skip/route.ts
-
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
-    console.log("--- [DEV-SKIP] 1. API処理開始 ---"); // ★ 追加ログ
+  console.log("--- [DEV-SKIP] 1. API処理開始 ---");
 
-    const ADMIN_EMAIL_FALLBACK = "admin@example.com";
-    const maxAge = 60 * 60 * 24 * 7; 
-    
-    const cookieStore = cookies(); 
+  const ADMIN_EMAIL_FALLBACK =
+    process.env.ADMIN_EMAIL_FALLBACK || "admin@example.com";
+  const maxAge = 60 * 60 * 24 * 7;
 
-    // Cookie設定
-    cookieStore.set("kb_user", ADMIN_EMAIL_FALLBACK, {
-        httpOnly: true,
-        secure: true,
-        path: "/",
-        maxAge: maxAge,
-    });
-    
-    cookieStore.set("kb_admin", "1", {
-        httpOnly: true,
-        secure: true,
-        path: "/",
-        maxAge: maxAge,
-    });
-    
-    console.log("--- [DEV-SKIP] 2. Cookie設定完了 ---"); // ★ 追加ログ
+  // ✅ Next.js 15: cookies() は Promise なので await 必須
+  const cookieStore = await cookies();
 
-    // サーバー側で直接リダイレクトを返す
-    const url = new URL("/", req.url);
-    
-    // Cookieをヘッダーに含めた状態でリダイレクト
-    const response = NextResponse.redirect(url, { status: 307 });
-    
-    console.log("--- [DEV-SKIP] 3. リダイレクト応答返却 ---"); // ★ 追加ログ
-    return response;
+  cookieStore.set("kb_user", ADMIN_EMAIL_FALLBACK, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+
+  cookieStore.set("kb_admin", "1", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+
+  console.log("--- [DEV-SKIP] 2. Cookie設定完了 ---");
+
+  const url = new URL("/", req.url);
+  console.log("--- [DEV-SKIP] 3. リダイレクト応答返却 ---");
+
+  return NextResponse.redirect(url, { status: 307 });
 }
