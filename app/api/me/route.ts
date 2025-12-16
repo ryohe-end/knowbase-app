@@ -11,9 +11,5 @@ export async function GET() {
   const email = cookieStore.get("kb_user")?.value || null;
   const isAdmin = cookieStore.get("kb_admin")?.value === "1";
 
-  return NextResponse.json({
-    ok: true,
-    email,
-    isAdmin,
-  });
+  return NextResponse.json({ ok: true, email, isAdmin });
 }
