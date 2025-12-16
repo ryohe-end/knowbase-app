@@ -1,9 +1,15 @@
+// app/api/logout/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST() {
-  cookies().delete("kb_user");
-  cookies().delete("kb_admin");
+  const cookieStore = await cookies();
+
+  cookieStore.delete("kb_user");
+  cookieStore.delete("kb_admin");
 
   return NextResponse.json({ ok: true });
 }
