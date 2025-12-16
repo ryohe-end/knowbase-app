@@ -113,6 +113,11 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
 
     /**
+     * パスワード処理の共通宣言
+     */
+    let existingPasswordHash: string | undefined;
+    
+    /**
      * UPDATE時：既存の passwordHash を取得
      */
     if (mode === "update") {
@@ -131,8 +136,7 @@ export async function POST(req: NextRequest) {
     /**
      * パスワード処理
      */
-    let existingPasswordHash: string | undefined;
-    let passwordHashToSave = existingPasswordHash; // 初期化を移動
+    let passwordHashToSave = existingPasswordHash; // 既存ハッシュで初期化
 
     if (newPassword && newPassword.trim().length > 0) {
       passwordHashToSave = mockHash(newPassword.trim());
