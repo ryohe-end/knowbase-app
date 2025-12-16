@@ -3,30 +3,18 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient, ScanCommand } from "@aws-sdk/client-dynamodb";
 import { unmarshall } from "@aws-sdk/util-dynamodb";
 
-// ★★★ 修正箇所: 認証情報の設定 ★★★
-const ACCESS_KEY_ID = process.env.APP_AWS_ACCESS_KEY_ID;
-const SECRET_ACCESS_KEY = process.env.APP_AWS_SECRET_ACCESS_KEY;
-// ★★★
-
 // us-east-1 で作っていると言ってたのでデフォルトはそれ
+// ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
 const client = new DynamoDBClient({
   region: process.env.AWS_REGION || "us-east-1",
-  // 修正: 環境変数が存在する場合にcredentialsを設定
-  ...(ACCESS_KEY_ID && SECRET_ACCESS_KEY 
-    ? { credentials: { accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY } } 
-    : {}),
 });
+// ★★★
 
 const TABLE_NAME =
   process.env.DYNAMO_DEPTS_TABLE || "yamauchi-Depts";
 
 export async function GET() {
   try {
-    // ★★★ デバッグログを追加 ★★★
-    console.log("DEBUG: ACCESS_KEY_PRESENT:", !!process.env.APP_AWS_ACCESS_KEY_ID);
-    console.log("DEBUG: SECRET_KEY_PRESENT:", !!process.env.APP_AWS_SECRET_ACCESS_KEY);
-    // ★★★
-
     const command = new ScanCommand({
       TableName: TABLE_NAME,
     });

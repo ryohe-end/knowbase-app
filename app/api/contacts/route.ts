@@ -11,17 +11,10 @@ export const runtime = "nodejs";
 const region = "us-east-1";
 const TABLE_CONTACTS = "yamauchi-Contacts";
 
-// ★★★ 修正箇所: 認証情報の設定 ★★★
-const ACCESS_KEY_ID = process.env.APP_AWS_ACCESS_KEY_ID;
-const SECRET_ACCESS_KEY = process.env.APP_AWS_SECRET_ACCESS_KEY;
+// ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
+const ddbClient = new DynamoDBClient({ region });
 // ★★★
 
-const ddbClient = new DynamoDBClient({ 
-  region,
-  ...(ACCESS_KEY_ID && SECRET_ACCESS_KEY 
-    ? { credentials: { accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY } } 
-    : {}) 
-});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export async function GET() {

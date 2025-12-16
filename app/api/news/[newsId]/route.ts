@@ -16,7 +16,11 @@ const TABLE_NEWS = process.env.TABLE_NEWS || process.env.NEWS_TABLE || "yamauchi
 
 function getDocClient() {
   const region = process.env.AWS_REGION || process.env.APP_AWS_REGION || "us-east-1";
+  
+  // ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
   const client = new DynamoDBClient({ region });
+  // ★★★
+  
   return DynamoDBDocumentClient.from(client);
 }
 
@@ -105,4 +109,3 @@ export async function DELETE(_req: NextRequest, ctx: any) {
     return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
-
