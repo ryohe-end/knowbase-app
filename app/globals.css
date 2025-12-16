@@ -556,23 +556,37 @@ body {
   border: 1px solid #e5e7eb;
 }
 
-.kb-login-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+/* ★ 修正ポイント: ロゴ群とタイトルを縦に並べ、全体を中央揃えにする */
+.kb-login-header-new {
+    display: flex;
+    flex-direction: column; /* 縦並び (ロゴ群 -> タイトル) */
+    align-items: center; /* 水平方向中央揃え */
+    gap: 15px; /* ロゴ群とタイトルの間の間隔 */
+    margin-bottom: 20px;
 }
 
-.kb-login-sub {
-  font-size: 12px;
-  color: #6b7280;
+/* ロゴアイコンと文字ロゴを横に並べる */
+.kb-login-logo-wrap {
+    display: flex;
+    align-items: center; /* アイコンと文字ロゴを垂直中央揃え */
+    gap: 10px; /* アイコンと文字ロゴの間の間隔 */
+}
+
+/* タイトルボックス（今回は「ログイン」のみを含む）を中央揃えにする */
+.kb-login-title-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* 子要素（ログインタイトル）を中央揃え */
+    justify-content: center; 
 }
 
 .kb-login-title {
   font-size: 18px;
   font-weight: 700;
-  margin: 6px 0 12px;
+  margin: 0; 
 }
+
+/* --- 以下、変更なし --- */
 
 .kb-login-form {
   display: flex;
@@ -624,6 +638,10 @@ body {
 }
 
 .kb-login-google {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
+  gap: 10px; 
   background: #fff;
   border: 1px solid #e5e7eb;
 }
@@ -655,7 +673,6 @@ body {
 .kb-panel-section:last-child {
   border-bottom: none;
 }
-
 /* ===== 管理画面用 ===== */
 
 .kb-admin-grid {

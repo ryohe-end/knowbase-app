@@ -6,7 +6,9 @@ import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import { auth as firebaseAuth } from "@/lib/firebaseClient";
 import { useRouter } from 'next/navigation';
 
-export default function LoginPage() {
+// ★ 修正箇所: function export ではなく、const で定義し最後に export default する形式に変更
+const LoginPage = () => {
+
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [error, setError] = useState("");
@@ -15,7 +17,7 @@ export default function LoginPage() {
   const router = useRouter();
 
 
-  // ★ 強制スキップボタンのハンドラ関数 (API呼び出しを削除)
+  // 強制スキップボタンのハンドラ関数 (クライアントサイドで直接Cookieを設定)
   async function handleSkipLogin() {
     setIsSkipping(true); // UIを「移動中...」に設定
     setError("");
@@ -123,7 +125,8 @@ export default function LoginPage() {
             />
           </div>
           <div className="kb-login-title-box">
-            <div className="kb-login-sub">Know Base</div>
+            {/* ★修正: サブタイトル (Know Base) を削除 */}
+            {/* <div className="kb-login-sub">Know Base</div> */}
             <div className="kb-login-title">ログイン</div>
           </div>
         </div>
@@ -178,9 +181,9 @@ export default function LoginPage() {
         {/* スキップボタン */}
         <div className="kb-login-divider">または</div>
         <button 
-          type="button" // ★★★ type="button" を確認 ★★★
+          type="button" 
           className="kb-login-skip"
-          onClick={handleSkipLogin} // ★★★ ここでAPIを叩かないバージョンが実行されます ★★★
+          onClick={handleSkipLogin} 
           disabled={isSkipping}
           style={{ 
             marginTop: '10px', 
@@ -196,3 +199,6 @@ export default function LoginPage() {
     </div>
   );
 }
+
+// ★ 修正箇所: LoginPageコンポーネントをデフォルトエクスポート
+export default LoginPage;
