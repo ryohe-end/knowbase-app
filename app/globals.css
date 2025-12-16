@@ -1003,3 +1003,159 @@ body {
 .kb-secondary-btn:hover {
     background: #f1f5f9;
 }
+/* ===== 管理画面用の2カラムグリッドとカードスタイルを追加 ===== */
+.kb-admin-grid-2col {
+    display: grid;
+    /* 2カラムレイアウト (左:2fr, 右:3fr) */
+    grid-template-columns: 2fr 3fr; 
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.kb-admin-card-large {
+    /* 中央/右カラムと同じカードの基本スタイルを流用 */
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+    border: 1px solid #e5e7eb;
+    
+    /* スクロールが必要なコンテンツに対応 */
+    max-height: 85vh; /* 画面の高さに合わせた最大高 */
+    display: flex;
+    flex-direction: column;
+}
+
+/* 960px以下では1カラムにするレスポンシブ対応 */
+@media (max-width: 960px) {
+    .kb-admin-grid-2col {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* お知らせ一覧/ユーザー一覧のスクロール領域 */
+.kb-manual-list-admin {
+    flex-grow: 1; /* 残りのスペースを埋める */
+    overflow-y: auto; /* 溢れたら縦スクロール */
+    padding-right: 4px; /* スクロールバーの幅を確保 */
+}
+/* app/globals.css の管理画面用セクションに追加 */
+
+.kb-admin-grid-2col {
+    display: grid;
+    /* マニュアル管理と共通の2カラム幅: 2fr(左) 3fr(右) */
+    grid-template-columns: 2fr 3fr; 
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.kb-admin-card-large {
+    /* マニュアル管理と共通の大きなカードスタイル */
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+    border: 1px solid #e5e7eb;
+    max-height: 85vh; /* 縦長コンテンツ対応 */
+    display: flex;
+    flex-direction: column;
+}
+
+.kb-panel-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.kb-admin-head {
+    font-size: 16px;
+    font-weight: 700;
+}
+
+/* --- リストコンテナとアイテム --- */
+
+.kb-manual-list-admin {
+    flex-grow: 1; /* 親カード内で残りのスペースを占める */
+    overflow-y: auto; /* スクロール可能にする */
+    padding-right: 4px;
+}
+
+/* ユーザー/お知らせの各アイテム（kb-user-item-admin は news/users ページで使用） */
+.kb-user-item-admin {
+    padding: 10px 12px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    border: 1px solid #f1f5f9;
+    background: #f9fafb;
+    cursor: pointer;
+    transition: all 0.1s ease;
+}
+.kb-user-item-admin:hover {
+    background: #eff6ff;
+    border-color: #dbeafe;
+}
+.kb-user-item-admin.selected {
+    background: #e0f2fe;
+    border-color: #0ea5e9;
+    box-shadow: 0 0 0 1px #0ea5e9;
+}
+.kb-user-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+.kb-user-email-meta, .kb-user-meta-info {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+
+/* --- フォーム要素 (マニュアル編集と共通) --- */
+.kb-manual-form {
+    overflow-y: auto;
+    flex-grow: 1;
+    padding-right: 4px;
+}
+.kb-admin-form-row {
+    margin-bottom: 15px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.kb-admin-form-row.two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+.kb-admin-form-row .full {
+    grid-column: 1 / -1;
+}
+.kb-admin-label {
+    display: block;
+    font-size: 12px;
+    color: #4b5563;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+.kb-admin-input, .kb-admin-select, .kb-admin-textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    font-size: 13px;
+    background: #ffffff;
+}
+.kb-admin-textarea {
+    resize: vertical;
+}
+.kb-subnote {
+    font-size: 11px;
+    color: #9ca3af;
+}
+
+/* レスポンシブ対応 (960px以下で1カラムに) */
+@media (max-width: 960px) {
+    .kb-admin-grid-2col {
+        grid-template-columns: 1fr;
+    }
+}
