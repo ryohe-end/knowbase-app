@@ -37,7 +37,17 @@ export type KbUser = {
 const region = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = "yamauchi-Users";
 
-const ddbClient = new DynamoDBClient({ region });
+// ★★★ 修正箇所: 認証情報の設定 ★★★
+const ACCESS_KEY_ID = process.env.APP_AWS_ACCESS_KEY_ID;
+const SECRET_ACCESS_KEY = process.env.APP_AWS_SECRET_ACCESS_KEY;
+// ★★★
+
+const ddbClient = new DynamoDBClient({ 
+  region,
+  ...(ACCESS_KEY_ID && SECRET_ACCESS_KEY 
+    ? { credentials: { accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY } } 
+    : {}) 
+});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 /**
@@ -75,9 +85,9 @@ export async function GET() {
  * POST /api/users
  * Body:
  * {
- *   mode: "create" | "update" | "delete",
- *   user: KbUser,
- *   newPassword?: string
+ * mode: "create" | "update" | "delete",
+ * user: KbUser,
+ * newPassword?: string
  * }
  */
 export async function POST(req: NextRequest) {

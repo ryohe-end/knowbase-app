@@ -11,7 +11,17 @@ export const runtime = "nodejs";
 const region = "us-east-1";              // ← Dynamo が us-east-1 なので固定
 const TABLE_BRANDS = "yamauchi-Brands";
 
-const ddbClient = new DynamoDBClient({ region });
+// ★★★ 修正箇所: 認証情報の設定 ★★★
+const ACCESS_KEY_ID = process.env.APP_AWS_ACCESS_KEY_ID;
+const SECRET_ACCESS_KEY = process.env.APP_AWS_SECRET_ACCESS_KEY;
+// ★★★
+
+const ddbClient = new DynamoDBClient({ 
+  region,
+  ...(ACCESS_KEY_ID && SECRET_ACCESS_KEY 
+    ? { credentials: { accessKeyId: ACCESS_KEY_ID, secretAccessKey: SECRET_ACCESS_KEY } } 
+    : {})
+});
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export async function GET() {
@@ -59,4 +69,3 @@ export async function GET() {
     );
   }
 }
-
