@@ -1,183 +1,108 @@
 // app/api/news/[newsId]/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
-  DynamoDBClient,
-  GetItemCommand,
-  UpdateItemCommand,
-  DeleteItemCommand,
-} from "@aws-sdk/client-dynamodb";
-import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
+  DynamoDBDocumentClient,
+  GetCommand,
+  UpdateCommand,
+  DeleteCommand,
+} from "@aws-sdk/lib-dynamodb";
 
-const TABLE_NAME = process.env.NEWS_TABLE_NAME || "yamauchi-News";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-type NewsRecord = {
-  newsId: string;
-  title: string;
-  body: string;
-  fromDate?: string | null;
-  toDate?: string | null;
-  brandId?: string | null;
-  deptId?: string | null;
-  targetGroupIds?: string[];
-  tags?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-};
+// ✅ テーブル名（あなたの既存 env 名に合わせて変えてOK）
+const TABLE_NEWS = process.env.TABLE_NEWS || process.env.NEWS_TABLE || "yamauchi-News";
 
-function getClient() {
-  return new DynamoDBClient({
-    region: process.env.AWS_REGION || "ap-northeast-1",
-  });
+function getDocClient() {
+  const region = process.env.AWS_REGION || process.env.APP_AWS_REGION || "us-east-1";
+  const client = new DynamoDBClient({ region });
+  return DynamoDBDocumentClient.from(client);
 }
 
-// Next.jsが期待するRouteContext形に合わせる（型名は作らない）
-type RouteContext = { params: { newsId: string } };
+function json(status: number, body: any) {
+  return NextResponse.json(body, { status });
+}
 
-// GET /api/news/[newsId]
-export async function GET(_req: NextRequest, { params }: RouteContext) {
-  const client = getClient();
-  const newsId = String(params?.newsId ?? "");
-
-  if (!newsId) {
-    return NextResponse.json({ error: "newsId is required" }, { status: 400 });
-  }
-
+// ✅ Next.js 15 対応：第2引数の型は「書かない」 or 「any」にする（これが一番安全）
+export async function GET(_req: NextRequest, ctx: any) {
   try {
-    const res = await client.send(
-      new GetItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ newsId }),
+    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    if (!newsId) return json(400, { error: "newsId is required" });
+
+    const ddb = getDocClient();
+    const res = await ddb.send(
+      new GetCommand({
+        TableName: TABLE_NEWS,
+        Key: { newsId },
       })
     );
 
-    if (!res.Item) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
-    }
-
-    const item = unmarshall(res.Item) as NewsRecord;
-    return NextResponse.json({ news: item });
-  } catch (err) {
-    console.error("GET /api/news/[newsId] error:", err);
-    return NextResponse.json(
-      { error: "Failed to fetch news" },
-      { status: 500 }
-    );
+    if (!res.Item) return json(404, { error: "not found", newsId });
+    return json(200, { ok: true, item: res.Item });
+  } catch (e: any) {
+    console.error("GET /api/news/[newsId] error:", e);
+    return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
 
-// PUT /api/news/[newsId]
-export async function PUT(req: NextRequest, { params }: RouteContext) {
-  const client = getClient();
-  const newsId = String(params?.newsId ?? "");
-
-  if (!newsId) {
-    return NextResponse.json({ error: "newsId is required" }, { status: 400 });
-  }
-
+export async function PUT(req: NextRequest, ctx: any) {
   try {
-    const payload = await req.json();
+    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    if (!newsId) return json(400, { error: "newsId is required" });
 
-    const title: string = payload.title;
-    const bodyText: string = payload.body;
-    const fromDate: string | null = payload.fromDate || null;
-    const toDate: string | null = payload.toDate || null;
-    const brandId: string = payload.brandId || "ALL";
-    const deptId: string = payload.deptId || "ALL";
+    const body = await req.json().catch(() => ({}));
+    const title = String(body?.title ?? "").trim();
+    const bodyText = String(body?.body ?? "").trim();
 
-    const targetGroupIds: string[] = Array.isArray(payload.targetGroupIds)
-      ? payload.targetGroupIds.map((t: any) => String(t)).filter(Boolean)
-      : [];
+    if (!title) return json(400, { error: "title is required" });
 
-    let tags: string[] = [];
-    if (Array.isArray(payload.tags)) {
-      tags = payload.tags.map((t: any) => String(t)).filter(Boolean);
-    } else if (typeof payload.tags === "string") {
-      tags = payload.tags
-        .split(",")
-        .map((s: string) => s.trim())
-        .filter(Boolean);
-    }
+    const ddb = getDocClient();
+    const updatedAt = new Date().toISOString();
 
-    if (!title || !bodyText) {
-      return NextResponse.json(
-        { error: "title と body は必須です" },
-        { status: 400 }
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    const expr =
-      "SET #title = :title, #body = :body, #fromDate = :fromDate, #toDate = :toDate, #brandId = :brandId, #deptId = :deptId, #targetGroupIds = :targetGroupIds, #tags = :tags, #updatedAt = :updatedAt";
-
-    const exprNames = {
-      "#title": "title",
-      "#body": "body",
-      "#fromDate": "fromDate",
-      "#toDate": "toDate",
-      "#brandId": "brandId",
-      "#deptId": "deptId",
-      "#targetGroupIds": "targetGroupIds",
-      "#tags": "tags",
-      "#updatedAt": "updatedAt",
-    };
-
-    const exprValues = marshall({
-      ":title": title,
-      ":body": bodyText,
-      ":fromDate": fromDate,
-      ":toDate": toDate,
-      ":brandId": brandId,
-      ":deptId": deptId,
-      ":targetGroupIds": targetGroupIds,
-      ":tags": tags,
-      ":updatedAt": now,
-    });
-
-    await client.send(
-      new UpdateItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ newsId }),
-        UpdateExpression: expr,
-        ExpressionAttributeNames: exprNames,
-        ExpressionAttributeValues: exprValues,
+    const res = await ddb.send(
+      new UpdateCommand({
+        TableName: TABLE_NEWS,
+        Key: { newsId },
+        UpdateExpression: "SET #t = :t, #b = :b, #u = :u",
+        ExpressionAttributeNames: {
+          "#t": "title",
+          "#b": "body",
+          "#u": "updatedAt",
+        },
+        ExpressionAttributeValues: {
+          ":t": title,
+          ":b": bodyText,
+          ":u": updatedAt,
+        },
+        ReturnValues: "ALL_NEW",
       })
     );
 
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("PUT /api/news/[newsId] error:", err);
-    return NextResponse.json(
-      { error: "Failed to update news" },
-      { status: 500 }
-    );
+    return json(200, { ok: true, item: res.Attributes });
+  } catch (e: any) {
+    console.error("PUT /api/news/[newsId] error:", e);
+    return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
 
-// DELETE /api/news/[newsId]
-export async function DELETE(_req: NextRequest, { params }: RouteContext) {
-  const client = getClient();
-  const newsId = String(params?.newsId ?? "");
-
-  if (!newsId) {
-    return NextResponse.json({ error: "newsId is required" }, { status: 400 });
-  }
-
+export async function DELETE(_req: NextRequest, ctx: any) {
   try {
-    await client.send(
-      new DeleteItemCommand({
-        TableName: TABLE_NAME,
-        Key: marshall({ newsId }),
+    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    if (!newsId) return json(400, { error: "newsId is required" });
+
+    const ddb = getDocClient();
+    await ddb.send(
+      new DeleteCommand({
+        TableName: TABLE_NEWS,
+        Key: { newsId },
       })
     );
 
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    console.error("DELETE /api/news/[newsId] error:", err);
-    return NextResponse.json(
-      { error: "Failed to delete news" },
-      { status: 500 }
-    );
+    return json(200, { ok: true, deleted: newsId });
+  } catch (e: any) {
+    console.error("DELETE /api/news/[newsId] error:", e);
+    return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
 
