@@ -1,6 +1,8 @@
-/* ryohe-end/knowbase-app/knowbase-app-a606f4e91dbe1ee8d8195869860944d454569843/app/globals.css */
+/* app/globals.css */
 
-/* ------- 共通 ------- */
+/* =========================
+   Base / Common
+========================= */
 *,
 *::before,
 *::after {
@@ -21,7 +23,19 @@ body {
   padding: 16px 20px 32px;
 }
 
-/* ------- トップバー ------- */
+/* 共通カード */
+.kb-panel,
+.kb-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+  border: 1px solid #e5e7eb;
+}
+
+/* =========================
+   Topbar
+========================= */
 .kb-topbar {
   display: grid;
   grid-template-columns: 260px 1fr auto;
@@ -107,24 +121,18 @@ body {
   cursor: pointer;
 }
 
-/* ------- 3 カラムグリッド ------- */
+/* =========================
+   3 columns layout
+========================= */
 .kb-main {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 260px;
   gap: 16px;
 }
 
-/* 共通カード */
-.kb-panel,
-.kb-card {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 14px 16px;
-  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
-  border: 1px solid #e5e7eb;
-}
-
-/* 左パネル内の見出し・チップ */
+/* =========================
+   Left panel chips
+========================= */
 .kb-panel-section + .kb-panel-section {
   margin-top: 18px;
 }
@@ -133,6 +141,18 @@ body {
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 8px;
+}
+
+/* 追加：フィルタセクションの区切り（元HTML寄せ） */
+.kb-panel-section {
+  padding: 10px 0;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.kb-panel-section:first-child {
+  padding-top: 0;
+}
+.kb-panel-section:last-child {
+  border-bottom: none;
 }
 
 .kb-chip-list {
@@ -167,8 +187,9 @@ body {
   font-weight: 600;
 }
 
-/* ---- 中央カラム（Knowbie ＋ マニュアル） ---- */
-
+/* =========================
+   Center column
+========================= */
 .kb-center {
   display: flex;
   flex-direction: column;
@@ -207,13 +228,19 @@ body {
   color: #4b5563;
 }
 
+.kb-card-meta {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
 .kb-subnote {
   font-size: 11px;
   color: #9ca3af;
 }
 
-/* ---- Knowbie チャット (修正済み) ---- */
-
+/* =========================
+   Chat (Knowbie)
+========================= */
 .kb-chat-box {
   border-radius: 14px;
   background: #020617;
@@ -228,20 +255,18 @@ body {
 }
 
 .kb-chat-body {
-  /* 修正: 固定高を削除し、内容に応じて広がるように設定 */
   min-height: 100px;
-  max-height: 300px; /* 最大高を設定し、溢れたらスクロール */
-  overflow-y: auto;  /* 溢れたらスクロールバーを表示 */
-  
+  max-height: 300px;
+  overflow-y: auto;
+
   border-radius: 10px;
   border: 1px dashed #1f2937;
   background: #020617;
   margin-bottom: 10px;
-  
-  /* ストリーミングチャット形式に対応するため追加/変更 */
+
   display: flex;
   flex-direction: column;
-  gap: 10px; /* メッセージ間のスペース */
+  gap: 10px;
 }
 
 .kb-chat-input-row {
@@ -288,18 +313,13 @@ body {
   cursor: pointer;
 }
 
-/* ---- マニュアル一覧 ---- */
-
+/* =========================
+   Manual list
+========================= */
 .kb-manual-card {
   margin-top: 0;
 }
 
-.kb-card-meta {
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-/* マニュアル1件分のカード */
 .kb-manual-item {
   display: flex;
   align-items: stretch;
@@ -332,7 +352,6 @@ body {
   margin-bottom: 2px;
 }
 
-/* 説明（コメント） */
 .kb-manual-desc {
   font-size: 12px;
   color: #4b5563;
@@ -355,7 +374,7 @@ body {
   color: #0369a1;
 }
 
-/* NEW バッジ */
+/* NEW バッジ（小さめ・シンプル） */
 .kb-badge-new {
   font-size: 10px;
   padding: 2px 6px;
@@ -365,7 +384,7 @@ body {
   border: 1px solid #fecaca;
 }
 
-/* マニュアル行の右側アクションエリア */
+/* マニュアル行の右側アクション */
 .kb-manual-actions {
   display: flex;
   flex-direction: column;
@@ -374,78 +393,98 @@ body {
   gap: 6px;
 }
 
-/* プレビュー / DL ボタン共通サイズ */
+/* Preview/DL 共通（button と a を同じ見た目に） */
 .kb-preview-btn,
 .kb-dl-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 120px;
+
   height: 40px;
+  min-width: 120px;
   padding: 0 18px;
+
   border-radius: 999px;
   font-size: 13px;
-  font-weight: 600;
-  box-sizing: border-box;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+
+  border: 1px solid transparent;
+  text-decoration: none;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
-/* プレビューボタン（アウトライン） */
+/* プレビュー：青 */
 .kb-preview-btn {
-  border: 2px solid #0ea5e9;
-  background: #e0f2fe;
-  color: #0369a1;
-}
-
-/* DLボタン（塗りつぶし） */
-.kb-dl-btn {
-  border: none;
-  background: #0ea5e9;
+  background: rgba(14, 165, 233, 0.92);
+  border-color: rgba(14, 165, 233, 0.92);
   color: #ffffff;
-  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.35);
+}
+.kb-preview-btn:hover {
+  background: rgba(14, 165, 233, 1);
 }
 
+/* DL：グレー */
+.kb-dl-btn {
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
 .kb-dl-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(14, 165, 233, 0.4);
+  background: rgba(15, 23, 42, 0.1);
 }
 
-/* マニュアル一覧のページャー */
+/* DL不可 */
+.kb-dl-btn-disabled {
+  background: #e5e7eb;
+  border-color: #e5e7eb;
+  color: #9ca3af;
+  cursor: not-allowed;
+  pointer-events: none;
+  opacity: 1;
+}
+
+/* ページャー（※重複を1つに統合） */
 .kb-pager {
   margin-top: 8px;
-  display: flex;
-  justify-content: flex-end;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3f4f8;
+  border: 1px solid #e5e7eb;
   font-size: 12px;
-  color: #6b7280;
 }
 
 .kb-pager-info {
-  padding: 2px 6px;
+  color: #6b7280;
 }
 
 .kb-pager-btn {
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  font-size: 11px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  padding: 4px 6px;
   cursor: pointer;
+  color: #0ea5e9;
 }
 
 .kb-pager-btn:disabled {
-  opacity: 0.35;
   cursor: default;
+  color: #cbd5f5;
 }
 
-/* ---- 右カラム（担当者リスト） ---- */
-
+/* =========================
+   Right column (Contacts)
+========================= */
 .kb-panel-header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .kb-small-input {
@@ -463,13 +502,6 @@ body {
   gap: 8px;
   max-height: 480px;
   overflow-y: auto;
-}
-
-.kb-contact-item {
-  display: flex;
-  gap: 8px;
-  padding: 6px 4px;
-  border-radius: 10px;
 }
 
 .kb-contact-avatar {
@@ -503,8 +535,14 @@ body {
   font-size: 11px;
 }
 
+/* 問い合わせボタン */
+.kb-contact-inquiry-wrap {
+  padding-left: 0;
+  margin-bottom: 10px;
+}
+
 .kb-contact-inquiry-btn {
-  width: 100%; 
+  width: 100%;
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid #e5e7eb;
@@ -520,25 +558,67 @@ body {
   background: #f1f5f9;
 }
 
-/* 問い合わせボタンのラッパー */
-.kb-contact-inquiry-wrap{
-  padding-left: 0; /* ★修正: paddingを0に */
-  margin-bottom: 10px;
+/* 担当者1行（重複統合・最終形） */
+.kb-contact-item {
+  display: grid;
+  grid-template-columns: 36px 1fr 34px; /* avatar / body / mail icon */
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  position: relative;
 }
 
+/* 右のメール送信アイコン：普段は隠す → hoverで表示 */
+.kb-contact-mail-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 
-/* レスポンシブ（幅が狭いときは1カラムに落とす） */
-@media (max-width: 960px) {
-  .kb-main {
-    grid-template-columns: 1fr;
-  }
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #0ea5e9;
 
-  .kb-admin-grid {
-    grid-template-columns: 1fr;
-  }
+  opacity: 0;
+  transform: translateY(2px);
+  pointer-events: none;
+  transition: all 0.15s ease;
 }
 
-/* ------ Login Page ------ */
+.kb-contact-item:hover .kb-contact-mail-btn {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.kb-contact-mail-btn:hover {
+  background: rgba(14, 165, 233, 0.08);
+}
+
+/* 検索ヒットタグ */
+.kb-contact-hit-tags {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #6b7280;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.kb-hit-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+}
+
+/* =========================
+   Login
+========================= */
 .kb-login-root {
   min-height: 100vh;
   display: flex;
@@ -556,37 +636,33 @@ body {
   border: 1px solid #e5e7eb;
 }
 
-/* ★ 修正ポイント: ロゴ群とタイトルを縦に並べ、全体を中央揃えにする */
+/* ロゴ群とタイトルを縦に並べ、中央揃え */
 .kb-login-header-new {
-    display: flex;
-    flex-direction: column; /* 縦並び (ロゴ群 -> タイトル) */
-    align-items: center; /* 水平方向中央揃え */
-    gap: 15px; /* ロゴ群とタイトルの間の間隔 */
-    margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 20px;
 }
 
-/* ロゴアイコンと文字ロゴを横に並べる */
 .kb-login-logo-wrap {
-    display: flex;
-    align-items: center; /* アイコンと文字ロゴを垂直中央揃え */
-    gap: 10px; /* アイコンと文字ロゴの間の間隔 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* タイトルボックス（今回は「ログイン」のみを含む）を中央揃えにする */
 .kb-login-title-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center; /* 子要素（ログインタイトル）を中央揃え */
-    justify-content: center; 
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
 }
 
 .kb-login-title {
   font-size: 18px;
   font-weight: 700;
-  margin: 0; 
+  margin: 0;
 }
-
-/* --- 以下、変更なし --- */
 
 .kb-login-form {
   display: flex;
@@ -640,8 +716,8 @@ body {
 .kb-login-google {
   display: flex;
   align-items: center;
-  justify-content: center; 
-  gap: 10px; 
+  justify-content: center;
+  gap: 10px;
   background: #fff;
   border: 1px solid #e5e7eb;
 }
@@ -660,21 +736,9 @@ body {
   color: #ef4444;
 }
 
-/* 追加：フィルタセクションの区切りを元HTML風に */
-.kb-panel-section {
-  padding: 10px 0;
-  border-bottom: 1px dashed #e5e7eb;
-}
-
-.kb-panel-section:first-child {
-  padding-top: 0;
-}
-
-.kb-panel-section:last-child {
-  border-bottom: none;
-}
-/* ===== 管理画面用 ===== */
-
+/* =========================
+   Admin (unified)
+========================= */
 .kb-admin-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -695,7 +759,7 @@ body {
 }
 
 .kb-admin-head {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   margin-bottom: 8px;
 }
@@ -716,14 +780,16 @@ body {
   gap: 6px;
 }
 
+/* 管理画面用 input */
 .kb-admin-input,
 .kb-admin-select,
 .kb-admin-textarea {
   width: 100%;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid #d1d5db;
   font-size: 13px;
+  background: #ffffff;
 }
 
 .kb-admin-textarea {
@@ -733,8 +799,9 @@ body {
 .kb-admin-label {
   display: block;
   font-size: 12px;
-  color: #6b7280;
+  color: #4b5563;
   margin-bottom: 4px;
+  font-weight: 600;
 }
 
 .kb-admin-form-grid {
@@ -746,208 +813,39 @@ body {
 .kb-admin-form-grid .full {
   grid-column: 1 / -1;
 }
-/* 説明文は少し小さめ＆色薄め */
-.kb-manual-desc {
-  font-size: 12px;
-  color: #4b5563;
-  margin-bottom: 4px;
-}
 
-/* ページネーション */
-.kb-pager {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: #f3f4f8;
-  border: 1px solid #e5e7eb;
-  font-size: 12px;
-}
-
-.kb-pager-info {
-  color: #6b7280;
-}
-
-.kb-pager-btn {
+/* フォーム共通アクション */
+.kb-primary-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #0ea5e9;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
   border: none;
-  background: transparent;
-  font-size: 12px;
-  padding: 4px 6px;
   cursor: pointer;
-  color: #0ea5e9;
+  transition: background-color 0.15s ease;
+}
+.kb-primary-btn:hover {
+  opacity: 0.9;
 }
 
-.kb-pager-btn:disabled {
-  cursor: default;
-  color: #cbd5f5;
-}
-.kb-manual-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-/* Preview/DL 共通土台（button と a を同じ見た目にする） */
-.kb-preview-btn,
-.kb-dl-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  height: 34px;
-  padding: 0 14px;
-
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-
-  border: 1px solid transparent;
-  text-decoration: none; /* a の下線消す */
-  cursor: pointer;
-}
-
-/* プレビュー：青（メインアクション） */
-.kb-preview-btn {
-  background: rgba(14, 165, 233, 0.92);
-  border-color: rgba(14, 165, 233, 0.92);
-  color: #ffffff;
-}
-.kb-preview-btn:hover {
-  background: rgba(14, 165, 233, 1);
-}
-
-/* DL：グレー（サブアクション） */
-.kb-dl-btn {
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(15, 23, 42, 0.12);
-  color: #0f172a;
-}
-.kb-dl-btn:hover {
-  background: rgba(15, 23, 42, 0.1);
-}
-
-/* DL不可 */
-.kb-dl-btn-disabled {
-  background: #e5e7eb;
-  border-color: #e5e7eb;
-  color: #9ca3af;
-  cursor: not-allowed;
-  pointer-events: none;
-  opacity: 1; /* 透明にせず“無効色”で表現 */
-}
-
-.kb-contact-item{
-  position: relative;
-  display: grid;
-  grid-template-columns: 36px 1fr auto; /* 丸 / 本文 / アクション */
-  gap: 12px;
-  align-items: center;
-}
-
-/* 右端の送信アイコン（通常は隠す） */
-.kb-contact-mail-action{
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
+.kb-secondary-btn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #f9fafb;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 600;
   border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #0ea5e9;
-
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(2px);
-  transition: all .15s ease;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
 }
-
-/* ホバーで出す */
-.kb-contact-item:hover .kb-contact-mail-action{
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
-
-.kb-contact-mail-action:hover{
+.kb-secondary-btn:hover {
   background: #f1f5f9;
 }
-/* 問い合わせボタンを「丸アイコン列」の右端に揃える */
-.kb-contact-inquiry-wrap{
-  padding-left: 0; /* ★修正箇所: paddingを0に変更し、ボタンを左端に揃える */
-  margin-bottom: 10px;
-}
 
-/* 既存ボタンを少しだけトンマナ寄せ（必要なら） */
-.kb-contact-inquiry-btn{
-  width: 100%;
-}
-
-/* 担当者1行：縦位置を揃えつつ、右端にアイコン領域を確保 */
-.kb-contact-item{
-  display: grid;
-  grid-template-columns: 36px 1fr 34px; /* avatar / body / mail icon */
-  align-items: center;
-  column-gap: 12px;
-  padding: 10px 10px;
-  border-radius: 14px;
-  position: relative;
-}
-
-/* 右のメール送信アイコン：普段は隠す → hoverで表示 */
-.kb-contact-mail-btn{
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  color: #0ea5e9;
-
-  opacity: 0;
-  transform: translateY(2px);
-  pointer-events: none;
-  transition: all 0.15s ease;
-}
-
-/* 行ホバーで出す */
-.kb-contact-item:hover .kb-contact-mail-btn{
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
-
-.kb-contact-mail-btn:hover{
-  background: rgba(14,165,233,0.08);
-}
-
-/* 検索ヒットタグの見た目を少し整理 */
-.kb-contact-hit-tags{
-  margin-top: 4px;
-  font-size: 11px;
-  color: #6b7280;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-}
-
-.kb-hit-tag{
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-}
-
-/* 管理画面のメニューボタン */
+/* 管理画面メニューボタン */
 .kb-admin-menu-btn {
   padding: 8px 14px;
   border: 1px solid #e5e7eb;
@@ -964,215 +862,227 @@ body {
   color: #0369a1;
 }
 
-/* マニュアルリストのバッジ (ManualList.tsx にもスタイル定義あり) */
-.kb-badge-type,
-.kb-badge-new,
-.kb-badge-updated {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border-radius: 999px;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    border: 1px solid rgba(17, 24, 39, 0.08);
-    background: rgba(14, 165, 233, 0.08);
-    color: #0f172a;
-}
-.kb-badge-new {
-    background: rgba(239, 68, 68, 0.1);
-    color: #b91c1c;
-}
-.kb-badge-updated {
-    background: rgba(34, 197, 94, 0.1);
-    color: #15803d;
-}
-
-/* フォーム共通アクションボタン（再利用可能にするためスタイルを追加） */
-.kb-primary-btn {
-    padding: 8px 14px;
-    border-radius: 10px;
-    background: #0ea5e9;
-    color: #fff;
-    font-size: 13px;
-    font-weight: 600;
-    border: none;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-.kb-primary-btn:hover {
-    background: #0ea5e9;
-    opacity: 0.9;
-}
-
-.kb-secondary-btn {
-    padding: 8px 14px;
-    border-radius: 10px;
-    background: #f9fafb;
-    color: #111827;
-    font-size: 13px;
-    font-weight: 600;
-    border: 1px solid #e5e7eb;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-}
-.kb-secondary-btn:hover {
-    background: #f1f5f9;
-}
-/* ===== 管理画面用の2カラムグリッドとカードスタイルを追加 ===== */
+/* 2カラム管理画面（重複統合） */
 .kb-admin-grid-2col {
-    display: grid;
-    /* 2カラムレイアウト (左:2fr, 右:3fr) */
-    grid-template-columns: 2fr 3fr; 
-    gap: 16px;
-    margin-top: 16px;
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 16px;
+  margin-top: 16px;
 }
 
 .kb-admin-card-large {
-    /* 中央/右カラムと同じカードの基本スタイルを流用 */
-    background: #ffffff;
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
-    border: 1px solid #e5e7eb;
-    
-    /* スクロールが必要なコンテンツに対応 */
-    max-height: 85vh; /* 画面の高さに合わせた最大高 */
-    display: flex;
-    flex-direction: column;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
+  border: 1px solid #e5e7eb;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 960px以下では1カラムにするレスポンシブ対応 */
-@media (max-width: 960px) {
-    .kb-admin-grid-2col {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* お知らせ一覧/ユーザー一覧のスクロール領域 */
+/* スクロール領域 */
 .kb-manual-list-admin {
-    flex-grow: 1; /* 残りのスペースを埋める */
-    overflow-y: auto; /* 溢れたら縦スクロール */
-    padding-right: 4px; /* スクロールバーの幅を確保 */
-}
-/* app/globals.css の管理画面用セクションに追加 */
-
-.kb-admin-grid-2col {
-    display: grid;
-    /* マニュアル管理と共通の2カラム幅: 2fr(左) 3fr(右) */
-    grid-template-columns: 2fr 3fr; 
-    gap: 16px;
-    margin-top: 16px;
+  flex-grow: 1;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-.kb-admin-card-large {
-    /* マニュアル管理と共通の大きなカードスタイル */
-    background: #ffffff;
-    border-radius: 16px;
-    padding: 16px;
-    box-shadow: 0 10px 20px rgba(15, 23, 42, 0.04);
-    border: 1px solid #e5e7eb;
-    max-height: 85vh; /* 縦長コンテンツ対応 */
-    display: flex;
-    flex-direction: column;
-}
-
-.kb-panel-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
-}
-
-.kb-admin-head {
-    font-size: 16px;
-    font-weight: 700;
-}
-
-/* --- リストコンテナとアイテム --- */
-
-.kb-manual-list-admin {
-    flex-grow: 1; /* 親カード内で残りのスペースを占める */
-    overflow-y: auto; /* スクロール可能にする */
-    padding-right: 4px;
-}
-
-/* ユーザー/お知らせの各アイテム（kb-user-item-admin は news/users ページで使用） */
+/* ユーザー/お知らせの各アイテム（管理画面） */
 .kb-user-item-admin {
-    padding: 10px 12px;
-    border-radius: 10px;
-    margin-bottom: 8px;
-    border: 1px solid #f1f5f9;
-    background: #f9fafb;
-    cursor: pointer;
-    transition: all 0.1s ease;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  border: 1px solid #f1f5f9;
+  background: #f9fafb;
+  cursor: pointer;
+  transition: all 0.1s ease;
 }
 .kb-user-item-admin:hover {
-    background: #eff6ff;
-    border-color: #dbeafe;
+  background: #eff6ff;
+  border-color: #dbeafe;
 }
 .kb-user-item-admin.selected {
-    background: #e0f2fe;
-    border-color: #0ea5e9;
-    box-shadow: 0 0 0 1px #0ea5e9;
+  background: #e0f2fe;
+  border-color: #0ea5e9;
+  box-shadow: 0 0 0 1px #0ea5e9;
 }
 .kb-user-title {
-    font-size: 14px;
-    font-weight: 600;
+  font-size: 14px;
+  font-weight: 600;
 }
-.kb-user-email-meta, .kb-user-meta-info {
-    font-size: 11px;
-    color: #6b7280;
-    margin-top: 2px;
+.kb-user-email-meta,
+.kb-user-meta-info {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
 }
 
-/* --- フォーム要素 (マニュアル編集と共通) --- */
 .kb-manual-form {
-    overflow-y: auto;
-    flex-grow: 1;
-    padding-right: 4px;
-}
-.kb-admin-form-row {
-    margin-bottom: 15px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-.kb-admin-form-row.two-col {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-}
-.kb-admin-form-row .full {
-    grid-column: 1 / -1;
-}
-.kb-admin-label {
-    display: block;
-    font-size: 12px;
-    color: #4b5563;
-    margin-bottom: 4px;
-    font-weight: 600;
-}
-.kb-admin-input, .kb-admin-select, .kb-admin-textarea {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: 8px;
-    border: 1px solid #d1d5db;
-    font-size: 13px;
-    background: #ffffff;
-}
-.kb-admin-textarea {
-    resize: vertical;
-}
-.kb-subnote {
-    font-size: 11px;
-    color: #9ca3af;
+  overflow-y: auto;
+  flex-grow: 1;
+  padding-right: 4px;
 }
 
-/* レスポンシブ対応 (960px以下で1カラムに) */
+.kb-admin-form-row {
+  margin-bottom: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kb-admin-form-row.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.kb-admin-form-row .full {
+  grid-column: 1 / -1;
+}
+
+/* =========================
+   News: accordion (header click) + smooth open + ▾/▴
+   - タイトル/タグ/更新日/部署だけ表示
+   - 本文は開いたときのみ
+   - URL/改行/箇条書き対応（renderRichText想定）
+========================= */
+.kb-news-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: #fff;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.kb-news-head {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+}
+
+.kb-news-head:hover {
+  background: #f8fafc;
+}
+
+.kb-news-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.kb-news-meta {
+  margin-top: 6px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.kb-news-meta-strong {
+  color: #0ea5e9;
+  font-weight: 800;
+}
+
+.kb-news-meta-muted {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.kb-news-tags {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kb-news-tag {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.kb-news-head-right {
+  flex-shrink: 0;
+  align-self: center;
+  font-size: 16px;
+  font-weight: 900;
+  color: #94a3b8;
+  padding: 0 6px;
+  transition: transform 0.25s ease;
+}
+
+.kb-news-item.open .kb-news-head-right {
+  transform: translateY(-1px);
+}
+
+/* 本文：スッ…と展開（max-height を JS でセットする想定） */
+.kb-news-body-anim {
+  overflow: hidden;
+  transition: max-height 0.35s ease;
+}
+
+.kb-news-body-inner {
+  padding: 12px 14px 14px;
+  border-top: 1px solid #eef2f7;
+}
+
+.kb-news-empty {
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* renderRichText 用 */
+.kb-news-rich {
+  display: grid;
+  gap: 8px;
+}
+
+.kb-news-p {
+  margin: 0;
+}
+
+.kb-news-ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.kb-news-li {
+  margin: 0;
+}
+
+/* URLリンク見た目 */
+.kb-news-link {
+  color: #0ea5e9;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.kb-news-link:hover {
+  opacity: 0.85;
+}
+
+/* =========================
+   Responsive
+========================= */
 @media (max-width: 960px) {
-    .kb-admin-grid-2col {
-        grid-template-columns: 1fr;
-    }
+  .kb-main {
+    grid-template-columns: 1fr;
+  }
+  .kb-admin-grid {
+    grid-template-columns: 1fr;
+  }
+  .kb-admin-grid-2col {
+    grid-template-columns: 1fr;
+  }
 }

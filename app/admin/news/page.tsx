@@ -70,6 +70,9 @@ export default function AdminNewsPage() {
 
   const [newsForm, setNewsForm] = useState<NewsItem>(createEmptyNews());
 
+  // ★ 【修正】タグを「入力中の文字列」として自由に保持するための専用ステートを追加
+  const [tagInput, setTagInput] = useState("");
+
   // ====== データロード関数 ======
   async function loadAllData() {
     try {
@@ -125,6 +128,7 @@ export default function AdminNewsPage() {
   // フォーム操作
   const handleNew = () => {
     setNewsForm(createEmptyNews());
+    setTagInput(""); // ★ 追加
     setSelectedNews(null);
     setIsEditing(true);
   };
@@ -136,6 +140,8 @@ export default function AdminNewsPage() {
         tags: n.tags || [],
         targetGroupIds: n.targetGroupIds || [] // ★ 配列をそのままセット
     });
+    // ★ 【修正】既存のタグ配列をカンマ区切りの文字列にしてStateにセット
+    setTagInput((n.tags || []).join(", "));
     setSelectedNews(n);
     setIsEditing(true);
   };
@@ -143,7 +149,10 @@ export default function AdminNewsPage() {
   const handleCancel = () => {
     setIsEditing(false);
     // 選択中のアイテムがあればそれに、なければ空に戻す
-    setNewsForm(selectedNews || createEmptyNews());
+    const original = selectedNews || createEmptyNews();
+    setNewsForm(original);
+    // ★ 【修正】キャンセル時も元のタグを文字列に戻す
+    setTagInput((original.tags || []).join(", "));
   };
 
 
@@ -175,20 +184,19 @@ export default function AdminNewsPage() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
+    // ★ 【修正】tags の入力時は即座に配列化せず、文字列Stateを更新する（これでカンマが入力可能になる）
+    if (name === 'tags') { 
+        setTagInput(value);
+        return;
+    }
+    
     setNewsForm(prev => {
-        let newValue: any = value;
-        // 修正: targetGroupIds のカンマ区切り処理を削除し、tags のみ処理
-        if (name === 'tags') { 
-            // カンマ区切り文字列を配列として状態に保持
-            newValue = value.split(',').map(s => s.trim()).filter(Boolean);
-        }
-        
         // ターゲットグループIDは handleGroupToggle で処理されるため、ここでは無視
         if (name === 'targetGroupIds') {
             return prev;
         }
 
-        return { ...prev, [name]: newValue };
+        return { ...prev, [name]: value };
     });
   };
 
@@ -199,6 +207,12 @@ export default function AdminNewsPage() {
       alert("タイトルと本文は必須です。");
       return;
     }
+
+    // ★ 【修正】保存のタイミングで入力文字列をカンマ分割して配列に変換
+    const finalTags = tagInput
+        .split(/[,、]/) // 半角カンマ・全角読点両方対応
+        .map(s => s.trim())
+        .filter(Boolean);
     
     // APIに送るデータは配列のタグとグループIDを保持
     const payload = {
@@ -206,7 +220,7 @@ export default function AdminNewsPage() {
       fromDate: newsForm.fromDate || null,
       toDate: newsForm.toDate || null,
       targetGroupIds: newsForm.targetGroupIds || [], // ★ 配列のまま保持
-      tags: newsForm.tags || [],
+      tags: finalTags, // ★ 変換後の配列をセット
     };
     
     const isNewCreation = newsForm.newsId.startsWith("N900-");
@@ -230,10 +244,13 @@ export default function AdminNewsPage() {
       await loadAllData();
       
       // 保存後、フォームを詳細表示モードに戻す
-      const savedNews = isNewCreation ? (await res.json()).news : payload;
+      const resData = await res.json().catch(() => ({}));
+      const savedNews = isNewCreation ? resData.news : payload;
       setSelectedNews(savedNews);
       setNewsForm(savedNews);
+      setTagInput((savedNews.tags || []).join(", ")); // ★ 追加
       setIsEditing(false);
+      alert("保存しました。");
 
     } catch (e) {
       console.error("Save news error:", e);
@@ -257,6 +274,7 @@ export default function AdminNewsPage() {
         setSelectedNews(null);
         setIsEditing(false);
         setNewsForm(createEmptyNews());
+        setTagInput(""); // ★ 追加
         
     } catch (e) {
         console.error("Delete news error:", e);
@@ -445,7 +463,8 @@ export default function AdminNewsPage() {
                     </select>
                 </div>
                 <div>
-                    <label className="kb-admin-label">対象部署</label>
+                    {/* ★ 【修正】対象部署 -> 配信部署 */}
+                    <label className="kb-admin-label">配信部署</label>
                     <select
                         name="deptId"
                         className="kb-admin-select full"
@@ -510,12 +529,13 @@ export default function AdminNewsPage() {
               </div>
 
               <div className="kb-admin-form-row">
+                {/* ★ 【修正】カンマ入力を可能にするため value を tagInput に変更 */}
                 <label className="kb-admin-label full">タグ（カンマ区切り）</label>
                 <input
                     type="text"
                     name="tags"
                     className="kb-admin-input full"
-                    value={(newsForm.tags || []).join(', ')}
+                    value={tagInput}
                     onChange={handleInputChange}
                     readOnly={!isEditing}
                     placeholder="例: システム, メンテナンス, 重要"
