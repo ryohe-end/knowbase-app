@@ -664,12 +664,17 @@ export default function HomePage() {
 
               <div className="kb-chat-input-row">
                 <input
-                  className="kb-chat-input"
-                  placeholder="例：入会手続きの流れを教えて / Canva テロップの作り方"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleAsk()}
-                />
+  className="kb-chat-input"
+  placeholder="例：入会手続きの流れを教えて / Canva テロップの作り方"
+  value={prompt}
+  onChange={(e) => setPrompt(e.target.value)}
+  onKeyDown={(e) => {
+    // 変換中でない、かつ Enterキーが押された場合のみ送信
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      handleAsk();
+    }
+  }}
+/>
                 <button className="kb-chat-send" onClick={handleAsk} disabled={loadingAI}>
                   送信
                 </button>
