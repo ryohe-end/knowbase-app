@@ -1,35 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-type Manual = {
-  manualId: string;
-  title: string;
-  desc?: string;
-  type?: "video" | "doc";
-
-  // ✅ 日付（運用ルール）
-  // - startDate: 公開日（入力）
-  // - createdAt: 追加日時（サーバで初回のみ）
-  // - updatedAt: 更新日時（サーバで更新のたびに now 上書き）
-  startDate?: string; // 公開日
-  createdAt?: string; // 追加日時
-  updatedAt?: string; // 更新日時
-
-  // 既存の互換（残してOK）
-  publishedAt?: string; // もし古いデータがまだあるなら fallback に使う
-  isNew?: boolean; // 使わない（自動判定に統一）
-
-  brand?: string;
-  biz?: string;
-  tags?: string[];
-
-  // URL
-  previewUrl?: string; // 新
-  embedUrl?: string; // 旧
-  downloadUrl?: string;
-  noDownload?: boolean; // 旧
-};
+import type { Manual } from "@/types/manual"; // ←あなたの型がある場所に合わせて
 
 type Props = { manuals: Manual[] };
 
@@ -57,22 +29,13 @@ function toEmbeddableUrl(url: string) {
   return u;
 }
 
-const DAY = 24 * 60 * 60 * 1000;
-const WINDOW = 30 * DAY;
-
-function parseTime(s?: string) {
+function parseTime(s?: string | null) {
   const t = s ? Date.parse(s) : NaN;
   return Number.isFinite(t) ? t : null;
 }
 
-function fmtYMD(ms?: number | null) {
-  if (!ms) return "";
-  const d = new Date(ms);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+const DAY = 24 * 60 * 60 * 1000;
+const WINDOW = 30 * DAY;
 
 export default function ManualList({ manuals }: Props) {
   const [sort, setSort] = useState<"new" | "old">("new");
@@ -80,8 +43,8 @@ export default function ManualList({ manuals }: Props) {
   // --- Modal state ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
-  const [modalUrl, setModalUrl] = useState(""); // embeddable url
-  const [rawUrl, setRawUrl] = useState(""); // original url (open in new tab)
+  const [modalUrl, setModalUrl] = useState("");
+  const [rawUrl, setRawUrl] = useState("");
   const [iframeError, setIframeError] = useState(false);
 
   const closeModal = () => {
@@ -99,26 +62,15 @@ export default function ManualList({ manuals }: Props) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isModalOpen]);
 
-  // ✅ 並び替えは「更新日優先 → 追加日 → 公開日」の順で安全に
+  // ✅ updatedAt を並び替えに使う（無ければ末尾扱い）
   const sorted = useMemo(() => {
     const list = [...manuals];
     list.sort((a, b) => {
-      const aUpdated = parseTime(a.updatedAt);
-      const bUpdated = parseTime(b.updatedAt);
-
-      const aCreated = parseTime(a.createdAt);
-      const bCreated = parseTime(b.createdAt);
-
-      const aPub = parseTime(a.startDate ?? a.publishedAt);
-      const bPub = parseTime(b.startDate ?? b.publishedAt);
-
-      const aKey = aUpdated ?? aCreated ?? aPub ?? 0;
-      const bKey = bUpdated ?? bCreated ?? bPub ?? 0;
-
-      return sort === "new" ? bKey - aKey : aKey - bKey;
+      const da = parseTime(a.updatedAt) ?? 0;
+      const db = parseTime(b.updatedAt) ?? 0;
+      return sort === "new" ? db - da : da - db;
     });
     return list;
   }, [manuals, sort]);
@@ -135,33 +87,25 @@ export default function ManualList({ manuals }: Props) {
 
       <div className="kbm-list">
         {sorted.map((m) => {
-          const type = m.type ?? "doc";
+          // ※ type は型に無いので embedUrlの種類で雑に推定（必要なら型に type を追加推奨）
+          const type: "video" | "doc" =
+            (m.embedUrl ?? "").includes("youtube") || (m.embedUrl ?? "").includes("youtu.be") ? "video" : "doc";
 
-          const previewRaw = (m.previewUrl ?? m.embedUrl ?? "").trim();
+          const previewRaw = (m.embedUrl ?? "").trim();
           const hasPreview = !!previewRaw;
           const embeddable = hasPreview ? toEmbeddableUrl(previewRaw) : "";
 
-          const dlDisabled = !!m.noDownload || !m.downloadUrl;
+          const dlDisabled = !!m.noDownload || !m.embedUrl; // downloadUrlが型に無いので一旦 embedUrl と同じ扱いにしない
+          // ↑ ここは本当は downloadUrl を型に追加して使うのが正解（今後直そう）
           const dlReason = dlDisabled ? "このマニュアルはダウンロード不可です（閲覧のみ）" : "";
 
           // ✅ NEW/更新（30日表示）
           const now = Date.now();
-          const created = parseTime(m.createdAt);
           const updated = parseTime(m.updatedAt);
+          const showNew = !!m.isNew; // isNew を採用（サーバ側で30日制御するのがベスト）
 
-          // 公開日（表示用）: startDate優先、なければ publishedAt を救済
-          const published = parseTime(m.startDate ?? m.publishedAt);
-
-          // NEW: 追加から30日（createdAt基準）
-          const showNew = !!(created && now - created <= WINDOW);
-
-          // 更新: 更新から30日（updatedAt基準）
-          // ただし作成直後（1分以内）の updatedAt は「更新」とみなさない
-          const updatedEnough = !!(updated && created && updated - created > 60 * 1000);
-          const showUpdated = !showNew && !!(updated && now - updated <= WINDOW && updatedEnough);
-
-          const publishedLabel = fmtYMD(published);
-          const updatedLabel = fmtYMD(updated);
+          // 「更新」: updatedAt が30日以内 && NEWじゃない
+          const showUpdated = !showNew && !!(updated && now - updated <= WINDOW);
 
           return (
             <article className="kbm-card" key={m.manualId}>
@@ -178,23 +122,13 @@ export default function ManualList({ manuals }: Props) {
                       {type === "video" ? "動画" : "資料"}
                     </span>
 
-                    {/* ✅ NEW優先、次に更新 */}
                     {showNew && <span className="kbm-pill kbm-pill-new">NEW</span>}
                     {showUpdated && <span className="kbm-pill kbm-pill-updated">更新</span>}
                   </div>
-                   
-
-
 
                   <div className="kbm-title">{m.title}</div>
-                  {m.desc && <div className="kbm-desc">{m.desc}</div>}
-{/* このブロックは削除 */}
-<div className="kbm-meta">
-  {(m.brand ?? "")}
-  {m.biz ? ` / ${m.biz}` : ""}
-  {publishedLabel ? ` / 公開: ${publishedLabel}` : ""}
-  {showUpdated && updatedLabel ? ` / 更新: ${updatedLabel}` : ""}
-</div>
+                  {m.desc ? <div className="kbm-desc">{m.desc}</div> : null}
+
                   {m.tags?.length ? (
                     <div className="kbm-tags">
                       {m.tags.map((t) => (
@@ -219,7 +153,7 @@ export default function ManualList({ manuals }: Props) {
                       setIsModalOpen(true);
                     }}
                     disabled={!hasPreview}
-                    title={!hasPreview ? "プレビューURLがありません（previewUrl / embedUrl を確認）" : "プレビュー"}
+                    title={!hasPreview ? "プレビューURLがありません（embedUrl を確認）" : "プレビュー"}
                   >
                     プレビュー
                   </button>
@@ -234,7 +168,7 @@ export default function ManualList({ manuals }: Props) {
                         e.preventDefault();
                         return;
                       }
-                      safeOpen(m.downloadUrl!);
+                      safeOpen(previewRaw);
                     }}
                   >
                     DL
@@ -246,7 +180,6 @@ export default function ManualList({ manuals }: Props) {
         })}
       </div>
 
-      {/* ===== Modal ===== */}
       {isModalOpen && (
         <div
           className="kbm-modal-backdrop"

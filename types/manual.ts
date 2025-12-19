@@ -1,15 +1,21 @@
+// types/manual.ts
 export type Manual = {
   manualId: string;
   title: string;
-  brandId?: string;
-  brand?: string;
-  bizId?: string;
-  biz?: string;
   desc?: string | null;
-  updatedAt?: string;
-  tags?: string[];
-  embedUrl?: string;
-  isNew?: boolean;
-  noDownload?: boolean;
-  readCount?: number;
+
+  type?: "video" | "doc";
+
+  startDate?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+
+  brand?: string | null;
+  biz?: string | null;
+  tags?: string[] | null;
+
+  previewUrl?: string | null;
+  embedUrl?: string | null;
+  downloadUrl?: string | null;
+  noDownload?: boolean | null;
 };
