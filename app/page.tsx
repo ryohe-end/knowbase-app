@@ -775,13 +775,7 @@ export default function HomePage() {
 
             {!loadingManuals && filteredManuals.length > 0 && (
               <>
-                <ManualList
-                  manuals={pagedManuals}
-                  brandMap={brandMap}
-                  deptMap={deptMap}
-                  onPreview={setPreviewManual}
-                  pageSize={PAGE_SIZE}
-                />
+                <ManualList manuals={pagedManuals} />
 
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
