@@ -4,18 +4,6 @@ frontend:
     preBuild:
       commands:
         - npm ci
-        # === Amplify 環境変数を .env.production に安全に書き出す ===
-        # cat を使うことで、JSON内のクォートや特殊文字を完全に保持したまま書き出せます
-        - |
-          cat << 'EOF' > .env.production
-          QBUSINESS_APP_ID=$QBUSINESS_APP_ID
-          QBUSINESS_INDEX_ID=$QBUSINESS_INDEX_ID
-          QBUSINESS_REGION=$QBUSINESS_REGION
-          TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID
-          GOOGLE_SERVICE_ACCOUNT_JSON=$GOOGLE_SERVICE_ACCOUNT_JSON
-          TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID
-          EOF
-        # ===============================================
 
     build:
       commands:
@@ -29,3 +17,4 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+
