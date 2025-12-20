@@ -6,38 +6,35 @@ frontend:
         - npm ci
 
         # ============================
-        # ✅ SSR/Route Handler 用に .env.production を生成
-        #   - 値はログに出さない
-        #   - JSONは壊さない（別 heredoc）
+        # ✅ .env.production を生成（全部 1行 key=value）
         # ============================
-
-        # まず通常のキーを出力（VAR展開するので EOF はクォートしない）
         - |
-          cat > .env.production << EOF
-          TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID
-          TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID
-          EOF
+          # TEMPLATE / PARENT
+          {
+            echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID"
+            echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
+          } > .env.production
 
-        # 次にサービスアカウントJSONだけ安全に追記（クォートEOFでそのまま）
         - |
-          cat >> .env.production << 'EOF'
-          GOOGLE_SERVICE_ACCOUNT_JSON=
-          EOF
-
-        # ↑このままだと空になるので、JSONを「1行」として追記する（改行崩壊を防ぐ）
-        - |
-          node -e "const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||''; if(!v) process.exit(2); process.stdout.write(v.replace(/\r?\n/g,'\\\\n'))" >> .env.production
-          echo "" >> .env.production
+          # SA JSON を1行化して key=value で追記
+          # - 元JSONが複数行でもOK
+          # - 改行は \n にエスケープ
+          SA_ESCAPED="$(node -e "const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||''; process.stdout.write(v.replace(/\r?\n/g,'\\\\n'))")"
+          printf "GOOGLE_SERVICE_ACCOUNT_JSON=%s\n" "$SA_ESCAPED" >> .env.production
 
         # （任意）存在チェック（値は出さない）
-        - |
-          node -e "process.exit(process.env.TEMPLATE_FILE_ID?0:2)" || (echo 'ERROR: TEMPLATE_FILE_ID missing' && exit 1)
-        - |
-          node -e "process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)" || (echo 'ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing' && exit 1)
+        - node -e "process.exit(process.env.TEMPLATE_FILE_ID?0:2)" || (echo 'ERROR: TEMPLATE_FILE_ID missing' && exit 1)
+        - node -e "process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)" || (echo 'ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing' && exit 1)
 
     build:
       commands:
         - npm run build
+
+        # ============================
+        # ✅ 実行環境(Lambda)が読める場所へ同梱
+        #   artifacts が .next なので .next 配下にコピーする
+        # ============================
+        - cp .env.production .next/.env.production
 
   artifacts:
     baseDirectory: .next
