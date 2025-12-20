@@ -6,13 +6,34 @@ frontend:
         - npm ci
 
         # ============================
-        # 🔍 env 解明（秘密は出さない）
+        # ✅ SSR/Route Handler 用に .env.production を生成
+        #   - 値はログに出さない
+        #   - JSONは壊さない（別 heredoc）
         # ============================
-        - echo "BUILD_HAS_TEMPLATE=$([ -n \"$TEMPLATE_FILE_ID\" ] && echo yes || echo no)"
-        - echo "BUILD_HAS_PARENT=$([ -n \"$TEMPLATE_COPY_PARENT_FOLDER_ID\" ] && echo yes || echo no)"
-        - echo "BUILD_HAS_SA=$([ -n \"$GOOGLE_SERVICE_ACCOUNT_JSON\" ] && echo yes || echo no)"
-        - echo "BUILD_NODE_ENV=${NODE_ENV:-unset}"
-        # ============================
+
+        # まず通常のキーを出力（VAR展開するので EOF はクォートしない）
+        - |
+          cat > .env.production << EOF
+          TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID
+          TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID
+          EOF
+
+        # 次にサービスアカウントJSONだけ安全に追記（クォートEOFでそのまま）
+        - |
+          cat >> .env.production << 'EOF'
+          GOOGLE_SERVICE_ACCOUNT_JSON=
+          EOF
+
+        # ↑このままだと空になるので、JSONを「1行」として追記する（改行崩壊を防ぐ）
+        - |
+          node -e "const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||''; if(!v) process.exit(2); process.stdout.write(v.replace(/\r?\n/g,'\\\\n'))" >> .env.production
+          echo "" >> .env.production
+
+        # （任意）存在チェック（値は出さない）
+        - |
+          node -e "process.exit(process.env.TEMPLATE_FILE_ID?0:2)" || (echo 'ERROR: TEMPLATE_FILE_ID missing' && exit 1)
+        - |
+          node -e "process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)" || (echo 'ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing' && exit 1)
 
     build:
       commands:
