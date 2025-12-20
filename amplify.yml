@@ -4,13 +4,14 @@ frontend:
     preBuild:
       commands:
         - npm ci
-
-        # === ★ ここが重要 ★ ===
-        # Amplify Secrets → .env.production に書き出す
+        # === Amplify Secrets → .env.production に書き出す ===
         - echo "QBUSINESS_APP_ID=$QBUSINESS_APP_ID" >> .env.production
         - echo "QBUSINESS_INDEX_ID=$QBUSINESS_INDEX_ID" >> .env.production
         - echo "QBUSINESS_REGION=$QBUSINESS_REGION" >> .env.production
-        # =======================
+        - echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID" >> .env.production
+        - echo "GOOGLE_SERVICE_ACCOUNT_JSON=$GOOGLE_SERVICE_ACCOUNT_JSON" >> .env.production
+        - echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID" >> .env.production
+        # ===============================================
 
     build:
       commands:
