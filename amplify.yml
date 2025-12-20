@@ -4,6 +4,16 @@ frontend:
     preBuild:
       commands:
         - npm ci
+
+        # ============================
+        # 🔍 env 解明（秘密は出さない）
+        # ============================
+        - echo "BUILD_HAS_TEMPLATE=$([ -n \"$TEMPLATE_FILE_ID\" ] && echo yes || echo no)"
+        - echo "BUILD_HAS_PARENT=$([ -n \"$TEMPLATE_COPY_PARENT_FOLDER_ID\" ] && echo yes || echo no)"
+        - echo "BUILD_HAS_SA=$([ -n \"$GOOGLE_SERVICE_ACCOUNT_JSON\" ] && echo yes || echo no)"
+        - echo "BUILD_NODE_ENV=${NODE_ENV:-unset}"
+        # ============================
+
     build:
       commands:
         - npm run build
