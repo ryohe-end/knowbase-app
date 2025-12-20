@@ -35,40 +35,69 @@ function loadServiceAccount(): SAJson {
     if (!json.client_email || !json.private_key) throw new Error("JSON missing email/key");
     return json;
   } catch (err) {
-    throw new Error(`Failed to parse Service Account JSON: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `Failed to parse Service Account JSON: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
   }
 }
 
 function extractGoogleError(e: any) {
   const status = e?.code || e?.response?.status || e?.status || 500;
-  // エラー詳細を可能な限り文字列で取得
   const details = e?.response?.data || e?.errors || e?.message || String(e);
   return { status: typeof status === "number" ? status : 500, details };
 }
 
 export async function POST(req: Request) {
-  const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const reqId = `${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 
   try {
-    // 1. 環境変数の存在確認を最初に行う（ビルド時エラー回避のため）
+    /* ===============================
+       🔍 環境変数チェック（安全ログ）
+       =============================== */
+    console.log("[copy-template env-check]", {
+      hasTemplateId: !!process.env.TEMPLATE_FILE_ID,
+      templateIdLen: process.env.TEMPLATE_FILE_ID?.length ?? 0,
+      hasParentId: !!process.env.TEMPLATE_COPY_PARENT_FOLDER_ID,
+      parentIdLen: process.env.TEMPLATE_COPY_PARENT_FOLDER_ID?.length ?? 0,
+      hasSaJson: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+      nodeEnv: process.env.NODE_ENV,
+    });
+    /* =============================== */
+
+    // 1. 環境変数の存在確認
     const templateId = process.env.TEMPLATE_FILE_ID;
     if (!templateId) {
-      return NextResponse.json({ error: "TEMPLATE_FILE_ID is not set in environment", reqId }, { status: 500 });
+      return NextResponse.json(
+        { error: "TEMPLATE_FILE_ID is not set in environment", reqId },
+        { status: 500 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));
     const title = String(body?.title ?? "").trim();
-    if (!title) return NextResponse.json({ error: "title is required", reqId }, { status: 400 });
+    if (!title) {
+      return NextResponse.json(
+        { error: "title is required", reqId },
+        { status: 400 }
+      );
+    }
 
     const parentId = process.env.TEMPLATE_COPY_PARENT_FOLDER_ID?.trim() || null;
 
-    // 2. サービスアカウントのロード（ここで詳細なパースエラーを拾う）
+    // 2. サービスアカウントのロード
     let sa: SAJson;
     try {
       sa = loadServiceAccount();
     } catch (err: any) {
       console.error("[copy-template] Config Error", err.message);
-      return NextResponse.json({ error: "Configuration failed", details: err.message, reqId }, { status: 500 });
+      return NextResponse.json(
+        { error: "Configuration failed", details: err.message, reqId },
+        { status: 500 }
+      );
     }
 
     const auth = new google.auth.JWT({
@@ -88,7 +117,10 @@ export async function POST(req: Request) {
       });
     } catch (e: any) {
       const { status, details } = extractGoogleError(e);
-      return NextResponse.json({ error: "Template access denied", details, reqId }, { status });
+      return NextResponse.json(
+        { error: "Template access denied", details, reqId },
+        { status }
+      );
     }
 
     // ② コピー作成
@@ -103,7 +135,10 @@ export async function POST(req: Request) {
 
     const newFileId = copyRes.data.id;
     if (!newFileId) {
-      return NextResponse.json({ error: "Copy succeeded but missing fileId", reqId }, { status: 500 });
+      return NextResponse.json(
+        { error: "Copy succeeded but missing fileId", reqId },
+        { status: 500 }
+      );
     }
 
     // ③ 編集URL取得
@@ -113,16 +148,28 @@ export async function POST(req: Request) {
       supportsAllDrives: true,
     });
 
-    const editUrl = meta.data.webViewLink || `https://docs.google.com/presentation/d/${newFileId}/edit`;
+    const editUrl =
+      meta.data.webViewLink ||
+      `https://docs.google.com/presentation/d/${newFileId}/edit`;
 
-    return NextResponse.json({ reqId, fileId: newFileId, editUrl }, { status: 200 });
+    return NextResponse.json(
+      { reqId, fileId: newFileId, editUrl },
+      { status: 200 }
+    );
   } catch (e: any) {
     const { status, details } = extractGoogleError(e);
-    console.error("[copy-template] UNEXPECTED error", { reqId, status, details });
-    return NextResponse.json({ 
-      error: "copy-template failed", 
-      reqId, 
-      details: typeof details === 'object' ? JSON.stringify(details) : details 
-    }, { status });
+    console.error("[copy-template] UNEXPECTED error", {
+      reqId,
+      status,
+      details,
+    });
+    return NextResponse.json(
+      {
+        error: "copy-template failed",
+        reqId,
+        details: typeof details === "object" ? JSON.stringify(details) : details,
+      },
+      { status }
+    );
   }
 }
