@@ -5,19 +5,23 @@ frontend:
       commands:
         - npm ci
         - |
+          # ✅ 環境変数を runtime-env.txt に書き出す
           {
             echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID"
             echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
           } > runtime-env.txt
         - |
-          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||\" \"; process.stdout.write(v.replace(/\\r?\\n/g,\"\\\\\\\\n\"))')"
+          # ✅ SA JSON を 1 行化（エスケープを修正）
+          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||""; process.stdout.write(v.replace(/\r?\n/g,"\\\\n"))')"
           printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> runtime-env.txt
         - |
+          # ✅ チェック
           node -e 'process.exit(process.env.TEMPLATE_FILE_ID?0:2)' || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
     build:
       commands:
         - npm run build
         - |
+          # ✅ 実行環境へコピー
           mkdir -p .next/server
           cp runtime-env.txt .next/server/runtime-env.txt
   artifacts:
@@ -27,3 +31,4 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+      - .next/cache/**/*
