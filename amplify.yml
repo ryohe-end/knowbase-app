@@ -3,13 +3,13 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
-
-        # ============================
-        # ✅ .env.production を生成（全部 1行 key=value）
-        # ============================
         - |
-          # TEMPLATE / PARENT
+          npm ci
+
+        - |
+          # ============================
+          # ✅ .env.production を生成（全部 1行 key=value）
+          # ============================
           {
             echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID"
             echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
@@ -17,23 +17,26 @@ frontend:
 
         - |
           # SA JSON を1行化して key=value で追記
-          # - 元JSONが複数行でもOK
-          # - 改行は \n にエスケープ
-          SA_ESCAPED="$(node -e "const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||''; process.stdout.write(v.replace(/\r?\n/g,'\\\\n'))")"
-          printf "GOOGLE_SERVICE_ACCOUNT_JSON=%s\n" "$SA_ESCAPED" >> .env.production
+          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||""; process.stdout.write(v.replace(/\r?\n/g,"\\\\n"))')"
+          printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> .env.production
 
-        # （任意）存在チェック（値は出さない）
-        - node -e "process.exit(process.env.TEMPLATE_FILE_ID?0:2)" || (echo 'ERROR: TEMPLATE_FILE_ID missing' && exit 1)
-        - node -e "process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)" || (echo 'ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing' && exit 1)
+        - |
+          # （任意）存在チェック（値は出さない）
+          node -e 'process.exit(process.env.TEMPLATE_FILE_ID?0:2)' || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
+          node -e 'process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)' || (echo "ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing" && exit 1)
 
     build:
-  commands:
-    - npm run build
+      commands:
+        - |
+          npm run build
 
-    # ✅ .env.production を SSR 実行側が確実に読める場所へ同梱（複数箇所）
-    - mkdir -p .next/server
-    - cp .env.production .next/.env.production
-    - cp .env.production .next/server/.env.production
+        - |
+          # ============================
+          # ✅ 実行環境(Lambda)が読める場所へ同梱（複数箇所）
+          # ============================
+          mkdir -p .next/server
+          cp .env.production .next/.env.production
+          cp .env.production .next/server/.env.production
 
   artifacts:
     baseDirectory: .next
