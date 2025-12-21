@@ -5,24 +5,19 @@ frontend:
       commands:
         - npm ci
         - |
-          # 環境変数を書き出し
           {
             echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID"
             echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
           } > runtime-env.txt
         - |
-          # SA JSONを1行化
-          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||""; process.stdout.write(v.replace(/\r?\n/g,"\\\\n"))')"
+          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||\" \"; process.stdout.write(v.replace(/\\r?\\n/g,\"\\\\\\\\n\"))')"
           printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> runtime-env.txt
         - |
-          # チェック（ここで落ちるなら環境変数のキー名ミス）
           node -e 'process.exit(process.env.TEMPLATE_FILE_ID?0:2)' || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
-          node -e 'process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)' || (echo "ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing" && exit 1)
     build:
       commands:
         - npm run build
         - |
-          # 実行環境へコピー
           mkdir -p .next/server
           cp runtime-env.txt .next/server/runtime-env.txt
   artifacts:
@@ -32,4 +27,3 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
-      - .next/cache/**/*
