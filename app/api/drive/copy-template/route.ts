@@ -25,23 +25,21 @@ function loadEnvFromFileOnce() {
   const cwd = process.cwd();
   const lambdaRoot = process.env.LAMBDA_TASK_ROOT || "/var/task";
 
-  // 実際の配置に合わせて候補を多めに（Secrets漏洩防止のため内容は出さない）
+// 実際の配置に合わせて候補を多めに（Secrets漏洩防止のため内容は出さない）
 const candidates = [
-  // --- ドットenv（入っていれば使う） ---
+  // ===== build時にプロジェクトルートで読む可能性 =====
   path.join(cwd, ".env.production"),
   path.join(cwd, ".next", ".env.production"),
   path.join(cwd, ".next", "server", ".env.production"),
 
-  path.join(lambdaRoot, ".env.production"),
-  path.join(lambdaRoot, ".next", ".env.production"),
-  path.join(lambdaRoot, ".next", "server", ".env.production"),
+  // ===== ✅ Amplify SSR 実行時（baseDirectory: .next なので /var/task は ".nextの中身"） =====
+  // → /var/task に ".next" ディレクトリは無い
+  path.join(lambdaRoot, ".env.production"),                 // /var/task/.env.production
+  path.join(lambdaRoot, "server", ".env.production"),       // /var/task/server/.env.production
 
-  // --- ✅ ドット無し（artifactsに確実に入る） ---
-  path.join(cwd, "runtime-env.txt"),
-  path.join(cwd, ".next", "server", "runtime-env.txt"),
-
-  path.join(lambdaRoot, "runtime-env.txt"),
-  path.join(lambdaRoot, ".next", "server", "runtime-env.txt"),
+  // （もし runtime-env.txt 方式も使うなら）
+  path.join(lambdaRoot, "runtime-env.txt"),                 // /var/task/runtime-env.txt
+  path.join(lambdaRoot, "server", "runtime-env.txt"),       // /var/task/server/runtime-env.txt
 ];
 
   // まず「どこにファイルが存在するか」だけログ
