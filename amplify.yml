@@ -27,14 +27,13 @@ frontend:
         - node -e "process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)" || (echo 'ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing' && exit 1)
 
     build:
-      commands:
-        - npm run build
+  commands:
+    - npm run build
 
-        # ============================
-        # ✅ 実行環境(Lambda)が読める場所へ同梱
-        #   artifacts が .next なので .next 配下にコピーする
-        # ============================
-        - cp .env.production .next/.env.production
+    # ✅ .env.production を SSR 実行側が確実に読める場所へ同梱（複数箇所）
+    - mkdir -p .next/server
+    - cp .env.production .next/.env.production
+    - cp .env.production .next/server/.env.production
 
   artifacts:
     baseDirectory: .next
