@@ -26,15 +26,23 @@ function loadEnvFromFileOnce() {
   const lambdaRoot = process.env.LAMBDA_TASK_ROOT || "/var/task";
 
   // 実際の配置に合わせて候補を多めに（Secrets漏洩防止のため内容は出さない）
-  const candidates = [
-    path.join(cwd, ".env.production"),
-    path.join(cwd, ".next", ".env.production"),
-    path.join(cwd, ".next", "server", ".env.production"),
+const candidates = [
+  // --- ドットenv（入っていれば使う） ---
+  path.join(cwd, ".env.production"),
+  path.join(cwd, ".next", ".env.production"),
+  path.join(cwd, ".next", "server", ".env.production"),
 
-    path.join(lambdaRoot, ".env.production"),
-    path.join(lambdaRoot, ".next", ".env.production"),
-    path.join(lambdaRoot, ".next", "server", ".env.production"),
-  ];
+  path.join(lambdaRoot, ".env.production"),
+  path.join(lambdaRoot, ".next", ".env.production"),
+  path.join(lambdaRoot, ".next", "server", ".env.production"),
+
+  // --- ✅ ドット無し（artifactsに確実に入る） ---
+  path.join(cwd, "runtime-env.txt"),
+  path.join(cwd, ".next", "server", "runtime-env.txt"),
+
+  path.join(lambdaRoot, "runtime-env.txt"),
+  path.join(lambdaRoot, ".next", "server", "runtime-env.txt"),
+];
 
   // まず「どこにファイルが存在するか」だけログ
   const existMap = candidates.map((p) => ({ p, exists: fs.existsSync(p) }));

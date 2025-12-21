@@ -7,21 +7,19 @@ frontend:
           npm ci
 
         - |
-          # ============================
-          # ✅ .env.production を生成（全部 1行 key=value）
-          # ============================
+          # ✅ runtime-env.txt を生成（全部 1行 key=value）
           {
             echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID"
             echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
-          } > .env.production
+          } > runtime-env.txt
 
         - |
-          # SA JSON を1行化して key=value で追記
+          # SA JSON を1行化して key=value で追記（改行は \n に）
           SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||""; process.stdout.write(v.replace(/\r?\n/g,"\\\\n"))')"
-          printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> .env.production
+          printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> runtime-env.txt
 
         - |
-          # （任意）存在チェック（値は出さない）
+          # ✅ ここで空ならビルド失敗（値は出さない）
           node -e 'process.exit(process.env.TEMPLATE_FILE_ID?0:2)' || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
           node -e 'process.exit(process.env.GOOGLE_SERVICE_ACCOUNT_JSON?0:2)' || (echo "ERROR: GOOGLE_SERVICE_ACCOUNT_JSON missing" && exit 1)
 
@@ -31,12 +29,9 @@ frontend:
           npm run build
 
         - |
-          # ============================
-          # ✅ 実行環境(Lambda)が読める場所へ同梱（複数箇所）
-          # ============================
+          # ✅ 実行環境が読める場所へ同梱（ドット無しファイル）
           mkdir -p .next/server
-          cp .env.production .next/.env.production
-          cp .env.production .next/server/.env.production
+          cp runtime-env.txt .next/server/runtime-env.txt
 
   artifacts:
     baseDirectory: .next
