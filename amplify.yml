@@ -11,12 +11,12 @@ frontend:
             echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID"
           } > runtime-env.txt
         - |
-          # ✅ SA JSON を 1 行化（エスケープを修正）
-          SA_ESCAPED="$(node -e 'const v=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||""; process.stdout.write(v.replace(/\r?\n/g,"\\\\n"))')"
-          printf 'GOOGLE_SERVICE_ACCOUNT_JSON=%s\n' "$SA_ESCAPED" >> runtime-env.txt
+          # ✅ SA JSON を 1 行化（構文エラーを修正した確実な形式）
+          SA_VAL="${GOOGLE_SERVICE_ACCOUNT_JSON:-}"
+          node -e "const s=process.env.SA_VAL||''; process.stdout.write('GOOGLE_SERVICE_ACCOUNT_JSON=' + s.replace(/\r?\n/g, '\\\\n') + '\n')" SA_VAL="$SA_VAL" >> runtime-env.txt
         - |
-          # ✅ チェック
-          node -e 'process.exit(process.env.TEMPLATE_FILE_ID?0:2)' || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
+          # ✅ 設定チェック
+          node -e "process.exit(process.env.TEMPLATE_FILE_ID ? 0 : 2)" || (echo "ERROR: TEMPLATE_FILE_ID missing" && exit 1)
     build:
       commands:
         - npm run build
