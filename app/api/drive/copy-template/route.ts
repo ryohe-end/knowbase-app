@@ -26,14 +26,12 @@ function loadEnvFromFileOnce() {
   const cwd = process.cwd();
   const lambdaRoot = process.env.LAMBDA_TASK_ROOT || "/var/task";
 
-  // Amplify SSR環境でファイルが存在する可能性が高いパスを順番に定義
+  // Amplify SSR環境でファイルが存在する可能性が高いパスを網羅
   const candidates = [
-    // Next.js 15 / Amplify の標準的な配置パス
     path.join(cwd, ".next", "server", "runtime-env.txt"),
     path.join(lambdaRoot, "server", "runtime-env.txt"),
     path.join(cwd, "runtime-env.txt"),
     path.join(lambdaRoot, "runtime-env.txt"),
-    // バックアップとして元のファイル名も保持
     path.join(cwd, ".env.production"),
   ];
 
@@ -67,7 +65,7 @@ function loadEnvFromFileOnce() {
         });
 
         console.log(`[env-load] Successfully loaded ${loadedCount} keys from: ${p}`);
-        return; // 最初に見つかったファイルをロードしたら終了
+        return; 
       } catch (e) {
         console.error(`[env-load] Failed to read ${p}:`, e);
       }
@@ -83,7 +81,6 @@ function loadServiceAccount(): SAJson {
   try {
     const json = JSON.parse(raw) as SAJson;
     if (typeof json.private_key === "string") {
-      // 改行コードの正規化
       json.private_key = json.private_key.replace(/\\n/g, "\n");
     }
     if (!json.client_email || !json.private_key) throw new Error("JSON missing email or private_key");
@@ -103,7 +100,7 @@ export async function POST(req: Request) {
   const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    // 1. 環境変数のロードを試行
+    // 1. 環境変数のロード
     loadEnvFromFileOnce();
 
     const templateId = process.env.TEMPLATE_FILE_ID;
@@ -119,9 +116,8 @@ export async function POST(req: Request) {
 
     if (!templateId) {
       return NextResponse.json({ 
-        error: "TEMPLATE_FILE_ID is not set in environment", 
-        reqId,
-        debug_info: "Make sure runtime-env.txt is created during build"
+        error: "TEMPLATE_FILE_ID is not set", 
+        reqId 
       }, { status: 500 });
     }
 
@@ -129,7 +125,7 @@ export async function POST(req: Request) {
     const title = String(body?.title ?? "").trim();
     if (!title) return NextResponse.json({ error: "title is required", reqId }, { status: 400 });
 
-    // 2. サービスアカウントの準備
+    // 2. 認証の準備
     const sa = loadServiceAccount();
     const auth = new google.auth.JWT({
       email: sa.client_email,
@@ -139,7 +135,7 @@ export async function POST(req: Request) {
 
     const drive = google.drive({ version: "v3", auth });
 
-    // 3. テンプレートファイルの存在確認
+    // 3. テンプレート確認
     try {
       await drive.files.get({
         fileId: templateId,
@@ -151,7 +147,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Template access denied", details, reqId }, { status });
     }
 
-    // 4. ファイルのコピー実行
+    // 4. コピー実行
     const copyRes = await drive.files.copy({
       fileId: templateId,
       supportsAllDrives: true,
@@ -162,9 +158,27 @@ export async function POST(req: Request) {
     });
 
     const newFileId = copyRes.data.id;
-    if (!newFileId) throw new Error("Copy failed to return a new file ID");
+    if (!newFileId) throw new Error("Copy failed to return file ID");
 
-    // 5. 編集URLの取得
+    // ====================================================
+    // ✅ 追加：権限設定（リンクを知っている全員を編集者に）
+    // ====================================================
+    try {
+      await drive.permissions.create({
+        fileId: newFileId,
+        supportsAllDrives: true,
+        requestBody: {
+          role: "writer",
+          type: "anyone",
+        },
+      });
+      console.log(`[copy-template] Permission created for: ${newFileId}`);
+    } catch (permError: any) {
+      console.error("[copy-template] Permission error (continuing...):", permError.message);
+    }
+    // ====================================================
+
+    // 5. URL取得
     const meta = await drive.files.get({
       fileId: newFileId,
       fields: "webViewLink",
