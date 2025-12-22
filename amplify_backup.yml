@@ -1,0 +1,32 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - npm ci
+        - |
+          # 1. 環境変数を runtime-env.txt に書き出す
+          echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID" > runtime-env.txt
+          echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID" >> runtime-env.txt
+        - |
+          # 2. サービスアカウントJSONを安全に1行化して追記
+          # (Node.jsを使用してエスケープ処理を確実に行う)
+          node -e "const s=process.env.GOOGLE_SERVICE_ACCOUNT_JSON||''; console.log('GOOGLE_SERVICE_ACCOUNT_JSON=' + s.replace(/\r?\n/g, '\\\\n'))" >> runtime-env.txt
+        - |
+          # 3. 必須設定の存在チェック (空ならここでビルドを失敗させてログに残す)
+          node -e "if(!process.env.TEMPLATE_FILE_ID) { console.error('ERROR: TEMPLATE_FILE_ID is EMPTY'); process.exit(1); }"
+    build:
+      commands:
+        - npm run build
+        - |
+          # 4. API (SSR) が読み込める場所にファイルを配置
+          mkdir -p .next/server
+          cp runtime-env.txt .next/server/runtime-env.txt
+  artifacts:
+    baseDirectory: .next
+    files:
+      - "**/*"
+  cache:
+    paths:
+      - node_modules/**/*
+      - .next/cache/**/*
