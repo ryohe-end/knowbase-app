@@ -74,6 +74,28 @@ const ALL_BRAND_ID = "__ALL_BRAND__";
 const ALL_DEPT_ID = "__ALL_DEPT__";
 const INQUIRY_MAIL = "support@example.com";
 
+/* ========= ヘルパー関数: JST変換 ========= */
+
+/**
+ * ISO形式などの日時文字列をJSTの読みやすい形式に変換する
+ */
+function formatToJST(dateStr?: string) {
+  if (!dateStr) return "";
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (e) {
+    return dateStr;
+  }
+}
+
 /* ========= ログアウト ========= */
 
 async function handleLogout() {
@@ -285,6 +307,10 @@ export default function HomePage() {
   const PAGE_SIZE = 5;
   const [manualPage, setManualPage] = useState(1);
 
+  // ★ お知らせ：ページネーション設定
+  const NEWS_PAGE_SIZE = 3;
+  const [newsPage, setNewsPage] = useState(1);
+
   /**
    * ★ お知らせ：最大3件アコーディオン
    */
@@ -457,13 +483,20 @@ export default function HomePage() {
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
 
-  const filteredNews = useMemo(() => {
+  // ★ お知らせ：ソートとページネーションロジック
+  const sortedNews = useMemo(() => {
     return [...newsList].sort((a, b) => {
       const ad = a.updatedAt || a.startDate || "";
       const bd = b.updatedAt || b.startDate || "";
       return (bd || "").localeCompare(ad || "");
     });
   }, [newsList]);
+
+  const totalNewsPages = Math.max(1, Math.ceil(sortedNews.length / NEWS_PAGE_SIZE));
+  const pagedNews = useMemo(() => {
+    const start = (newsPage - 1) * NEWS_PAGE_SIZE;
+    return sortedNews.slice(start, start + NEWS_PAGE_SIZE);
+  }, [sortedNews, newsPage]);
 
   const getEmbedSrc = (url?: string) => {
     if (!url) return "";
@@ -664,17 +697,16 @@ export default function HomePage() {
 
               <div className="kb-chat-input-row">
                 <input
-  className="kb-chat-input"
-  placeholder="例：入会手続きの流れを教えて / Canva テロップの作り方"
-  value={prompt}
-  onChange={(e) => setPrompt(e.target.value)}
-  onKeyDown={(e) => {
-    // 変換中でない、かつ Enterキーが押された場合のみ送信
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-      handleAsk();
-    }
-  }}
-/>
+                  className="kb-chat-input"
+                  placeholder="例：入会手続きの流れを教えて / Canva テロップの作り方"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                      handleAsk();
+                    }
+                  }}
+                />
                 <button className="kb-chat-send" onClick={handleAsk} disabled={loadingAI}>
                   送信
                 </button>
@@ -682,22 +714,31 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* お知らせ（ヘッダーのみ表示→クリックで本文展開） */}
+          {/* お知らせ */}
           <div className="kb-card kb-manual-card">
             <div className="kb-card-header">
               <div>
                 <div className="kb-card-title">お知らせ</div>
-                <div className="kb-card-meta">{loadingNews ? "読み込み中..." : `${filteredNews.length} 件表示中`}</div>
+                <div className="kb-card-meta">
+                  {loadingNews
+                    ? "読み込み中..."
+                    : sortedNews.length === 0
+                    ? "0 件表示中"
+                    : `${sortedNews.length} 件中 ${(newsPage - 1) * NEWS_PAGE_SIZE + 1}〜${Math.min(
+                        newsPage * NEWS_PAGE_SIZE,
+                        sortedNews.length
+                      )} 件を表示`}
+                </div>
               </div>
             </div>
 
             {loadingNews && <div>読み込み中...</div>}
-            {!loadingNews && filteredNews.length === 0 && (
+            {!loadingNews && sortedNews.length === 0 && (
               <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>現在表示できるお知らせはありません。</div>
             )}
 
             {!loadingNews &&
-              filteredNews.map((n) => {
+              pagedNews.map((n) => {
                 const id = String(n.newsId);
                 const isExpanded = !!expandedNews[id];
 
@@ -705,6 +746,9 @@ export default function HomePage() {
                   n.brandId === "ALL" ? "全社共通" : brandMap[n.brandId || ""]?.name || "ブランド未設定";
                 const deptName =
                   n.deptId === "ALL" ? "全部署" : deptMap[n.deptId || ""]?.name || "部署未設定";
+
+                // JST変換
+                const displayDate = formatToJST(n.updatedAt || n.startDate);
 
                 return (
                   <div className={`kb-news-item ${isExpanded ? "open" : ""}`} key={id}>
@@ -721,7 +765,7 @@ export default function HomePage() {
                           <span className="kb-news-meta-strong">
                             {brandName} / {deptName}
                           </span>
-                          {n.updatedAt && <span className="kb-news-meta-muted">更新日：{n.updatedAt}</span>}
+                          {displayDate && <span className="kb-news-meta-muted">更新日時：{displayDate}</span>}
                         </div>
 
                         {(n.tags || []).length > 0 && (
@@ -738,7 +782,6 @@ export default function HomePage() {
                       <div className="kb-news-head-right">{isExpanded ? "▴" : "▾"}</div>
                     </button>
 
-                    {/* 本文（スッ…と展開アニメ） */}
                     <div className="kb-news-body-anim" style={{ maxHeight: isExpanded ? "800px" : "0px" }}>
                       <div className="kb-news-body-inner">
                         {n.body ? renderRichText(n.body) : <div className="kb-news-empty">本文はありません。</div>}
@@ -747,6 +790,33 @@ export default function HomePage() {
                   </div>
                 );
               })}
+
+            {/* お知らせ ページネーションUI */}
+            {!loadingNews && totalNewsPages > 1 && (
+              <div style={{ marginTop: 12 }}>
+                <div className="kb-pager">
+                  <button
+                    type="button"
+                    className="kb-pager-btn"
+                    disabled={newsPage === 1}
+                    onClick={() => setNewsPage((p) => Math.max(1, p - 1))}
+                  >
+                    前へ
+                  </button>
+                  <span className="kb-pager-info">
+                    {newsPage} / {totalNewsPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="kb-pager-btn"
+                    disabled={newsPage === totalNewsPages}
+                    onClick={() => setNewsPage((p) => Math.min(totalNewsPages, p + 1))}
+                  >
+                    次へ
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* マニュアル一覧 */}
@@ -879,7 +949,7 @@ export default function HomePage() {
         </aside>
       </div>
 
-      {/* ===== プレビューモーダル（既存のまま） ===== */}
+      {/* プレビューモーダル */}
       {previewManual && (
         <div
           className="kb-modal-backdrop"
@@ -903,11 +973,8 @@ export default function HomePage() {
               width: "100%",
               maxWidth: 1040,
               maxHeight: "90vh",
-              background:
-                "linear-gradient(135deg, #0f172a 0%, #020617 20%, #f9fafb 20%, #ffffff 100%)",
+              background: "linear-gradient(135deg, #0f172a 0%, #020617 20%, #f9fafb 20%, #ffffff 100%)",
               borderRadius: 20,
-              padding: 0,
-              boxShadow: "0 24px 60px rgba(15,23,42,0.5)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
@@ -925,136 +992,34 @@ export default function HomePage() {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: 999,
-                    background: "rgba(15,23,42,0.6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 18,
-                  }}
-                >
-                  📘
-                </div>
+                <div style={{ width: 34, height: 34, borderRadius: 999, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📘</div>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2, color: "#f9fafb" }}>
-                    {previewManual.title}
-                  </div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2, color: "#f9fafb" }}>{previewManual.title}</div>
                   <div style={{ fontSize: 12, opacity: 0.9 }}>
-                    {previewManual.brandId &&
-                      (brandMap[previewManual.brandId]?.name || previewManual.brand || "ブランド未設定")}
-                    {previewManual.bizId &&
-                      ` / ${deptMap[previewManual.bizId]?.name || previewManual.biz || "部署未設定"}`}
+                    {previewManual.brandId && (brandMap[previewManual.brandId]?.name || previewManual.brand || "ブランド未設定")}
+                    {previewManual.bizId && ` / ${deptMap[previewManual.bizId]?.name || previewManual.biz || "部署未設定"}`}
                     {previewManual.updatedAt && ` / 更新日: ${previewManual.updatedAt}`}
                   </div>
                 </div>
               </div>
-
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {previewManual.embedUrl && (
-                  <button
-                    className="kb-primary-btn"
-                    style={{
-                      fontSize: 12,
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: "none",
-                      background: "#f9fafb",
-                      color: "#0f172a",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => window.open(previewManual.embedUrl!, "_blank")}
-                  >
-                    新しいタブで開く
-                  </button>
+                  <button className="kb-primary-btn" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 999, border: "none", background: "#f9fafb", color: "#0f172a", cursor: "pointer" }} onClick={() => window.open(previewManual.embedUrl!, "_blank")}>新しいタブで開く</button>
                 )}
-                <button
-                  className="kb-secondary-btn"
-                  style={{
-                    fontSize: 12,
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(248,250,252,0.6)",
-                    background: "transparent",
-                    color: "#e5f4ff",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => setPreviewManual(null)}
-                >
-                  閉じる
-                </button>
+                <button className="kb-secondary-btn" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 999, border: "1px solid rgba(248,250,252,0.6)", background: "transparent", color: "#e5f4ff", cursor: "pointer" }} onClick={() => setPreviewManual(null)}>閉じる</button>
               </div>
             </div>
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                padding: 16,
-                gap: 12,
-                background: "#f9fafb",
-                flex: 1,
-                minHeight: 0,
-              }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", padding: 16, gap: 12, background: "#f9fafb", flex: 1, minHeight: 0 }}>
               {previewManual.desc && (
-                <div
-                  style={{
-                    fontSize: 13,
-                    color: "#374151",
-                    whiteSpace: "pre-wrap",
-                    borderRadius: 12,
-                    background: "#ffffff",
-                    padding: 10,
-                    border: "1px solid #e5e7eb",
-                  }}
-                >
-                  {previewManual.desc}
-                </div>
+                <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap", borderRadius: 12, background: "#ffffff", padding: 10, border: "1px solid #e5e7eb" }}>{previewManual.desc}</div>
               )}
-
               {(() => {
                 const embedSrc = getEmbedSrc(previewManual.embedUrl);
-                if (!embedSrc) {
-                  return (
-                    <div
-                      className="kb-subnote"
-                      style={{
-                        fontSize: 13,
-                        color: "#6b7280",
-                        padding: 12,
-                        borderRadius: 10,
-                        background: "#e5e7eb",
-                      }}
-                    >
-                      このマニュアルにはプレビュー用の URL が設定されていません。
-                    </div>
-                  );
-                }
-
+                if (!embedSrc) return <div style={{ fontSize: 13, color: "#6b7280", padding: 12, borderRadius: 10, background: "#e5e7eb" }}>プレビューURLがありません。</div>;
                 return (
                   <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                    <div
-                      style={{
-                        width: "100%",
-                        maxWidth: 960,
-                        aspectRatio: "16 / 9",
-                        borderRadius: 14,
-                        overflow: "hidden",
-                        border: "1px solid #d1d5db",
-                        background: "#020617",
-                        position: "relative",
-                      }}
-                    >
-                      <iframe
-                        src={embedSrc}
-                        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
-                        allowFullScreen
-                        loading="lazy"
-                      />
+                    <div style={{ width: "100%", maxWidth: 960, aspectRatio: "16 / 9", borderRadius: 14, overflow: "hidden", border: "1px solid #d1d5db", background: "#020617", position: "relative" }}>
+                      <iframe src={embedSrc} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen loading="lazy" />
                     </div>
                   </div>
                 );
