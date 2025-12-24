@@ -64,7 +64,7 @@ export default function ManualList({ manuals }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
 
-  // ✅ 並び替え：updatedAt のみ使用
+  // 並び替え：updatedAt を使用
   const sorted = useMemo(() => {
     const list = [...manuals];
     list.sort((a, b) => {
@@ -91,7 +91,7 @@ export default function ManualList({ manuals }: Props) {
 
       <div className="kbm-list">
         {sorted.map((m) => {
-          // 種別判定（簡易）
+          // 種別判定
           const type: "video" | "doc" =
             (m.embedUrl ?? "").includes("youtube") ||
             (m.embedUrl ?? "").includes("youtu.be")
@@ -107,7 +107,7 @@ export default function ManualList({ manuals }: Props) {
             ? "このマニュアルはダウンロード不可です（閲覧のみ）"
             : "";
 
-          // ✅ A案：NEW判定（updatedAt が30日以内）
+          // NEW判定
           const now = Date.now();
           const updated = parseTime(m.updatedAt);
           const showNew = !!(updated && now - updated <= WINDOW);
@@ -135,6 +135,17 @@ export default function ManualList({ manuals }: Props) {
                   </div>
 
                   <div className="kbm-title">{m.title}</div>
+
+                  {/* ✅ 日付表示エリアを追加 */}
+                  <div className="kbm-meta" style={{ display: "flex", gap: "12px", fontSize: "11px", color: "#94a3b8", marginTop: "4px", marginBottom: "4px" }}>
+                    {m.startDate && (
+                      <span>公開日: {m.startDate}</span>
+                    )}
+                    {m.updatedAt && (
+                      <span>最終更新: {m.updatedAt}</span>
+                    )}
+                  </div>
+
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
 
                   {m.tags?.length ? (
