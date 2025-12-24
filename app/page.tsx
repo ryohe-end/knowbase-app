@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ManualList from "@/components/ManualList";
+import ContactList from "@/components/ContactList"; // 正しくインポート
 
 /* ========= 型定義 ========= */
 
@@ -36,6 +37,7 @@ type Dept = {
   name: string;
   sortOrder?: number;
   isActive?: boolean;
+  email?: string; // 問い合わせ用に追加
 };
 
 type Contact = {
@@ -76,9 +78,6 @@ const INQUIRY_MAIL = "support@example.com";
 
 /* ========= ヘルパー関数: JST変換 ========= */
 
-/**
- * ISO形式などの日時文字列をJSTの読みやすい形式に変換する
- */
 function formatToJST(dateStr?: string) {
   if (!dateStr) return "";
   try {
@@ -482,6 +481,9 @@ export default function HomePage() {
 
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
+  
+  // ★ 改修：担当者リストのタイトルに部署名を表示
+  const currentDeptTitleLabel = selectedDeptId === ALL_DEPT_ID ? "" : `（${deptMap[selectedDeptId]?.name}）`;
 
   // ★ お知らせ：ソートとフィルタリングとページネーション
   const filteredNews = useMemo(() => {
@@ -522,11 +524,21 @@ export default function HomePage() {
     return embedSrc;
   };
 
+  /* ========= 改修：問い合わせモーダル制御 ========= */
+
+  const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
+
+  const handleInquirySubmit = (email?: string) => {
+    const target = email || INQUIRY_MAIL;
+    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(target)}&su=${encodeURIComponent("[Know Base] お問い合わせ")}`, "_blank");
+    setIsInquiryModalOpen(false);
+  };
+
   /* ========= UI ========= */
 
   return (
     <div className="kb-root">
-      {/* ===== Top bar ===== */}
+      {/* ===== Top bar (オリジナルデザイン維持) ===== */}
       <div className="kb-topbar">
         <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <img
@@ -565,7 +577,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ===== 3カラム ===== */}
+      {/* ===== 3カラム (オリジナルレイアウト維持) ===== */}
       <div className="kb-main">
         {/* 左：フィルタ */}
         <aside className="kb-panel" aria-label="フィルター">
@@ -614,7 +626,7 @@ export default function HomePage() {
           </div>
         </aside>
 
-        {/* 中央 */}
+        {/* 中央コンテンツ */}
         <main className="kb-center">
           {/* Knowbie */}
           <div className="kb-card">
@@ -849,7 +861,6 @@ export default function HomePage() {
 
             {!loadingManuals && filteredManuals.length > 0 && (
               <>
-                {/* ★ ここで各マニュアルの公開日・更新日を JST 形式に変換したものをプロパティとして渡す */}
                 <ManualList manuals={pagedManuals.map(m => ({
                   ...m,
                   startDate: formatToJST(m.startDate),
@@ -884,81 +895,115 @@ export default function HomePage() {
           </div>
         </main>
 
-        {/* 右：担当者 */}
+        {/* 右：担当者リスト */}
         <aside className="kb-panel">
           <div className="kb-panel-header-row">
-            <div className="kb-panel-title">担当者リスト（{currentBrandLabel}）</div>
+            {/* ★ 改修：動的タイトル */}
+            <div className="kb-panel-title">担当者リスト{currentDeptTitleLabel}</div>
           </div>
 
           <div className="kb-contact-inquiry-wrap">
+            {/* ★ 改修：クリックでモーダル表示 */}
             <button
               type="button"
               className="kb-contact-inquiry-btn"
-              onClick={() => {
-                const mail = INQUIRY_MAIL;
-                window.open(
-                  `https://mail.google.com/mail/?view=cm&fs=1&to=${mail}&su=${encodeURIComponent("[Know Base] お問い合わせ")}`,
-                  "_blank"
-                );
-              }}
+              onClick={() => setIsInquiryModalOpen(true)}
             >
               問い合わせ
             </button>
           </div>
 
-          <input
-            className="kb-small-input"
-            placeholder="担当業務や名前・メールで検索"
-            type="text"
-            value={contactSearch}
-            onChange={(e) => setContactSearch(e.target.value)}
-          />
-
-          <div className="kb-contact-list">
-            {loadingContacts && <div>読み込み中...</div>}
-            {!loadingContacts && filteredContacts.length === 0 && <div className="kb-subnote">該当する担当者がいません。</div>}
-
-            {!loadingContacts &&
-              filteredContacts.map((c) => {
-                const deptLabel = deptMap[c.deptId]?.name ?? "";
-                const initial = c.name.charAt(0);
-                const showHitTags = contactSearch.trim() && c.hitTags && c.hitTags.length > 0;
-
-                return (
-                  <div className="kb-contact-item" key={c.contactId}>
-                    <div className="kb-contact-avatar">{initial}</div>
-
-                    <div className="kb-contact-body">
-                      <div className="kb-contact-name">{c.name}</div>
-                      <div className="kb-contact-dept">{deptLabel}</div>
-                      <a
-                        className="kb-contact-mail"
-                        href={`https://mail.google.com/mail/?view=cm&fs=1&to=${c.email}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {c.email}
-                      </a>
-
-                      {showHitTags && (
-                        <div className="kb-contact-hit-tags">
-                          ヒットしたタグ：
-                          {c.hitTags!.map((t, i) => (
-                            <span className="kb-hit-tag" key={i}>
-                              #{t}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+          <div className="kb-contact-list-wrapper" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+            <ContactList 
+              contacts={filteredContacts} 
+              contactSearch={contactSearch} 
+              setContactSearch={setContactSearch} 
+              deptMap={deptMap} 
+              loading={loadingContacts}
+            />
           </div>
         </aside>
       </div>
 
-      {/* プレビューモーダル */}
+      {/* ★ 改修：問い合わせ先部署選択モーダル */}
+{isInquiryModalOpen && (
+  <div
+    className="kb-modal-backdrop"
+    onClick={() => setIsInquiryModalOpen(false)}
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(15,23,42,0.55)",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      padding: 16,
+      zIndex: 10000,
+      backdropFilter: "blur(4px)",
+    }}
+  >
+    <div
+      className="kb-modal"
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        width: "100%",
+        maxWidth: 400,
+        padding: 24,
+        background: "#fff",
+        borderRadius: 20,
+        maxHeight: "90vh",
+        overflow: "auto",
+      }}
+    >
+      <div className="kb-card-title" style={{ marginBottom: 16 }}>
+        問い合わせ先部署を選択してください
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <button
+          className="kb-secondary-btn"
+          onClick={() => handleInquirySubmit(INQUIRY_MAIL)}
+          style={{
+            textAlign: "left",
+            padding: "12px 16px",
+            borderRadius: 12,
+            border: "1px solid #e5e7eb",
+            background: "#f9fafb",
+          }}
+        >
+          全体問い合わせ先（サポート）
+        </button>
+
+        {depts.map((d) => (
+          <button
+            key={d.deptId}
+            className="kb-secondary-btn"
+            onClick={() => handleInquirySubmit(d.email)}
+            style={{
+              textAlign: "left",
+              padding: "12px 16px",
+              borderRadius: 12,
+              border: "1px solid #e5e7eb",
+              background: "#f9fafb",
+            }}
+          >
+            {d.name}
+          </button>
+        ))}
+      </div>
+
+      <button
+        className="kb-logout-btn"
+        style={{ marginTop: 20, width: "100%", padding: "10px" }}
+        onClick={() => setIsInquiryModalOpen(false)}
+      >
+        キャンセル
+      </button>
+    </div>
+  </div>
+)}
+
+      {/* プレビューモーダル (既存の詳細デザイン維持) */}
       {previewManual && (
         <div
           className="kb-modal-backdrop"
