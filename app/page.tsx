@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from "react";
 import ManualList from "@/components/ManualList";
 
-/* ========= 型 ========= */
+/* ========= 型定義 ========= */
 
 type Manual = {
   manualId: string;
@@ -307,7 +307,7 @@ export default function HomePage() {
   const PAGE_SIZE = 5;
   const [manualPage, setManualPage] = useState(1);
 
-  // ★ お知らせ：ページネーション設定
+  // ★ お知らせ：ページネーション
   const NEWS_PAGE_SIZE = 3;
   const [newsPage, setNewsPage] = useState(1);
 
@@ -483,20 +483,26 @@ export default function HomePage() {
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
 
-  // ★ お知らせ：ソートとページネーションロジック
-  const sortedNews = useMemo(() => {
-    return [...newsList].sort((a, b) => {
+  // ★ お知らせ：ソートとフィルタリングとページネーション
+  const filteredNews = useMemo(() => {
+    return newsList.filter((n) => {
+      if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId) return false;
+      if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId) return false;
+      return true;
+    }).sort((a, b) => {
       const ad = a.updatedAt || a.startDate || "";
       const bd = b.updatedAt || b.startDate || "";
       return (bd || "").localeCompare(ad || "");
     });
-  }, [newsList]);
+  }, [newsList, selectedBrandId, selectedDeptId]);
 
-  const totalNewsPages = Math.max(1, Math.ceil(sortedNews.length / NEWS_PAGE_SIZE));
+  useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
+
+  const totalNewsPages = Math.max(1, Math.ceil(filteredNews.length / NEWS_PAGE_SIZE));
   const pagedNews = useMemo(() => {
     const start = (newsPage - 1) * NEWS_PAGE_SIZE;
-    return sortedNews.slice(start, start + NEWS_PAGE_SIZE);
-  }, [sortedNews, newsPage]);
+    return filteredNews.slice(start, start + NEWS_PAGE_SIZE);
+  }, [filteredNews, newsPage]);
 
   const getEmbedSrc = (url?: string) => {
     if (!url) return "";
@@ -722,18 +728,18 @@ export default function HomePage() {
                 <div className="kb-card-meta">
                   {loadingNews
                     ? "読み込み中..."
-                    : sortedNews.length === 0
+                    : filteredNews.length === 0
                     ? "0 件表示中"
-                    : `${sortedNews.length} 件中 ${(newsPage - 1) * NEWS_PAGE_SIZE + 1}〜${Math.min(
+                    : `${filteredNews.length} 件中 ${(newsPage - 1) * NEWS_PAGE_SIZE + 1}〜${Math.min(
                         newsPage * NEWS_PAGE_SIZE,
-                        sortedNews.length
+                        filteredNews.length
                       )} 件を表示`}
                 </div>
               </div>
             </div>
 
             {loadingNews && <div>読み込み中...</div>}
-            {!loadingNews && sortedNews.length === 0 && (
+            {!loadingNews && filteredNews.length === 0 && (
               <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>現在表示できるお知らせはありません。</div>
             )}
 
@@ -747,7 +753,6 @@ export default function HomePage() {
                 const deptName =
                   n.deptId === "ALL" ? "全部署" : deptMap[n.deptId || ""]?.name || "部署未設定";
 
-                // JST変換
                 const displayDate = formatToJST(n.updatedAt || n.startDate);
 
                 return (
@@ -765,7 +770,7 @@ export default function HomePage() {
                           <span className="kb-news-meta-strong">
                             {brandName} / {deptName}
                           </span>
-                          {displayDate && <span className="kb-news-meta-muted">更新日時：{displayDate}</span>}
+                          {displayDate && <span className="kb-news-meta-muted">更新日時：{displayDate} (JST)</span>}
                         </div>
 
                         {(n.tags || []).length > 0 && (
@@ -791,7 +796,6 @@ export default function HomePage() {
                 );
               })}
 
-            {/* お知らせ ページネーションUI */}
             {!loadingNews && totalNewsPages > 1 && (
               <div style={{ marginTop: 12 }}>
                 <div className="kb-pager">
@@ -845,7 +849,12 @@ export default function HomePage() {
 
             {!loadingManuals && filteredManuals.length > 0 && (
               <>
-                <ManualList manuals={pagedManuals} />
+                {/* ★ ここで各マニュアルの公開日・更新日を JST 形式に変換したものをプロパティとして渡す */}
+                <ManualList manuals={pagedManuals.map(m => ({
+                  ...m,
+                  startDate: formatToJST(m.startDate),
+                  updatedAt: formatToJST(m.updatedAt)
+                }))} />
 
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
@@ -998,7 +1007,7 @@ export default function HomePage() {
                   <div style={{ fontSize: 12, opacity: 0.9 }}>
                     {previewManual.brandId && (brandMap[previewManual.brandId]?.name || previewManual.brand || "ブランド未設定")}
                     {previewManual.bizId && ` / ${deptMap[previewManual.bizId]?.name || previewManual.biz || "部署未設定"}`}
-                    {previewManual.updatedAt && ` / 更新日: ${previewManual.updatedAt}`}
+                    {previewManual.updatedAt && ` / 更新日: ${formatToJST(previewManual.updatedAt)}`}
                   </div>
                 </div>
               </div>
