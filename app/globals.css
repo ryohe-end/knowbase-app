@@ -1525,3 +1525,27 @@ body {
   color:#94a3b8;
   margin-top:4px;
 }
+
+/* 担当者リスト内のテキストが溢れた場合に「...」で省略し、改行させない */
+.kb-contact-name span,
+.kb-contact-dept {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+/* アイコンにホバーした時のエフェクト */
+.kb-contact-name a:hover {
+  opacity: 0.7;
+  transform: scale(1.1);
+  transition: transform 0.1s ease;
+}
+
+/* 担当者アイテム自体のレイアウト微調整 */
+.kb-contact-item {
+  display: flex !important; /* gridからflexに変更して制御しやすく */
+  align-items: center;
+  padding: 8px 10px;
+  gap: 12px;
+}
