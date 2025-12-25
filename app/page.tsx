@@ -2,8 +2,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import ManualList from "@/components/ManualList";
-import ContactList from "@/components/ContactList"; // 正しくインポート
+import ContactList from "@/components/ContactList";
 
 /* ========= 型定義 ========= */
 
@@ -37,7 +38,7 @@ type Dept = {
   name: string;
   sortOrder?: number;
   isActive?: boolean;
-  email?: string; // 問い合わせ用に追加
+  email?: string;
 };
 
 type Contact = {
@@ -57,10 +58,12 @@ type News = {
   body?: string;
   brandId?: string;
   deptId?: string;
+  targetGroupIds?: string[];
   tags?: string[];
-  startDate?: string;
-  endDate?: string;
+  fromDate?: string | null;
+  toDate?: string | null;
   updatedAt?: string;
+  isHidden?: boolean;
 };
 
 type Message = {
@@ -295,7 +298,10 @@ export default function HomePage() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newsList, setNewsList] = useState<News[]>([]);
+  const [me, setMe] = useState<any>(null); 
 
+  // ローディング状態の統合
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loadingManuals, setLoadingManuals] = useState(true);
   const [loadingBrands, setLoadingBrands] = useState(true);
   const [loadingDepts, setLoadingDepts] = useState(true);
@@ -340,12 +346,13 @@ export default function HomePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes] = await Promise.all([
+        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, meRes] = await Promise.all([
           fetch("/api/manuals").then((res) => res.json()),
           fetch("/api/brands").then((res) => res.json()),
           fetch("/api/depts").then((res) => res.json()),
           fetch("/api/contacts").then((res) => res.json()),
           fetch("/api/news?onlyActive=1").then((res) => res.json()),
+          fetch("/api/me").then((res) => res.json()),
         ]);
 
         const brandsList: Brand[] = (brandsRes.brands || []).sort(
@@ -360,9 +367,12 @@ export default function HomePage() {
         setDepts(deptsList);
         setContacts(contactsRes.contacts || []);
         setNewsList(newsRes.news || []);
+        setMe(meRes.user || null);
       } catch (e) {
         console.error("Failed to fetch initial data:", e);
       } finally {
+        // 全ての通信が終わったら初期ローディングを解除
+        setIsInitialLoading(false);
         setLoadingManuals(false);
         setLoadingBrands(false);
         setLoadingDepts(false);
@@ -482,22 +492,29 @@ export default function HomePage() {
 
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
-  
-  // ★ 改修：担当者リストのタイトルに部署名を表示
+
   const currentDeptTitleLabel = selectedDeptId === ALL_DEPT_ID ? "" : `（${deptMap[selectedDeptId]?.name}）`;
 
-  // ★ お知らせ：ソートとフィルタリングとページネーション
   const filteredNews = useMemo(() => {
     return newsList.filter((n) => {
+      // 1. 非表示フラグのチェック
+      if (n.isHidden) return false;
+
+      // 2. 権限グループの判定
+      if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
+        if (!n.targetGroupIds.includes(me.groupId)) return false;
+      }
+
       if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId) return false;
       if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId) return false;
       return true;
     }).sort((a, b) => {
-      const ad = a.updatedAt || a.startDate || "";
-      const bd = b.updatedAt || b.startDate || "";
+      // API側のキー名に合わせる（もしnews_id, from_date等で来るならここを修正）
+      const ad = a.updatedAt || a.fromDate || "";
+      const bd = b.updatedAt || b.fromDate || "";
       return (bd || "").localeCompare(ad || "");
     });
-  }, [newsList, selectedBrandId, selectedDeptId]);
+  }, [newsList, selectedBrandId, selectedDeptId, me]);
 
   useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
 
@@ -525,8 +542,6 @@ export default function HomePage() {
     return embedSrc;
   };
 
-  /* ========= 改修：問い合わせモーダル制御 ========= */
-
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
 
   const handleInquirySubmit = (email?: string) => {
@@ -537,9 +552,30 @@ export default function HomePage() {
 
   /* ========= UI ========= */
 
+  // 起動中のローディング画面
+  if (isInitialLoading) {
+    return (
+      <div className="kb-loading-root">
+        <div className="kb-loading-container">
+          <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" className="kb-loading-logo" />
+          <div className="kb-loading-spinner"></div>
+          <p className="kb-loading-text">KnowBase を起動中...</p>
+        </div>
+        <style>{`
+          .kb-loading-root { position: fixed; inset: 0; background: #f8fafc; display: flex; align-items: center; justify-content: center; z-index: 10000; }
+          .kb-loading-container { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+          .kb-loading-logo { width: 80px; height: 80px; object-fit: contain; animation: kb-pulse 2s infinite ease-in-out; }
+          .kb-loading-spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top: 4px solid #0ea5e9; border-radius: 50%; animation: kb-spin 1s linear infinite; }
+          .kb-loading-text { color: #64748b; font-weight: 600; font-size: 14px; letter-spacing: 0.05em; }
+          @keyframes kb-spin { to { transform: rotate(360deg); } }
+          @keyframes kb-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(0.95); } }
+        `}</style>
+      </div>
+    );
+  }
+
   return (
     <div className="kb-root">
-      {/* ===== Top bar (オリジナルデザイン維持) ===== */}
       <div className="kb-topbar">
         <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: 20 }}>
           <img
@@ -564,7 +600,7 @@ export default function HomePage() {
         </div>
 
         <div className="kb-topbar-right">
-          <span className="kb-user-email">demo-all@example.com</span>
+          <span className="kb-user-email">{me?.name ? `${me.name} 様` : "ゲスト"}</span>
 
           {isAdmin && (
             <button className="kb-tab kb-tab-active" onClick={() => (window.location.href = "/admin")}>
@@ -578,9 +614,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* ===== 3カラム (オリジナルレイアウト維持) ===== */}
       <div className="kb-main">
-        {/* 左：フィルタ */}
         <aside className="kb-panel" aria-label="フィルター">
           <div className="kb-panel-section">
             <div className="kb-panel-title">ブランドで探す</div>
@@ -627,9 +661,7 @@ export default function HomePage() {
           </div>
         </aside>
 
-        {/* 中央コンテンツ */}
         <main className="kb-center">
-          {/* Knowbie */}
           <div className="kb-card">
             <div className="kb-card-header">
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -733,7 +765,6 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* お知らせ */}
           <div className="kb-card kb-manual-card">
             <div className="kb-card-header">
               <div>
@@ -757,8 +788,9 @@ export default function HomePage() {
             )}
 
             {!loadingNews &&
-              pagedNews.map((n) => {
-                const id = String(n.newsId);
+              pagedNews.map((n, idx) => {
+                // keyを確実にユニークにするため index を結合
+                const id = n.newsId ? String(n.newsId) : `temp-key-${idx}`;
                 const isExpanded = !!expandedNews[id];
 
                 const brandName =
@@ -766,7 +798,7 @@ export default function HomePage() {
                 const deptName =
                   n.deptId === "ALL" ? "全部署" : deptMap[n.deptId || ""]?.name || "部署未設定";
 
-                const displayDate = formatToJST(n.updatedAt || n.startDate);
+                const displayDate = formatToJST(n.updatedAt || n.fromDate || "");
 
                 return (
                   <div className={`kb-news-item ${isExpanded ? "open" : ""}`} key={id}>
@@ -789,7 +821,7 @@ export default function HomePage() {
                         {(n.tags || []).length > 0 && (
                           <div className="kb-news-tags">
                             {(n.tags || []).map((t, i) => (
-                              <span className="kb-news-tag" key={i}>
+                              <span className="kb-news-tag" key={`tag-${id}-${i}`}>
                                 {t}
                               </span>
                             ))}
@@ -836,7 +868,6 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* マニュアル一覧 */}
           <div className="kb-card kb-manual-card">
             <div className="kb-card-header">
               <div>
@@ -896,15 +927,12 @@ export default function HomePage() {
           </div>
         </main>
 
-        {/* 右：担当者リスト */}
         <aside className="kb-panel">
           <div className="kb-panel-header-row">
-            {/* ★ 改修：動的タイトル */}
             <div className="kb-panel-title">担当者リスト{currentDeptTitleLabel}</div>
           </div>
 
           <div className="kb-contact-inquiry-wrap">
-            {/* ★ 改修：クリックでモーダル表示 */}
             <button
               type="button"
               className="kb-contact-inquiry-btn"
@@ -926,85 +954,83 @@ export default function HomePage() {
         </aside>
       </div>
 
-      {/* ★ 改修：問い合わせ先部署選択モーダル */}
-{isInquiryModalOpen && (
-  <div
-    className="kb-modal-backdrop"
-    onClick={() => setIsInquiryModalOpen(false)}
-    style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(15,23,42,0.55)",
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 16,
-      zIndex: 10000,
-      backdropFilter: "blur(4px)",
-    }}
-  >
-    <div
-      className="kb-modal"
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        width: "100%",
-        maxWidth: 400,
-        padding: 24,
-        background: "#fff",
-        borderRadius: 20,
-        maxHeight: "90vh",
-        overflow: "auto",
-      }}
-    >
-      <div className="kb-card-title" style={{ marginBottom: 16 }}>
-        問い合わせ先部署を選択してください
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <button
-          className="kb-secondary-btn"
-          onClick={() => handleInquirySubmit(INQUIRY_MAIL)}
+      {isInquiryModalOpen && (
+        <div
+          className="kb-modal-backdrop"
+          onClick={() => setIsInquiryModalOpen(false)}
           style={{
-            textAlign: "left",
-            padding: "12px 16px",
-            borderRadius: 12,
-            border: "1px solid #e5e7eb",
-            background: "#f9fafb",
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.55)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+            zIndex: 10000,
+            backdropFilter: "blur(4px)",
           }}
         >
-          全体問い合わせ先（サポート）
-        </button>
-
-        {depts.map((d) => (
-          <button
-            key={d.deptId}
-            className="kb-secondary-btn"
-            onClick={() => handleInquirySubmit(d.email)}
+          <div
+            className="kb-modal"
+            onClick={(e) => e.stopPropagation()}
             style={{
-              textAlign: "left",
-              padding: "12px 16px",
-              borderRadius: 12,
-              border: "1px solid #e5e7eb",
-              background: "#f9fafb",
+              width: "100%",
+              maxWidth: 400,
+              padding: 24,
+              background: "#fff",
+              borderRadius: 20,
+              maxHeight: "90vh",
+              overflow: "auto",
             }}
           >
-            {d.name}
-          </button>
-        ))}
-      </div>
+            <div className="kb-card-title" style={{ marginBottom: 16 }}>
+              問い合わせ先部署を選択してください
+            </div>
 
-      <button
-        className="kb-logout-btn"
-        style={{ marginTop: 20, width: "100%", padding: "10px" }}
-        onClick={() => setIsInquiryModalOpen(false)}
-      >
-        キャンセル
-      </button>
-    </div>
-  </div>
-)}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <button
+                className="kb-secondary-btn"
+                onClick={() => handleInquirySubmit(INQUIRY_MAIL)}
+                style={{
+                  textAlign: "left",
+                  padding: "12px 16px",
+                  borderRadius: 12,
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                }}
+              >
+                全体問い合わせ先（サポート）
+              </button>
 
-      {/* プレビューモーダル (既存の詳細デザイン維持) */}
+              {depts.map((d) => (
+                <button
+                  key={d.deptId}
+                  className="kb-secondary-btn"
+                  onClick={() => handleInquirySubmit(d.email)}
+                  style={{
+                    textAlign: "left",
+                    padding: "12px 16px",
+                    borderRadius: 12,
+                    border: "1px solid #e5e7eb",
+                    background: "#f9fafb",
+                  }}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+
+            <button
+              className="kb-logout-btn"
+              style={{ marginTop: 20, width: "100%", padding: "10px" }}
+              onClick={() => setIsInquiryModalOpen(false)}
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
       {previewManual && (
         <div
           className="kb-modal-backdrop"

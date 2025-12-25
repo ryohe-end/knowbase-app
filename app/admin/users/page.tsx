@@ -507,7 +507,7 @@ export default function AdminUsersPage() {
                         className={`kb-chip small ${isSelected ? 'kb-chip-active' : ''}`}
                         onClick={() => handleIdToggle('brandIds', b.brandId)} // ★修正されたハンドラーを使用
                       >
-                        {b.name} ({b.brandId})
+                        {b.name} 
                       </button>
                     );
                   })}
@@ -533,7 +533,7 @@ export default function AdminUsersPage() {
                         className={`kb-chip small ${isSelected ? 'kb-chip-active' : ''}`}
                         onClick={() => handleIdToggle('groupIds', g.groupId)} // ★修正されたハンドラーを使用
                       >
-                        {g.groupName} ({g.groupId})
+                        {g.groupName} 
                       </button>
                     );
                   })}

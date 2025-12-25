@@ -11,16 +11,12 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ✅ テーブル名（あなたの既存 env 名に合わせて変えてOK）
-const TABLE_NEWS = process.env.TABLE_NEWS || process.env.NEWS_TABLE || "yamauchi-News";
+// テーブル名
+const TABLE_NEWS = "yamauchi-News";
 
 function getDocClient() {
-  const region = process.env.AWS_REGION || process.env.APP_AWS_REGION || "us-east-1";
-  
-  // ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
+  const region = process.env.AWS_REGION || "us-east-1";
   const client = new DynamoDBClient({ region });
-  // ★★★
-  
   return DynamoDBDocumentClient.from(client);
 }
 
@@ -28,78 +24,141 @@ function json(status: number, body: any) {
   return NextResponse.json(body, { status });
 }
 
-// ✅ Next.js 15 対応：第2引数の型は「書かない」 or 「any」にする（これが一番安全）
+/**
+ * DB項目（スネークケース）をフロントエンド用（キャメルケース）に変換
+ * is_hidden -> isHidden, start -> fromDate などの変換を行う
+ */
+function mapDbToRecord(item: any) {
+  if (!item) return null;
+  return {
+    newsId: item.news_id,
+    title: item.title,
+    body: item.body,
+    fromDate: item.start,
+    toDate: item.end,
+    brandId: item.brand_id,
+    deptId: item.dept_id,
+    targetGroupIds: item.target_group_ids || [],
+    tags: item.tags || [],
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+    isHidden: item.is_hidden ?? false,
+  };
+}
+
+// GET /api/news/[newsId]
 export async function GET(_req: NextRequest, ctx: any) {
   try {
-    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    // Next.js 15 では params を await する必要がある
+    const params = await ctx.params;
+    const newsId = String(params?.newsId ?? "").trim();
     if (!newsId) return json(400, { error: "newsId is required" });
 
     const ddb = getDocClient();
     const res = await ddb.send(
       new GetCommand({
         TableName: TABLE_NEWS,
-        Key: { newsId },
+        Key: { news_id: newsId }, // DBのキー名は news_id
       })
     );
 
     if (!res.Item) return json(404, { error: "not found", newsId });
-    return json(200, { ok: true, item: res.Item });
+    return json(200, { ok: true, item: mapDbToRecord(res.Item) });
   } catch (e: any) {
     console.error("GET /api/news/[newsId] error:", e);
     return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
 
+// PUT /api/news/[newsId]
 export async function PUT(req: NextRequest, ctx: any) {
   try {
-    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    const params = await ctx.params;
+    const newsId = String(params?.newsId ?? "").trim();
     if (!newsId) return json(400, { error: "newsId is required" });
 
     const body = await req.json().catch(() => ({}));
+    
+    // 入力値の整理（フロントエンドのキャメルケースから取得）
     const title = String(body?.title ?? "").trim();
     const bodyText = String(body?.body ?? "").trim();
+    const start = body?.fromDate || null;
+    const end = body?.toDate || null;
+    const brand_id = body?.brandId || "ALL";
+    const dept_id = body?.deptId || "ALL";
+    const target_group_ids = Array.isArray(body?.targetGroupIds) ? body.targetGroupIds : [];
+    const tags = Array.isArray(body?.tags) ? body.tags : [];
+    const is_hidden = !!body?.isHidden;
 
     if (!title) return json(400, { error: "title is required" });
 
     const ddb = getDocClient();
     const updatedAt = new Date().toISOString();
 
+    // 更新処理。DB側の項目名（start, is_hidden 等）に合わせて保存
     const res = await ddb.send(
       new UpdateCommand({
         TableName: TABLE_NEWS,
-        Key: { newsId },
-        UpdateExpression: "SET #t = :t, #b = :b, #u = :u",
+        Key: { news_id: newsId },
+        UpdateExpression: `
+          SET #t = :t, 
+              #b = :b, 
+              #s = :s, 
+              #e = :e, 
+              #bid = :bid, 
+              #did = :did, 
+              #tg = :tg, 
+              #tags = :tags, 
+              #hid = :hid, 
+              #u = :u
+        `,
         ExpressionAttributeNames: {
           "#t": "title",
           "#b": "body",
-          "#u": "updatedAt",
+          "#s": "start",
+          "#e": "end",
+          "#bid": "brand_id",
+          "#did": "dept_id",
+          "#tg": "target_group_ids",
+          "#tags": "tags",
+          "#hid": "is_hidden",
+          "#u": "updated_at",
         },
         ExpressionAttributeValues: {
           ":t": title,
           ":b": bodyText,
+          ":s": start,
+          ":e": end,
+          ":bid": brand_id,
+          ":did": dept_id,
+          ":tg": target_group_ids,
+          ":tags": tags,
+          ":hid": is_hidden,
           ":u": updatedAt,
         },
         ReturnValues: "ALL_NEW",
       })
     );
 
-    return json(200, { ok: true, item: res.Attributes });
+    return json(200, { ok: true, item: mapDbToRecord(res.Attributes) });
   } catch (e: any) {
     console.error("PUT /api/news/[newsId] error:", e);
     return json(500, { ok: false, error: e?.message ?? String(e) });
   }
 }
 
+// DELETE /api/news/[newsId]
 export async function DELETE(_req: NextRequest, ctx: any) {
   try {
-    const newsId = String(ctx?.params?.newsId ?? "").trim();
+    const params = await ctx.params;
+    const newsId = String(params?.newsId ?? "").trim();
     if (!newsId) return json(400, { error: "newsId is required" });
 
     const ddb = getDocClient();
     await ddb.send(
       new DeleteCommand({
         TableName: TABLE_NEWS,
-        Key: { newsId },
+        Key: { news_id: newsId },
       })
     );
 
