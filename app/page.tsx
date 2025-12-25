@@ -230,6 +230,7 @@ export default function HomePage() {
     if (!prompt.trim() || loadingAI) return;
 
     const userPrompt = prompt.trim();
+    setKeyword(userPrompt);
     setPrompt("");
 
     const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
