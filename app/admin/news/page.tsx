@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 
-/* ========= 型定義 (ログで判明した実体に合わせて確定) ========= */
+/* ========= 型定義 ========= */
 type Brand = { brandId: string; name: string };
 type Dept = { deptId: string; name: string };
 type Group = { groupId: string; groupName: string };
@@ -54,8 +54,6 @@ export default function AdminNewsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // ★ 保存中フラグ
   const [isSaving, setIsSaving] = useState(false);
 
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
@@ -69,33 +67,23 @@ export default function AdminNewsPage() {
   async function loadAllData() {
     try {
       const [nRes, bRes, dRes, gRes] = await Promise.all([ 
-        fetch("/api/news"),
-        fetch("/api/brands"),
-        fetch("/api/depts"),
-        fetch("/api/groups"),
+        fetch("/api/news"), fetch("/api/brands"), fetch("/api/depts"), fetch("/api/groups"),
       ]);
-
       const [nJson, bJson, dJson, gJson] = await Promise.all([
-        nRes.json(),
-        bRes.json(),
-        dRes.json(),
-        gRes.json(),
+        nRes.json(), bRes.json(), dRes.json(), gRes.json(),
       ]);
-
       setNewsList(nJson.news || []);
       setBrands(bJson.brands || []);
       setDepts(dJson.depts || []);
       setGroups(gJson.groups || []);
     } catch (e) {
-      console.error("Failed to load news data:", e);
+      console.error("Load error:", e);
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    loadAllData();
-  }, []);
+  useEffect(() => { loadAllData(); }, []);
 
   const brandMap = useMemo(() => brands.reduce((acc, b) => ({ ...acc, [b.brandId]: b }), {} as Record<string, Brand>), [brands]);
   const deptMap = useMemo(() => depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>), [depts]);
@@ -105,7 +93,6 @@ export default function AdminNewsPage() {
     if (loading) return [];
     const kw = filterText.trim().toLowerCase();
     if (!kw) return newsList;
-
     return newsList.filter(n =>
       n.title?.toLowerCase().includes(kw) ||
       n.body?.toLowerCase().includes(kw) ||
@@ -122,15 +109,10 @@ export default function AdminNewsPage() {
   };
 
   const handleEdit = (n: NewsItem) => {
-    setNewsForm({ 
-        ...n, 
-        tags: n.tags || [],
-        targetGroupIds: n.targetGroupIds || [],
-        isActive: n.isActive !== undefined ? n.isActive : true
-    });
+    setNewsForm({ ...n, targetGroupIds: n.targetGroupIds || [], tags: n.tags || [] });
     setTagInput((n.tags || []).join(", "));
     setSelectedNews(n);
-    setIsEditing(false); // 最初は詳細表示
+    setIsEditing(false); // 選択時はまず詳細表示
   };
 
   const handleCancel = () => {
@@ -144,88 +126,57 @@ export default function AdminNewsPage() {
     if (!isEditing || !groupId) return;
     setNewsForm(prev => {
         const currentIds = prev.targetGroupIds || [];
-        if (currentIds.includes(groupId)) {
-            return { ...prev, targetGroupIds: currentIds.filter(id => id !== groupId) };
-        } else {
-            return { ...prev, targetGroupIds: [...currentIds, groupId] };
-        }
+        const nextIds = currentIds.includes(groupId) ? currentIds.filter(id => id !== groupId) : [...currentIds, groupId];
+        return { ...prev, targetGroupIds: nextIds };
     });
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
-    if (name === 'tags') { 
-        setTagInput(value);
-        return;
-    }
-    setNewsForm(prev => {
-        if (name === 'targetGroupIds') return prev;
-        const val = type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
-        return { ...prev, [name]: val };
-    });
+    if (name === 'tags') { setTagInput(value); return; }
+    setNewsForm(prev => ({
+        ...prev,
+        [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value
+    }));
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!newsForm.title || !newsForm.body) {
-      alert("タイトルと本文は必須です。");
-      return;
-    }
-
+    if (!newsForm.title || !newsForm.body) return alert("タイトルと本文は必須です。");
     setIsSaving(true);
-
+    const isNew = !selectedNews;
     const finalTags = tagInput.split(/[,、]/).map(s => s.trim()).filter(Boolean);
-    const isNewCreationMode = !selectedNews;
+    const payload = { ...newsForm, tags: finalTags };
     
-    const payload = {
-      ...newsForm,
-      tags: finalTags,
-    };
-    
-    const endpoint = isNewCreationMode ? "/api/news" : `/api/news/${newsForm.newsId}`;
-    const method = isNewCreationMode ? "POST" : "PUT";
-
+    const endpoint = isNew ? "/api/news" : `/api/news/${newsForm.newsId}`;
+    const method = isNew ? "POST" : "PUT";
     try {
       const res = await fetch(endpoint, {
-        method,
-        headers: { "Content-Type": "application/json" },
+        method, headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        alert(`保存に失敗しました: ${errorText}`);
-        return;
-      }
+      if (!res.ok) throw new Error(await res.text());
       
-      if (isNewCreationMode && sendEmail) {
+      if (isNew && sendEmail) {
         fetch("/api/news/notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: payload.title,
-            body: payload.body,
-            targetGroupIds: payload.targetGroupIds,
-          }),
+          body: JSON.stringify({ title: payload.title, body: payload.body, targetGroupIds: payload.targetGroupIds }),
         }).catch(err => console.error("Notification failed:", err));
       }
 
       await loadAllData();
-      const resData = await res.json().catch(() => ({}));
-      
-      const savedNews = isNewCreationMode ? resData.news : resData.item;
-      if (savedNews) {
-        setSelectedNews(savedNews);
-        setNewsForm(savedNews);
-        setTagInput((savedNews.tags || []).join(", "));
+      const resData = await res.json();
+      const saved = isNew ? resData.news : resData.item;
+      if (saved) {
+        setSelectedNews(saved);
+        setNewsForm(saved);
+        setTagInput((saved.tags || []).join(", "));
       }
-      
       setIsEditing(false);
       alert("保存しました。");
-    } catch (e) {
-      console.error("Save news error:", e);
-      alert("お知らせの保存に失敗しました。");
+    } catch (e: any) {
+      alert(`保存エラー: ${e.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -233,23 +184,18 @@ export default function AdminNewsPage() {
 
   const handleDelete = async () => {
     const newsId = newsForm.newsId;
-    if (!newsId || !confirm("このお知らせを削除してよろしいですか？")) return;
+    if (!newsId || !confirm("このお知らせを完全に削除しますか？")) return;
     try {
-        const res = await fetch(`/api/news/${newsId}`, { method: "DELETE" });
-        if (!res.ok) {
-            const errorText = await res.text();
-            alert(`削除に失敗しました: ${errorText}`);
-            return;
-        }
-        await loadAllData();
-        setSelectedNews(null);
-        setIsEditing(false);
-        setNewsForm(createEmptyNews());
-        setTagInput("");
-        alert("削除しました。");
-    } catch (e) {
-        console.error("Delete news error:", e);
-        alert("お知らせの削除に失敗しました。");
+      const res = await fetch(`/api/news/${newsId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(await res.text());
+      await loadAllData();
+      setSelectedNews(null);
+      setIsEditing(false);
+      setNewsForm(createEmptyNews());
+      setTagInput("");
+      alert("削除しました。");
+    } catch (e: any) {
+      alert(`削除エラー: ${e.message}`);
     }
   };
 
@@ -260,7 +206,7 @@ export default function AdminNewsPage() {
       {isSaving && (
         <div className="kb-loading-overlay">
           <div className="kb-spinner"></div>
-          <p>お知らせを保存しています...<br/>しばらくお待ちください</p>
+          <p>お知らせを保存しています...</p>
         </div>
       )}
 
@@ -268,159 +214,124 @@ export default function AdminNewsPage() {
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-              alt="Logo" 
-              style={{ width: 48, height: 48, objectFit: "contain" }} 
-            />
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-              alt="LogoText" 
-              style={{ height: 22, objectFit: "contain" }} 
-            />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
           </div>
         </Link>
         <div className="kb-topbar-center" style={{ fontSize: "18px", fontWeight: "700" }}>お知らせ管理</div>
         <div className="kb-topbar-right">
+          {/* 戻るボタンを元の右端の位置へ配置 */}
           <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
         </div>
       </div>
 
       <div className="kb-admin-grid-2col">
+        {/* 左カラム：一覧 */}
         <div className="kb-admin-card-large">
           <div className="kb-panel-header-row">
             <div className="kb-admin-head">お知らせ一覧（{loading ? '...' : newsList.length}件）</div>
             <button className="kb-primary-btn" onClick={handleNew} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 999 }} disabled={loading}>＋ 新規作成</button>
           </div>
-          <input type="text" placeholder="タイトル、本文、タグで検索..." className="kb-admin-input" value={filterText} onChange={(e) => setFilterText(e.target.value)} style={{ marginBottom: 12 }} disabled={loading} />
+          <input type="text" placeholder="キーワードで検索..." className="kb-admin-input" value={filterText} onChange={(e) => setFilterText(e.target.value)} style={{ marginBottom: 12 }} />
           
           <div className="kb-manual-list-admin">
             {loading && <div className="kb-admin-body" style={{ color: '#6b7280' }}>データ読み込み中...</div>}
-            {!loading && filteredNews.length > 0 ? (
-                filteredNews.map((n) => {
-                    const status = getStatus(n);
-                    const brandLabel = n.brandId === "ALL" ? '全社共通' : brandMap[n.brandId || '']?.name || '未設定';
-                    const deptLabel = n.deptId === "ALL" ? '全部署' : deptMap[n.deptId || '']?.name || '未設定';
-                    const groupLabels = (n.targetGroupIds || []).map(id => groupMap[id]?.groupName || id);
-                    
-                    const isSelected = !!(selectedNews?.newsId && n.newsId && selectedNews.newsId === n.newsId);
-                    
-                    return (
-                        <div 
-                            key={n.newsId} 
-                            className={`kb-user-item-admin ${isSelected ? 'selected' : ''}`}
-                            onClick={() => handleEdit(n)}
-                        >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                                <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, color: '#ffffff', backgroundColor: status.color, fontWeight: 600 }}>{status.label}</span>
-                                <div className="kb-user-title">{n.title}</div>
-                            </div>
-                            <div className="kb-user-meta-info" style={{ marginTop: 0 }}>
-                                {brandLabel} / {deptLabel} 
-                                {groupLabels.length > 0 && <span style={{ marginLeft: 8, color: '#374151' }}>属性: {groupLabels.join(', ')}</span>}
-                            </div>
-                        </div>
-                    );
-                })
-            ) : (!loading && <div className="kb-admin-body" style={{ color: '#6b7280' }}>一致するお知らせがありません。</div>)}
+            {!loading && filteredNews.map((n) => (
+              <div key={n.newsId} className={`kb-user-item-admin ${selectedNews?.newsId === n.newsId ? 'selected' : ''}`} onClick={() => handleEdit(n)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, color: '#ffffff', backgroundColor: getStatus(n).color, fontWeight: 600 }}>{getStatus(n).label}</span>
+                  <div className="kb-user-title">{n.title}</div>
+                </div>
+                <div className="kb-user-meta-info" style={{ marginTop: 0 }}>
+                  {n.brandId === "ALL" ? '全社共通' : brandMap[n.brandId!]?.name || '未設定'} / {n.deptId === "ALL" ? '全部署' : deptMap[n.deptId!]?.name || '未設定'}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
         
+        {/* 右カラム：フォーム */}
         <div className="kb-admin-card-large">
           <div className="kb-admin-head">{isEditing ? (isNewCreationMode ? '新規お知らせ作成' : 'お知らせ編集') : selectedNews ? 'お知らせ詳細' : 'お知らせ未選択'}</div>
           {(!loading && (isEditing || selectedNews)) && (
             <form className="kb-manual-form" onSubmit={handleSave}>
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">お知らせID</label>
-                <input type="text" name="newsId" className="kb-admin-input full" value={newsForm?.newsId || ""} readOnly style={{ background: '#f3f4f8' }} />
+                <input type="text" className="kb-admin-input full" value={newsForm.newsId} readOnly style={{ background: '#f3f4f8' }} />
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">タイトル（必須）</label>
-                <input type="text" name="title" className="kb-admin-input full" value={newsForm?.title || ''} onChange={handleInputChange} readOnly={!isEditing} />
+                <label className="kb-admin-label full">タイトル</label>
+                <input type="text" name="title" className="kb-admin-input full" value={newsForm.title || ''} onChange={handleInputChange} readOnly={!isEditing} />
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">本文（必須）</label>
-                <textarea name="body" className="kb-admin-textarea full" value={newsForm?.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={8} />
+                <label className="kb-admin-label full">本文</label>
+                <textarea name="body" className="kb-admin-textarea full" value={newsForm.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={8} />
               </div>
 
               <div className="kb-admin-form-row two-col">
                 <div>
-                    <label className="kb-admin-label">対象ブランド</label>
-                    <select name="brandId" className="kb-admin-select full" value={newsForm?.brandId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
-                        <option value="ALL">- 全社共通 -</option>
-                        {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-                    </select>
+                  <label className="kb-admin-label">ブランド</label>
+                  <select name="brandId" className="kb-admin-select full" value={newsForm.brandId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
+                    <option value="ALL">全社共通</option>
+                    {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
+                  </select>
                 </div>
                 <div>
-                    <label className="kb-admin-label">配信部署</label>
-                    <select name="deptId" className="kb-admin-select full" value={newsForm?.deptId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
-                        <option value="ALL">- 全部署 -</option>
-                        {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
-                    </select>
+                  <label className="kb-admin-label">配信部署</label>
+                  <select name="deptId" className="kb-admin-select full" value={newsForm.deptId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
+                    <option value="ALL">全部署</option>
+                    {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
+                  </select>
                 </div>
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">対象属性グループ (リスト選択)</label>
-                <div className="kb-chip-list full" style={{ marginBottom: '8px' }}>
-                    {groups.map((g) => {
-                        const isSelected = newsForm?.targetGroupIds?.includes(g.groupId);
-                        return (
-                            <button key={g.groupId} type="button" className={`kb-chip small ${isSelected ? 'kb-chip-active' : ''}`} onClick={() => handleGroupToggle(g.groupId)} disabled={!isEditing}>
-                                {g.groupName}
-                            </button>
-                        );
-                    })}
+                <label className="kb-admin-label full">対象属性グループ</label>
+                <div className="kb-chip-list">
+                  {groups.map(g => (
+                    <button key={g.groupId} type="button" className={`kb-chip small ${newsForm.targetGroupIds?.includes(g.groupId) ? 'kb-chip-active' : ''}`} onClick={() => handleGroupToggle(g.groupId)} disabled={!isEditing}>{g.groupName}</button>
+                  ))}
                 </div>
               </div>
 
-              <div className="kb-admin-form-row" style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input type="checkbox" name="isActive" checked={newsForm?.isActive ?? true} onChange={handleInputChange} disabled={!isEditing} />
-                  公開を有効にする
+              <div className="kb-admin-form-row">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                  <input type="checkbox" name="isActive" checked={newsForm.isActive ?? true} onChange={handleInputChange} disabled={!isEditing} /> 公開を有効にする
                 </label>
-                {isEditing && isNewCreationMode && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#2563eb', fontWeight: 'bold' }}>
-                    <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)} />
-                    メールにて通知する
-                  </label>
-                )}
               </div>
 
               <div className="kb-admin-form-row two-col">
-                <div>
-                    <label className="kb-admin-label">公開開始日</label>
-                    <input type="date" name="visibleFrom" className="kb-admin-input full" value={newsForm?.visibleFrom || ''} onChange={handleInputChange} readOnly={!isEditing} />
-                </div>
-                <div>
-                    <label className="kb-admin-label">公開終了日</label>
-                    <input type="date" name="visibleTo" className="kb-admin-input full" value={newsForm?.visibleTo || ''} onChange={handleInputChange} readOnly={!isEditing} />
-                </div>
+                <div><label className="kb-admin-label">公開開始日</label><input type="date" name="visibleFrom" className="kb-admin-input full" value={newsForm.visibleFrom || ''} onChange={handleInputChange} readOnly={!isEditing} /></div>
+                <div><label className="kb-admin-label">公開終了日</label><input type="date" name="visibleTo" className="kb-admin-input full" value={newsForm.visibleTo || ''} onChange={handleInputChange} readOnly={!isEditing} /></div>
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">タグ（カンマ区切り）</label>
-                <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: システム, 重要" />
+                <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: 重要, メンテナンス" />
               </div>
 
-              <div className="kb-form-actions" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
-                {/* 削除ボタンを左端に常時表示 (新規作成時以外) */}
-                {selectedNews ? (
-                    <button className="kb-delete-btn" onClick={handleDelete} type="button" style={{ background: '#ef4444' }}>削除</button>
-                ) : <div></div>}
+              {/* ボタンアクションエリア */}
+              <div className="kb-form-actions-news">
+                <div className="left-actions">
+                  {selectedNews && (
+                    <button type="button" className="btn-delete-styled" onClick={handleDelete}>
+                      お知らせを削除する
+                    </button>
+                  )}
+                </div>
 
-                <div style={{ display: 'flex', gap: 10 }}>
+                <div className="right-actions">
                   {isEditing ? (
                     <>
-                        <button className="kb-secondary-btn" onClick={handleCancel} type="button">キャンセル</button>
-                        <button className="kb-primary-btn" type="submit" disabled={!newsForm?.title || !newsForm?.body}>
-                          {isNewCreationMode ? '新規登録' : '保存'}
-                        </button>
+                      <button className="kb-secondary-btn" onClick={handleCancel} type="button">キャンセル</button>
+                      <button className="kb-primary-btn" type="submit" disabled={!newsForm.title || !newsForm.body}>
+                        {isNewCreationMode ? '新規登録' : '保存する'}
+                      </button>
                     </>
                   ) : (
-                    <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button">編集</button>
+                    <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button">内容を編集する</button>
                   )}
                 </div>
               </div>
@@ -430,38 +341,38 @@ export default function AdminNewsPage() {
       </div>
 
       <style jsx>{`
-        .kb-loading-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          background: rgba(255, 255, 255, 0.8);
+        .kb-form-actions-news {
           display: flex;
-          flex-direction: column;
+          justify-content: space-between;
           align-items: center;
-          justify-content: center;
-          z-index: 9999;
+          margin-top: 32px;
+          padding-top: 20px;
+          border-top: 1px solid #edf2f7;
         }
-        .kb-spinner {
-          width: 50px;
-          height: 50px;
-          border: 5px solid #e2e8f0;
-          border-top: 5px solid #3b82f6;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 16px;
+        .right-actions {
+          display: flex;
+          gap: 12px;
         }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        .btn-delete-styled {
+          background-color: #fff;
+          color: #e53e3e;
+          border: 1.5px solid #fca5a5;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s;
         }
-        .kb-loading-overlay p {
-          font-weight: 700;
-          color: #1e293b;
-          text-align: center;
-          line-height: 1.6;
+        .btn-delete-styled:hover {
+          background-color: #fef2f2;
+          border-color: #ef4444;
+          box-shadow: 0 2px 4px rgba(239, 68, 68, 0.1);
         }
+        .kb-loading-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; }
+        .kb-spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .kb-loading-overlay p { font-weight: 700; color: #1e293b; }
       `}</style>
     </div>
   );
