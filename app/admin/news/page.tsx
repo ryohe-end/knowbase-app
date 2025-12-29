@@ -1,60 +1,52 @@
-// app/admin/news/page.tsx
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 
-/* ========= 型定義 ========= */
+/* ========= 型定義 (ログで判明した実体に合わせて確定) ========= */
 type Brand = { brandId: string; name: string };
 type Dept = { deptId: string; name: string };
 type Group = { groupId: string; groupName: string };
 
 type NewsItem = {
-  newsId: string;
+  newsId: string;      // パーティションキー
   title: string;
   body: string;
-  fromDate?: string | null;
-  toDate?: string | null;
+  visibleFrom?: string | null;
+  visibleTo?: string | null;
   brandId?: string | null;
   deptId?: string | null;
   targetGroupIds?: string[];
   tags?: string[];
-  createdAt?: string;
-  updatedAt?: string;
-  isHidden?: boolean;
+  publishedAt?: string;
+  isActive?: boolean;
 };
 
 /* ========= ヘルパー関数 ========= */
-
-const generateNewNewsId = () => {
-  return `N900-${Date.now().toString().slice(-6)}`;
-};
+const generateNewNewsId = () => `N900-${Date.now().toString().slice(-6)}`;
 
 const createEmptyNews = (): NewsItem => ({
   newsId: generateNewNewsId(),
   title: "",
   body: "",
-  fromDate: "",
-  toDate: "",
+  visibleFrom: "",
+  visibleTo: "",
   brandId: "ALL",
   deptId: "ALL",
   targetGroupIds: ["direct"], 
   tags: [],
-  isHidden: false,
+  isActive: true,
 });
 
-const getTodayDate = () => {
-  return new Date().toISOString().slice(0, 10);
-};
+const getTodayDate = () => new Date().toISOString().slice(0, 10);
 
 function getStatus(n: NewsItem) {
-  if (n.isHidden) return { label: "非表示", color: "#6b7280" }; 
+  if (n.isActive === false) return { label: "非表示", color: "#6b7280" }; 
   const today = getTodayDate();
-  if (n.fromDate && n.fromDate > today) return { label: "公開前", color: "#9ca3af" };
-  if (n.toDate && n.toDate < today) return { label: "公開終了", color: "#ef4444" };
+  if (n.visibleFrom && n.visibleFrom > today) return { label: "公開前", color: "#9ca3af" };
+  if (n.visibleTo && n.visibleTo < today) return { label: "公開終了", color: "#ef4444" };
   return { label: "公開中", color: "#22c55e" };
 }
-
 
 export default function AdminNewsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -62,6 +54,9 @@ export default function AdminNewsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // ★ 保存中フラグ
+  const [isSaving, setIsSaving] = useState(false);
 
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -84,7 +79,7 @@ export default function AdminNewsPage() {
         nRes.json(),
         bRes.json(),
         dRes.json(),
-        gRes.json(), 
+        gRes.json(),
       ]);
 
       setNewsList(nJson.news || []);
@@ -92,7 +87,7 @@ export default function AdminNewsPage() {
       setDepts(dJson.depts || []);
       setGroups(gJson.groups || []);
     } catch (e) {
-      console.error("Failed to load admin news:", e);
+      console.error("Failed to load news data:", e);
     } finally {
       setLoading(false);
     }
@@ -118,7 +113,6 @@ export default function AdminNewsPage() {
     );
   }, [newsList, filterText, loading]);
 
-
   const handleNew = () => {
     setNewsForm(createEmptyNews());
     setTagInput("");
@@ -132,11 +126,11 @@ export default function AdminNewsPage() {
         ...n, 
         tags: n.tags || [],
         targetGroupIds: n.targetGroupIds || [],
-        isHidden: n.isHidden || false
+        isActive: n.isActive !== undefined ? n.isActive : true
     });
     setTagInput((n.tags || []).join(", "));
     setSelectedNews(n);
-    setIsEditing(true);
+    setIsEditing(false); // 最初は詳細表示
   };
 
   const handleCancel = () => {
@@ -179,20 +173,16 @@ export default function AdminNewsPage() {
       return;
     }
 
+    setIsSaving(true);
+
     const finalTags = tagInput.split(/[,、]/).map(s => s.trim()).filter(Boolean);
-    
-    // 判定用変数を isNewCreationMode に統一
     const isNewCreationMode = !selectedNews;
     
     const payload = {
       ...newsForm,
-      fromDate: newsForm.fromDate || null,
-      toDate: newsForm.toDate || null,
-      targetGroupIds: newsForm.targetGroupIds || [],
       tags: finalTags,
     };
     
-    // エンドポイントとメソッドの判定に isNewCreationMode を使用
     const endpoint = isNewCreationMode ? "/api/news" : `/api/news/${newsForm.newsId}`;
     const method = isNewCreationMode ? "POST" : "PUT";
 
@@ -204,8 +194,8 @@ export default function AdminNewsPage() {
       });
 
       if (!res.ok) {
-        const errorJson = await res.json();
-        alert(`保存に失敗しました: ${errorJson.error || res.statusText}`);
+        const errorText = await res.text();
+        alert(`保存に失敗しました: ${errorText}`);
         return;
       }
       
@@ -224,10 +214,7 @@ export default function AdminNewsPage() {
       await loadAllData();
       const resData = await res.json().catch(() => ({}));
       
-      // 保存後のデータ取得 (新規作成は resData.news、更新は resData.item)
-      // ここでも isNewCreationMode を使用
       const savedNews = isNewCreationMode ? resData.news : resData.item;
-      
       if (savedNews) {
         setSelectedNews(savedNews);
         setNewsForm(savedNews);
@@ -239,16 +226,19 @@ export default function AdminNewsPage() {
     } catch (e) {
       console.error("Save news error:", e);
       alert("お知らせの保存に失敗しました。");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleDelete = async (newsId: string) => {
-    if (!confirm("このお知らせを削除してよろしいですか？")) return;
+  const handleDelete = async () => {
+    const newsId = newsForm.newsId;
+    if (!newsId || !confirm("このお知らせを削除してよろしいですか？")) return;
     try {
         const res = await fetch(`/api/news/${newsId}`, { method: "DELETE" });
         if (!res.ok) {
-            const errorJson = await res.json();
-            alert(`削除に失敗しました: ${errorJson.error || res.statusText}`);
+            const errorText = await res.text();
+            alert(`削除に失敗しました: ${errorText}`);
             return;
         }
         await loadAllData();
@@ -256,6 +246,7 @@ export default function AdminNewsPage() {
         setIsEditing(false);
         setNewsForm(createEmptyNews());
         setTagInput("");
+        alert("削除しました。");
     } catch (e) {
         console.error("Delete news error:", e);
         alert("お知らせの削除に失敗しました。");
@@ -266,22 +257,29 @@ export default function AdminNewsPage() {
 
   return (
     <div className="kb-root">
+      {isSaving && (
+        <div className="kb-loading-overlay">
+          <div className="kb-spinner"></div>
+          <p>お知らせを保存しています...<br/>しばらくお待ちください</p>
+        </div>
+      )}
+
       {/* ===== Top bar ===== */}
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
-  <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-      alt="Logo" 
-      style={{ width: 48, height: 48, objectFit: "contain" }} 
-    />
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-      alt="LogoText" 
-      style={{ height: 22, objectFit: "contain" }} 
-    />
-  </div>
-</Link>
+          <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
+              alt="Logo" 
+              style={{ width: 48, height: 48, objectFit: "contain" }} 
+            />
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
+              alt="LogoText" 
+              style={{ height: 22, objectFit: "contain" }} 
+            />
+          </div>
+        </Link>
         <div className="kb-topbar-center" style={{ fontSize: "18px", fontWeight: "700" }}>お知らせ管理</div>
         <div className="kb-topbar-right">
           <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
@@ -299,7 +297,7 @@ export default function AdminNewsPage() {
           <div className="kb-manual-list-admin">
             {loading && <div className="kb-admin-body" style={{ color: '#6b7280' }}>データ読み込み中...</div>}
             {!loading && filteredNews.length > 0 ? (
-                filteredNews.map((n, index) => {
+                filteredNews.map((n) => {
                     const status = getStatus(n);
                     const brandLabel = n.brandId === "ALL" ? '全社共通' : brandMap[n.brandId || '']?.name || '未設定';
                     const deptLabel = n.deptId === "ALL" ? '全部署' : deptMap[n.deptId || '']?.name || '未設定';
@@ -309,7 +307,7 @@ export default function AdminNewsPage() {
                     
                     return (
                         <div 
-                            key={n.newsId || `news-${index}`} 
+                            key={n.newsId} 
                             className={`kb-user-item-admin ${isSelected ? 'selected' : ''}`}
                             onClick={() => handleEdit(n)}
                         >
@@ -344,7 +342,7 @@ export default function AdminNewsPage() {
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">本文（必須）</label>
-                <textarea name="body" className="kb-admin-textarea full" value={newsForm?.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={5} />
+                <textarea name="body" className="kb-admin-textarea full" value={newsForm?.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={8} />
               </div>
 
               <div className="kb-admin-form-row two-col">
@@ -352,14 +350,14 @@ export default function AdminNewsPage() {
                     <label className="kb-admin-label">対象ブランド</label>
                     <select name="brandId" className="kb-admin-select full" value={newsForm?.brandId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
                         <option value="ALL">- 全社共通 -</option>
-                        {brands.map(b => <option key={b.brandId || 'brand-null'} value={b.brandId}>{b.name}</option>)}
+                        {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
                     </select>
                 </div>
                 <div>
                     <label className="kb-admin-label">配信部署</label>
                     <select name="deptId" className="kb-admin-select full" value={newsForm?.deptId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
                         <option value="ALL">- 全部署 -</option>
-                        {depts.map(d => <option key={d.deptId || 'dept-null'} value={d.deptId}>{d.name}</option>)}
+                        {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
                     </select>
                 </div>
               </div>
@@ -367,10 +365,10 @@ export default function AdminNewsPage() {
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">対象属性グループ (リスト選択)</label>
                 <div className="kb-chip-list full" style={{ marginBottom: '8px' }}>
-                    {groups.map((g, idx) => {
+                    {groups.map((g) => {
                         const isSelected = newsForm?.targetGroupIds?.includes(g.groupId);
                         return (
-                            <button key={g.groupId || `group-${idx}`} type="button" className={`kb-chip small ${isSelected ? 'kb-chip-active' : ''}`} onClick={() => handleGroupToggle(g.groupId)} disabled={!isEditing}>
+                            <button key={g.groupId} type="button" className={`kb-chip small ${isSelected ? 'kb-chip-active' : ''}`} onClick={() => handleGroupToggle(g.groupId)} disabled={!isEditing}>
                                 {g.groupName}
                             </button>
                         );
@@ -380,8 +378,8 @@ export default function AdminNewsPage() {
 
               <div className="kb-admin-form-row" style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' }}>
-                  <input type="checkbox" name="isHidden" checked={newsForm?.isHidden || false} onChange={handleInputChange} disabled={!isEditing} />
-                  このお知らせを非表示にする
+                  <input type="checkbox" name="isActive" checked={newsForm?.isActive ?? true} onChange={handleInputChange} disabled={!isEditing} />
+                  公開を有効にする
                 </label>
                 {isEditing && isNewCreationMode && (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: '#2563eb', fontWeight: 'bold' }}>
@@ -394,11 +392,11 @@ export default function AdminNewsPage() {
               <div className="kb-admin-form-row two-col">
                 <div>
                     <label className="kb-admin-label">公開開始日</label>
-                    <input type="date" name="fromDate" className="kb-admin-input full" value={newsForm?.fromDate || ''} onChange={handleInputChange} readOnly={!isEditing} />
+                    <input type="date" name="visibleFrom" className="kb-admin-input full" value={newsForm?.visibleFrom || ''} onChange={handleInputChange} readOnly={!isEditing} />
                 </div>
                 <div>
                     <label className="kb-admin-label">公開終了日</label>
-                    <input type="date" name="toDate" className="kb-admin-input full" value={newsForm?.toDate || ''} onChange={handleInputChange} readOnly={!isEditing} />
+                    <input type="date" name="visibleTo" className="kb-admin-input full" value={newsForm?.visibleTo || ''} onChange={handleInputChange} readOnly={!isEditing} />
                 </div>
               </div>
 
@@ -407,23 +405,64 @@ export default function AdminNewsPage() {
                 <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: システム, 重要" />
               </div>
 
-              <div className="kb-form-actions">
-                {selectedNews && !isEditing && (
-                    <button className="kb-delete-btn" onClick={() => handleDelete(selectedNews.newsId)} type="button">削除</button>
-                )}
-                {isEditing ? (
+              <div className="kb-form-actions" style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20 }}>
+                {/* 削除ボタンを左端に常時表示 (新規作成時以外) */}
+                {selectedNews ? (
+                    <button className="kb-delete-btn" onClick={handleDelete} type="button" style={{ background: '#ef4444' }}>削除</button>
+                ) : <div></div>}
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {isEditing ? (
                     <>
                         <button className="kb-secondary-btn" onClick={handleCancel} type="button">キャンセル</button>
-                        <button className="kb-primary-btn" type="submit" disabled={!newsForm?.title || !newsForm?.body}>{isNewCreationMode ? '新規登録' : '保存'}</button>
+                        <button className="kb-primary-btn" type="submit" disabled={!newsForm?.title || !newsForm?.body}>
+                          {isNewCreationMode ? '新規登録' : '保存'}
+                        </button>
                     </>
-                ) : (
-                    <button className="kb-primary-btn" onClick={() => handleEdit(selectedNews!)} type="button">編集</button>
-                )}
+                  ) : (
+                    <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button">編集</button>
+                  )}
+                </div>
               </div>
             </form>
           )}
         </div>
       </div>
+
+      <style jsx>{`
+        .kb-loading-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(255, 255, 255, 0.8);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+        }
+        .kb-spinner {
+          width: 50px;
+          height: 50px;
+          border: 5px solid #e2e8f0;
+          border-top: 5px solid #3b82f6;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+          margin-bottom: 16px;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .kb-loading-overlay p {
+          font-weight: 700;
+          color: #1e293b;
+          text-align: center;
+          line-height: 1.6;
+        }
+      `}</style>
     </div>
   );
 }
