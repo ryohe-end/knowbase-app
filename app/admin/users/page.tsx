@@ -293,18 +293,20 @@ export default function AdminUsersPage() {
     <div className="kb-root">
       {/* ... Top bar のコードは省略 ... */}
       <div className="kb-topbar">
-        <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-            <img
-                src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
-                alt="KB Logo"
-                style={{ width: "48px", height: "48px", objectFit: "contain" }}
-            />
-            <img
-                src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
-                alt="KnowBase Text Logo"
-                style={{ height: "22px", objectFit: "contain" }}
-            />
-        </div>
+        <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
+  <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+    <img 
+      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
+      alt="Logo" 
+      style={{ width: 48, height: 48, objectFit: "contain" }} 
+    />
+    <img 
+      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
+      alt="LogoText" 
+      style={{ height: 22, objectFit: "contain" }} 
+    />
+  </div>
+</Link>
 
         <div className="kb-topbar-center" style={{ fontSize: "18px", fontWeight: "700" }}>
             ユーザー管理
