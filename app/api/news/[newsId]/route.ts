@@ -31,18 +31,18 @@ function json(status: number, body: any) {
 function mapDbToRecord(item: any) {
   if (!item) return null;
   return {
-    newsId: item.news_id,
-    title: item.title,
-    body: item.body,
-    fromDate: item.start,
-    toDate: item.end,
-    brandId: item.brand_id,
-    deptId: item.dept_id,
-    targetGroupIds: item.target_group_ids || [],
+    newsId: item.news_id, // ここが DB の news_id を参照しているか確認
+    title: item.title || "",
+    body: item.body || "",
+    fromDate: item.start || "", // DB上の 'start' を 'fromDate' にマッピング
+    toDate: item.end || "",     // DB上の 'end' を 'toDate' にマッピング
+    brandId: item.brand_id || "ALL",
+    deptId: item.dept_id || "ALL",
+    targetGroupIds: item.target_group_ids || [], // undefined 対策
     tags: item.tags || [],
-    createdAt: item.created_at,
-    updatedAt: item.updated_at,
-    isHidden: item.is_hidden ?? false,
+    createdAt: item.created_at || new Date().toISOString(),
+    updatedAt: item.updated_at || new Date().toISOString(),
+    isHidden: item.is_hidden === true, // 明確に boolean 判定
   };
 }
 

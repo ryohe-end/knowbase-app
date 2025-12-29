@@ -180,7 +180,9 @@ export default function AdminNewsPage() {
     }
 
     const finalTags = tagInput.split(/[,、]/).map(s => s.trim()).filter(Boolean);
-    const isNewCreation = !!(newsForm?.newsId?.startsWith("N900-"));
+    
+    // 判定用変数を isNewCreationMode に統一
+    const isNewCreationMode = !selectedNews;
     
     const payload = {
       ...newsForm,
@@ -190,8 +192,9 @@ export default function AdminNewsPage() {
       tags: finalTags,
     };
     
-    const endpoint = isNewCreation ? "/api/news" : `/api/news/${newsForm.newsId}`;
-    const method = isNewCreation ? "POST" : "PUT";
+    // エンドポイントとメソッドの判定に isNewCreationMode を使用
+    const endpoint = isNewCreationMode ? "/api/news" : `/api/news/${newsForm.newsId}`;
+    const method = isNewCreationMode ? "POST" : "PUT";
 
     try {
       const res = await fetch(endpoint, {
@@ -206,7 +209,7 @@ export default function AdminNewsPage() {
         return;
       }
       
-      if (isNewCreation && sendEmail) {
+      if (isNewCreationMode && sendEmail) {
         fetch("/api/news/notify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -220,10 +223,17 @@ export default function AdminNewsPage() {
 
       await loadAllData();
       const resData = await res.json().catch(() => ({}));
-      const savedNews = isNewCreation ? resData.news : payload;
-      setSelectedNews(savedNews);
-      setNewsForm(savedNews);
-      setTagInput((savedNews.tags || []).join(", "));
+      
+      // 保存後のデータ取得 (新規作成は resData.news、更新は resData.item)
+      // ここでも isNewCreationMode を使用
+      const savedNews = isNewCreationMode ? resData.news : resData.item;
+      
+      if (savedNews) {
+        setSelectedNews(savedNews);
+        setNewsForm(savedNews);
+        setTagInput((savedNews.tags || []).join(", "));
+      }
+      
       setIsEditing(false);
       alert("保存しました。");
     } catch (e) {
@@ -252,16 +262,26 @@ export default function AdminNewsPage() {
     }
   };
 
-  const isNewCreationMode = !!(newsForm?.newsId?.startsWith("N900-"));
+  const isNewCreationMode = !selectedNews;
 
   return (
     <div className="kb-root">
       {/* ===== Top bar ===== */}
       <div className="kb-topbar">
-        <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="KB Logo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="KnowBase Text Logo" style={{ height: "22px", objectFit: "contain" }} />
-        </div>
+        <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
+  <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+    <img 
+      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
+      alt="Logo" 
+      style={{ width: 48, height: 48, objectFit: "contain" }} 
+    />
+    <img 
+      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
+      alt="LogoText" 
+      style={{ height: 22, objectFit: "contain" }} 
+    />
+  </div>
+</Link>
         <div className="kb-topbar-center" style={{ fontSize: "18px", fontWeight: "700" }}>お知らせ管理</div>
         <div className="kb-topbar-right">
           <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
@@ -269,7 +289,6 @@ export default function AdminNewsPage() {
       </div>
 
       <div className="kb-admin-grid-2col">
-        {/* 左カラム: お知らせ一覧 */}
         <div className="kb-admin-card-large">
           <div className="kb-panel-header-row">
             <div className="kb-admin-head">お知らせ一覧（{loading ? '...' : newsList.length}件）</div>
@@ -286,7 +305,6 @@ export default function AdminNewsPage() {
                     const deptLabel = n.deptId === "ALL" ? '全部署' : deptMap[n.deptId || '']?.name || '未設定';
                     const groupLabels = (n.targetGroupIds || []).map(id => groupMap[id]?.groupName || id);
                     
-                    // 修正: IDが有効な場合のみ比較し、undefined同士で一致しないようにガードする
                     const isSelected = !!(selectedNews?.newsId && n.newsId && selectedNews.newsId === n.newsId);
                     
                     return (
@@ -310,14 +328,13 @@ export default function AdminNewsPage() {
           </div>
         </div>
         
-        {/* 右カラム: 編集/詳細フォーム */}
         <div className="kb-admin-card-large">
           <div className="kb-admin-head">{isEditing ? (isNewCreationMode ? '新規お知らせ作成' : 'お知らせ編集') : selectedNews ? 'お知らせ詳細' : 'お知らせ未選択'}</div>
           {(!loading && (isEditing || selectedNews)) && (
             <form className="kb-manual-form" onSubmit={handleSave}>
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">お知らせID</label>
-                <input type="text" name="newsId" className="kb-admin-input full" value={newsForm?.newsId || ''} readOnly style={{ background: '#f3f4f8' }} />
+                <input type="text" name="newsId" className="kb-admin-input full" value={newsForm?.newsId || ""} readOnly style={{ background: '#f3f4f8' }} />
               </div>
 
               <div className="kb-admin-form-row">
