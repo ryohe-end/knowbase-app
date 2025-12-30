@@ -1,562 +1,319 @@
-// app/admin/page.tsx
 "use client";
 
-import { useState } from "react"; // useState を追加
+import React, { useState, useEffect } from "react";
+import Link from "next/link";
+// loading.tsx と同じデザインをインポート（または共通化）
+import Loading from "./loading";
 
-/* ========= 型 (app/page.tsx からコピー) ========= */
-
+/* ========= 型・ヘルパー関数 ========= */
 type Manual = {
-  manualId: string;
-  title: string;
-  brandId?: string;
-  brand?: string;
-  bizId?: string;
-  biz?: string;
-  desc?: string | null;
-  updatedAt?: string;
-  tags?: string[];
-  embedUrl?: string;
-  isNew?: boolean;
-  noDownload?: boolean;
-  readCount?: number;
-  startDate?: string;
-  endDate?: string;
+  manualId: string; title: string; brandId?: string; brand?: string; bizId?: string; biz?: string;
+  desc?: string | null; updatedAt?: string; tags?: string[]; embedUrl?: string;
 };
 
-type Brand = {
-  brandId: string;
-  name: string;
-  sortOrder?: number;
-  isActive?: boolean;
-};
-
-type Dept = {
-  deptId: string;
-  name: string;
-  sortOrder?: number;
-  isActive?: boolean;
-};
-
-// マニュアルモーダルで使用するマップは空オブジェクトで仮定義
-const brandMap: Record<string, Brand> = {};
-const deptMap: Record<string, Dept> = {};
-
-// Google Drive / Slides 埋め込み用 URL 整形（app/page.tsx からコピー）
 const getEmbedSrc = (url?: string) => {
   if (!url) return "";
-
   let embedSrc = url;
-
-  // Google スライドは /embed の URL そのまま
-  if (embedSrc.includes("docs.google.com/presentation")) {
-    return embedSrc;
-  }
-
-  // Google Drive ファイル（/file/d/.../view） → /preview に変換
+  if (embedSrc.includes("docs.google.com/presentation")) return embedSrc;
   if (embedSrc.includes("drive.google.com/file")) {
-    const m = embedSrc.match(
-      /https:\/\/drive\.google\.com\/file\/d\/([^/]+)/
-    );
-    if (m) {
-      const id = m[1];
-      return `https://drive.google.com/file/d/${id}/preview`;
-    }
+    const m = embedSrc.match(/https:\/\/drive\.google\.com\/file\/d\/([^/]+)/);
+    if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
   }
-
-  // その他はそのまま
   return embedSrc;
 };
 
-
 export default function AdminHome() {
-  // マニュアルプレビュー用状態
+  const [isInitializing, setIsInitializing] = useState(true);
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
-  
-  // ポータルサイトの使い方マニュアルのデータ
+
+  // 【追加】最低表示時間を設定
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsInitializing(false);
+    }, 1200); // ここで表示時間を調整（1200ms = 1.2秒）
+    return () => clearTimeout(timer);
+  }, []);
+
   const portalManual: Manual = {
     manualId: "PORTAL_GUIDE",
-    title: "ポータルサイト Know Base の使い方",
-    desc: "Know Base の各機能（マニュアル検索、Knowbie、担当者検索）の利用方法を説明します。",
-    embedUrl: "https://docs.google.com/presentation/d/1Bf2m1b04jD92w7g0Xo4t7s5U6yD3H3v5aF0r2hL6yR8/embed?start=false&loop=false&delayms=3000",
+    title: "Know Base 利用ガイド",
+    desc: "ポータルサイトの操作方法を解説します。",
+    embedUrl: "https://docs.google.com/presentation/d/1Bf2m1b04jD92w7g0Xo4t7s5U6yD3H3v5aF0r2hL6yR8/embed",
     updatedAt: new Date().toISOString().slice(0, 10),
-    tags: ["ポータル", "利用方法", "ガイド"],
+    tags: ["ガイド"],
   };
 
+  // 初期化中は loading.tsx と同じ画面を出す
+  if (isInitializing) {
+    return <Loading />;
+  }
+
   return (
-    <div className="kb-root">
-      {/* ===== Top bar (一般画面と共通化済み) ===== */}
+    <div className="kb-admin-root">
+      {/* Top bar */}
       <div className="kb-topbar">
-        <div
-          className="kb-topbar-left"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "20px",
-          }}
-        >
-          {/* 左：KBアイコン */}
-          <img
-            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
-            alt="KB Logo"
-            style={{
-              width: "48px",
-              height: "48px",
-              objectFit: "contain",
-            }}
-          />
-
-          {/* 右：KnowBase文字ロゴ */}
-          <img
-            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
-            alt="KnowBase Text Logo"
-            style={{
-              height: "22px",
-              objectFit: "contain",
-            }}
-          />
-        </div>
-
-        <div className="kb-topbar-center" />
-
-        <div className="kb-topbar-right">
-          <button
-            className="kb-logout-btn"
-            onClick={() => (window.location.href = "/")}
-          >
-            一般画面へ戻る
-          </button>
-        </div>
-      </div>
-
-      <div
-        style={{
-          padding: "16px",
-          background: "#ffffff",
-          borderRadius: 16,
-          border: "1px solid #e5e7eb",
-        }}
-      >
-        <div className="kb-title-main" style={{ marginBottom: 12 }}>
-          管理メニュー
-        </div>
-
-        {/* 管理メニューをカード形式のグリッドで表示 */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-            gap: "16px",
-          }}
-        >
-          {/* マニュアル管理カード */}
-          <a href="/admin/manuals" className="kb-admin-menu-card">
-            <div className="kb-card-icon">📄</div>
-            <div className="kb-card-title-main">マニュアル管理</div>
-            <div className="kb-card-desc">
-              マニュアルの登録・編集・削除を行います。
-            </div>
-          </a>
-
-          {/* お知らせ管理カード */}
-          <a href="/admin/news" className="kb-admin-menu-card">
-            <div className="kb-card-icon">📰</div>
-            <div className="kb-card-title-main">お知らせ管理</div>
-            <div className="kb-card-desc">
-              トップページに表示するお知らせを作成・管理します。
-            </div>
-          </a>
-
-          {/* 担当者管理カード */}
-          <a href="/admin/contacts" className="kb-admin-menu-card">
-            <div className="kb-card-icon">👤</div>
-            <div className="kb-card-title-main">担当者管理</div>
-            <div className="kb-card-desc">
-              各業務の担当者情報（連絡先）を管理します。
-            </div>
-          </a>
-
-          {/* ユーザー管理カード */}
-          <a href="/admin/users" className="kb-admin-menu-card">
-            <div className="kb-card-icon">🧑‍💼</div>
-            <div className="kb-card-title-main">ユーザー管理</div>
-            <div className="kb-card-desc">
-              ユーザーのアクセス権限、ブランド・部署の所属を設定します。
-            </div>
-          </a>
-        </div>
-        
-        {/* マニュアルボタン */}
-        <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px dashed #e5e7eb" }}>
-          <button 
-            className="kb-primary-btn"
-            style={{ padding: "10px 16px", fontSize: 13, minWidth: 200 }}
-            onClick={() => setPreviewManual(portalManual)}
-          >
-            📘 このポータルサイトの使い方
-          </button>
-        </div>
-      </div>
-
-      {/* ===== マニュアル プレビューモーダル (app/page.tsx からコピー) ===== */}
-      {previewManual && (
-        <div
-          className="kb-modal-backdrop"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(15,23,42,0.55)",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: "16px",
-            zIndex: 9999,
-            backdropFilter: "blur(4px)",
-          }}
-          onClick={() => setPreviewManual(null)}
-        >
-          <div
-            className="kb-modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              maxWidth: "1040px",
-              maxHeight: "90vh",
-              background:
-                "linear-gradient(135deg, #0f172a 0%, #020617 20%, #f9fafb 20%, #ffffff 100%)",
-              borderRadius: 20,
-              padding: 0,
-              boxShadow: "0 24px 60px rgba(15,23,42,0.5)",
-              display: "flex",
-              flexDirection: "column",
-              overflow: "hidden",
-            }}
-          >
-            {/* ヘッダー */}
-            <div
-              style={{
-                padding: "16px 20px",
-                background:
-                  "radial-gradient(circle at top left, #0ea5e9, #020617)",
-                color: "#e5f4ff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-              }}
+        <div className="kb-topbar-inner">
+          <div className="kb-topbar-left">
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
+              alt="Logo" 
+              className="kb-header-logo-img" 
+            />
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
+              alt="Text Logo" 
+              className="kb-header-text-img" 
+            />
+          </div>
+          <div className="kb-topbar-right">
+            <button 
+              className="kb-logout-btn" 
+              onClick={() => (window.location.href = "/")}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div
-                  style={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: "999px",
-                    background: "rgba(15,23,42,0.6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 18,
-                  }}
-                >
-                  📘
-                </div>
-                <div>
-                  <div
-                    style={{
-                      fontSize: 16,
-                      fontWeight: 700,
-                      marginBottom: 2,
-                      color: "#f9fafb",
-                    }}
-                  >
-                    {previewManual.title}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      opacity: 0.9,
-                    }}
-                  >
-                    {previewManual.brandId &&
-                      (brandMap[previewManual.brandId]?.name ||
-                        previewManual.brand ||
-                        "ブランド未設定")}
-                    {previewManual.bizId &&
-                      ` / ${
-                        deptMap[previewManual.bizId]?.name ||
-                        previewManual.biz ||
-                        "部署未設定"
-                      }`}
-                    {previewManual.updatedAt &&
-                      ` / 更新日: ${previewManual.updatedAt}`}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {previewManual.embedUrl && (
-                  <button
-                    className="kb-primary-btn"
-                    style={{
-                      fontSize: 12,
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: "none",
-                      background: "#f9fafb",
-                      color: "#0f172a",
-                      cursor: "pointer",
-                    }}
-                    onClick={() => {
-                      window.open(previewManual.embedUrl!, "_blank");
-                    }}
-                  >
-                    新しいタブで開く
-                  </button>
-                )}
-                <button
-                  className="kb-secondary-btn"
-                  style={{
-                    fontSize: 12,
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(248,250,252,0.6)",
-                    background: "transparent",
-                    color: "#e5f4ff",
-                    cursor: "pointer",
-                  }}
-                  onClick={() => setPreviewManual(null)}
-                >
-                  閉じる
-                </button>
-              </div>
-            </div>
-
-            {/* ボディ */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                padding: 16,
-                gap: 12,
-                background: "#f9fafb",
-                flex: 1,
-                minHeight: 0,
-              }}
-            >
-              {/* タグ & 説明 */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                {(previewManual.tags || []).length > 0 && (
-                  <div className="kb-tag-row">
-                    {(previewManual.tags || []).map((t, i) => (
-                      <span
-                        className="kb-tag"
-                        key={i}
-                        style={{
-                          fontSize: 11,
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          background: "#e0f2fe",
-                          color: "#0369a1",
-                        }}
-                      >
-                        #{t}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {previewManual.desc && (
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: "#374151",
-                      whiteSpace: "pre-wrap",
-                      borderRadius: 12,
-                      background: "#ffffff",
-                      padding: 10,
-                      border: "1px solid #e5e7eb",
-                    }}
-                  >
-                    {previewManual.desc}
-                  </div>
-                )}
-              </div>
-
-              {/* プレビューエリア（16:9 固定） */}
-              {(() => {
-                const embedSrc = getEmbedSrc(previewManual.embedUrl);
-                if (!embedSrc) {
-                  return (
-                    <div
-                      className="kb-subnote"
-                      style={{
-                        fontSize: 13,
-                        color: "#6b7280",
-                        padding: 12,
-                        borderRadius: 10,
-                        background: "#e5e7eb",
-                      }}
-                    >
-                      このマニュアルにはプレビュー用の URL が設定されていません。
-                    </div>
-                  );
-                }
-
-                return (
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      justifyContent: "center",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "100%",
-                        maxWidth: 960,
-                        aspectRatio: "16 / 9",
-                        borderRadius: 14,
-                        overflow: "hidden",
-                        border: "1px solid #d1d5db",
-                        background: "#020617",
-                        position: "relative",
-                      }}
-                    >
-                      <iframe
-                        src={embedSrc}
-                        style={{
-                          position: "absolute",
-                          inset: 0,
-                          width: "100%",
-                          height: "100%",
-                          border: "none",
-                          background: "#020617",
-                        }}
-                        allowFullScreen
-                        loading="lazy"
-                      />
-
-                      {/* 表示されない場合のメッセージバー */}
-                      <div
-                        style={{
-                          position: "absolute",
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          padding: "6px 10px",
-                          fontSize: 11,
-                          color: "#e5e7eb",
-                          background:
-                            "linear-gradient(90deg, rgba(15,23,42,0.95), rgba(15,23,42,0.7))",
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <span>
-                          表示されない場合は「新しいタブで開く」ボタンから閲覧してください。
-                        </span>
-                        {previewManual.embedUrl && (
-                          <button
-                            style={{
-                              fontSize: 11,
-                              padding: "4px 8px",
-                              borderRadius: 999,
-                              border: "1px solid rgba(248,250,252,0.8)",
-                              background: "transparent",
-                              color: "#e5e7eb",
-                              cursor: "pointer",
-                            }}
-                            onClick={() =>
-                              window.open(previewManual.embedUrl!, "_blank")
-                            }
-                          >
-                            タブで開く
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
+              一般画面へ戻る
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* カード形式のスタイルを追加 */}
+      <div className="kb-admin-wrapper">
+        <header className="kb-admin-header">
+          <h1>Knowbie管理者画面</h1>
+          <p>管理権限：統合管理者マスタ</p>
+        </header>
+
+        <div className="kb-menu-grid">
+          <Link href="/admin/manuals" className="kb-admin-card card-blue">
+            <div className="kb-card-icon-bg">📄</div>
+            <div className="kb-card-text-area">
+              <h3 className="kb-card-title">マニュアル管理</h3>
+              <p className="kb-card-desc">コンテンツの登録・編集・削除</p>
+            </div>
+            <div className="kb-card-arrow">→</div>
+          </Link>
+
+          <Link href="/admin/news" className="kb-admin-card card-navy">
+            <div className="kb-card-icon-bg">📢</div>
+            <div className="kb-card-text-area">
+              <h3 className="kb-card-title">お知らせ管理</h3>
+              <p className="kb-card-desc">配信予約と告知情報の管理</p>
+            </div>
+            <div className="kb-card-arrow">→</div>
+          </Link>
+
+          <Link href="/admin/contacts" className="kb-admin-card card-sky">
+            <div className="kb-card-icon-bg">👤</div>
+            <div className="kb-card-text-area">
+              <h3 className="kb-card-title">担当者管理</h3>
+              <p className="kb-card-desc">連絡先マスタ・窓口設定</p>
+            </div>
+            <div className="kb-card-arrow">→</div>
+          </Link>
+
+          <Link href="/admin/users" className="kb-admin-card card-dark">
+            <div className="kb-card-icon-bg">⚙️</div>
+            <div className="kb-card-text-area">
+              <h3 className="kb-card-title">ユーザー管理</h3>
+              <p className="kb-card-desc">権限・所属部署の個別設定</p>
+            </div>
+            <div className="kb-card-arrow">→</div>
+          </Link>
+        </div>
+
+        <footer className="kb-admin-footer">
+          <button className="kb-footer-guide-btn" onClick={() => setPreviewManual(portalManual)}>
+            📘 このサイトの使い方を確認する
+          </button>
+        </footer>
+      </div>
+
       <style jsx>{`
-        .kb-admin-menu-card {
-          display: flex;
-          flex-direction: column;
-          padding: 20px;
-          border-radius: 12px;
-          border: 1px solid #e5e7eb;
-          background: #f9fafb;
-          text-decoration: none;
-          color: #0f172a;
-          transition: all 0.2s ease;
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04);
-        }
-        .kb-admin-menu-card:hover {
-          background: #eff6ff;
-          border-color: #0ea5e9;
-          transform: translateY(-2px);
-          box-shadow: 0 8px 15px rgba(0, 0, 0, 0.08);
-        }
-        .kb-card-icon {
-          font-size: 28px;
-          margin-bottom: 10px;
-        }
-        .kb-card-title-main {
-          font-size: 16px;
-          font-weight: 700;
-          margin-bottom: 4px;
-        }
-        .kb-card-desc {
-          font-size: 12px;
-          color: #6b7280;
-        }
-        .kb-primary-btn {
-          /* 既存のkb-primary-btnスタイルがあれば、それを継承 */
-          display: inline-block;
-          border: none;
-          background: #0ea5e9;
-          color: #ffffff;
-          border-radius: 999px;
-          cursor: pointer;
-          font-weight: 600;
-          text-align: center;
-        }
-        .kb-secondary-btn {
-          /* モーダルヘッダー用 */
-          display: inline-block;
-          border: 1px solid #e5e7eb;
-          background: #ffffff;
-          color: #0f172a;
-          border-radius: 999px;
-          cursor: pointer;
-        }
-        .kb-tag-row {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 4px;
-        }
-        .kb-tag {
-          font-size: 11px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          background: #e0f2fe;
-          color: #0369a1;
-        }
-      `}</style>
+  /* 前回の修正スタイルをそのまま維持 + hover強化版 */
+  .kb-admin-root {
+    min-height: 100vh;
+    background: #f8fafc;
+    width: 100%;
+    animation: fadeIn 0.5s ease-in;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .kb-topbar {
+    width: 100%;
+    height: 70px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+  }
+  .kb-topbar-inner {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 40px;
+  }
+  .kb-topbar-left { display: flex; align-items: center; gap: 16px; }
+  .kb-header-logo-img { width: 44px; height: 44px; object-fit: contain; }
+  .kb-header-text-img { height: 20px; object-fit: contain; }
+
+  .kb-logout-btn {
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    padding: 8px 20px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  }
+  .kb-logout-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+    transform: translateY(-1px);
+  }
+
+  .kb-admin-wrapper { max-width: 1120px; margin: 0 auto; padding: 60px 40px; }
+  .kb-admin-header { margin-bottom: 48px; }
+  .kb-admin-header h1 { font-size: 32px; font-weight: 900; color: #0f172a; margin: 0 0 8px 0; }
+  .kb-admin-header p { font-size: 15px; color: #64748b; margin: 0; }
+
+  .kb-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px;
+  }
+
+  /* =========================
+     ✅ Card（Hoverが確実に分かる版）
+     ========================= */
+  .kb-admin-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 36px 28px;
+    border-radius: 32px;
+    text-decoration: none;
+
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+
+    cursor: pointer;
+    pointer-events: auto; /* ← hover効かない対策 */
+    will-change: transform, box-shadow, border-color;
+
+    transition:
+      transform 0.22s ease,
+      box-shadow 0.22s ease,
+      border-color 0.22s ease,
+      filter 0.22s ease;
+  }
+
+  .kb-card-text-area { flex: 1; position: relative; z-index: 10; }
+  .kb-card-title { font-size: 20px; font-weight: 800; margin: 0 0 6px 0; color: #0f172a !important; }
+  .kb-card-desc { font-size: 13px; margin: 0; color: #475569 !important; line-height: 1.4; }
+
+  .kb-card-icon-bg {
+    font-size: 40px;
+    margin-right: 20px;
+    position: relative;
+    z-index: 10;
+    transition: transform 0.22s ease;
+  }
+
+  /* 矢印：通常は控えめ＆少し隠す → hoverで出す */
+  .kb-card-arrow {
+    font-size: 20px;
+    color: #0f172a;
+    opacity: 0;                 /* ✅ ここがポイント */
+    transform: translateX(12px); /* ✅ ここがポイント */
+    transition: opacity 0.22s ease, transform 0.22s ease;
+  }
+
+  /* ✅ hover：浮く + 影強め + 枠線 + リング（外側の光） */
+  .kb-admin-card:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 26px 60px rgba(15, 23, 42, 0.18);
+    border-color: rgba(59, 130, 246, 0.45);
+    filter: saturate(1.02);
+  }
+
+  /* hoverでアイコンが少し動く（分かりやすい） */
+  .kb-admin-card:hover .kb-card-icon-bg {
+    transform: translateY(-2px) scale(1.05);
+  }
+
+  /* hoverで矢印が出る */
+  .kb-admin-card:hover .kb-card-arrow {
+    opacity: 0.95;
+    transform: translateX(0);
+  }
+
+  /* ✅ キーボード操作でも“選択中”が分かる */
+  .kb-admin-card:focus-visible {
+    outline: none;
+    border-color: rgba(59, 130, 246, 0.7);
+    box-shadow:
+      0 0 0 4px rgba(59, 130, 246, 0.24),
+      0 26px 60px rgba(15, 23, 42, 0.18);
+  }
+
+  /* 色テーマ（そのまま維持） */
+  .card-blue { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-left: 8px solid #3b82f6; }
+  .card-navy { background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border-left: 8px solid #1e293b; }
+  .card-sky  { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 8px solid #0ea5e9; }
+  .card-dark { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-left: 8px solid #64748b; }
+
+  .kb-admin-footer {
+    margin-top: 60px;
+    padding-top: 40px;
+    border-top: 1px dashed #cbd5e1;
+    text-align: center;
+  }
+  .kb-footer-guide-btn {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    padding: 16px 32px;
+    border-radius: 99px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e293b;
+    cursor: pointer;
+    transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .kb-footer-guide-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
+  }
+  .kb-admin-root {
+  position: relative;
+  z-index: 1;
+}
+
+.kb-admin-wrapper {
+  position: relative;
+  z-index: 2;
+}
+
+.kb-menu-grid {
+  position: relative;
+  z-index: 3;
+}
+
+.kb-admin-card {
+  position: relative;
+  z-index: 4;
+  pointer-events: auto;
+}
+`}</style>
+
     </div>
   );
 }
