@@ -2,35 +2,18 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-// loading.tsx と同じデザインをインポート（または共通化）
 import Loading from "./loading";
 
-/* ========= 型・ヘルパー関数 ========= */
 type Manual = {
-  manualId: string; title: string; brandId?: string; brand?: string; bizId?: string; biz?: string;
-  desc?: string | null; updatedAt?: string; tags?: string[]; embedUrl?: string;
-};
-
-const getEmbedSrc = (url?: string) => {
-  if (!url) return "";
-  let embedSrc = url;
-  if (embedSrc.includes("docs.google.com/presentation")) return embedSrc;
-  if (embedSrc.includes("drive.google.com/file")) {
-    const m = embedSrc.match(/https:\/\/drive\.google\.com\/file\/d\/([^/]+)/);
-    if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
-  }
-  return embedSrc;
+  manualId: string; title: string; desc?: string | null; embedUrl?: string;
 };
 
 export default function AdminHome() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
 
-  // 【追加】最低表示時間を設定
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsInitializing(false);
-    }, 1200); // ここで表示時間を調整（1200ms = 1.2秒）
+    const timer = setTimeout(() => setIsInitializing(false), 800);
     return () => clearTimeout(timer);
   }, []);
 
@@ -39,14 +22,16 @@ export default function AdminHome() {
     title: "Know Base 利用ガイド",
     desc: "ポータルサイトの操作方法を解説します。",
     embedUrl: "https://docs.google.com/presentation/d/1Bf2m1b04jD92w7g0Xo4t7s5U6yD3H3v5aF0r2hL6yR8/embed",
-    updatedAt: new Date().toISOString().slice(0, 10),
-    tags: ["ガイド"],
   };
 
-  // 初期化中は loading.tsx と同じ画面を出す
-  if (isInitializing) {
-    return <Loading />;
-  }
+  if (isInitializing) return <Loading />;
+
+  const menuItems = [
+    { href: "/admin/manuals", label: "01. CONTENTS", title: "マニュアル管理", desc: "ナレッジの核となるコンテンツを最適化します", color: "#3b82f6" },
+    { href: "/admin/news", label: "02. ANNOUNCEMENT", title: "お知らせ管理", desc: "重要な告知事項を社内全体へスムーズに届けます", color: "#1e293b" },
+    { href: "/admin/contacts", label: "03. MASTER DATA", title: "担当者管理", desc: "窓口情報や連絡先マスタの正確性を維持します", color: "#0ea5e9" },
+    { href: "/admin/users", label: "04. ACCOUNT", title: "ユーザー管理", desc: "利用権限と所属部署の構成をセキュアに管理します", color: "#64748b" },
+  ];
 
   return (
     <div className="kb-admin-root">
@@ -54,266 +39,240 @@ export default function AdminHome() {
       <div className="kb-topbar">
         <div className="kb-topbar-inner">
           <div className="kb-topbar-left">
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-              alt="Logo" 
-              className="kb-header-logo-img" 
-            />
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-              alt="Text Logo" 
-              className="kb-header-text-img" 
-            />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" className="kb-logo-icon" />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="Know Base" className="kb-logo-text" />
           </div>
           <div className="kb-topbar-right">
-            <button 
-              className="kb-logout-btn" 
-              onClick={() => (window.location.href = "/")}
-            >
-              一般画面へ戻る
-            </button>
+            <button className="kb-exit-btn" onClick={() => (window.location.href = "/")}>一般画面へ戻る</button>
           </div>
         </div>
       </div>
 
-      <div className="kb-admin-wrapper">
-        <header className="kb-admin-header">
-          <h1>Knowbie管理者画面</h1>
-          <p>管理権限：統合管理者マスタ</p>
+      <main className="kb-main-container">
+        <header className="kb-page-header">
+          <div className="kb-badge">ADMINISTRATION</div>
+          <h1>管理者ダッシュボード</h1>
+          <p>システム全体の構成およびコンテンツの統括管理を行います</p>
         </header>
 
-        <div className="kb-menu-grid">
-          <Link href="/admin/manuals" className="kb-admin-card card-blue">
-            <div className="kb-card-icon-bg">📄</div>
-            <div className="kb-card-text-area">
-              <h3 className="kb-card-title">マニュアル管理</h3>
-              <p className="kb-card-desc">コンテンツの登録・編集・削除</p>
-            </div>
-            <div className="kb-card-arrow">→</div>
-          </Link>
-
-          <Link href="/admin/news" className="kb-admin-card card-navy">
-            <div className="kb-card-icon-bg">📢</div>
-            <div className="kb-card-text-area">
-              <h3 className="kb-card-title">お知らせ管理</h3>
-              <p className="kb-card-desc">配信予約と告知情報の管理</p>
-            </div>
-            <div className="kb-card-arrow">→</div>
-          </Link>
-
-          <Link href="/admin/contacts" className="kb-admin-card card-sky">
-            <div className="kb-card-icon-bg">👤</div>
-            <div className="kb-card-text-area">
-              <h3 className="kb-card-title">担当者管理</h3>
-              <p className="kb-card-desc">連絡先マスタ・窓口設定</p>
-            </div>
-            <div className="kb-card-arrow">→</div>
-          </Link>
-
-          <Link href="/admin/users" className="kb-admin-card card-dark">
-            <div className="kb-card-icon-bg">⚙️</div>
-            <div className="kb-card-text-area">
-              <h3 className="kb-card-title">ユーザー管理</h3>
-              <p className="kb-card-desc">権限・所属部署の個別設定</p>
-            </div>
-            <div className="kb-card-arrow">→</div>
-          </Link>
+        <div className="kb-admin-grid">
+          {menuItems.map((item) => (
+            <Link href={item.href} key={item.href} className="kb-menu-link">
+              <div className="kb-modern-card">
+                <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
+                <div className="kb-card-body">
+                  <span className="kb-card-no">{item.label}</span>
+                  <h3 className="kb-card-heading">{item.title}</h3>
+                  <p className="kb-card-subtext">{item.desc}</p>
+                </div>
+                <div className="kb-card-footer">
+                  <span className="kb-action-label">管理画面を開く</span>
+                  <span className="kb-action-icon">→</span>
+                </div>
+              </div>
+            </Link>
+          ))}
         </div>
 
         <footer className="kb-admin-footer">
-          <button className="kb-footer-guide-btn" onClick={() => setPreviewManual(portalManual)}>
-            📘 このサイトの使い方を確認する
+          <button 
+            className="kb-guide-link-btn" 
+            onClick={(e) => {
+              e.preventDefault();
+              setPreviewManual(portalManual);
+            }}
+          >
+             📘 システム利用ガイドを閲覧する
           </button>
         </footer>
-      </div>
+      </main>
 
-      <style jsx>{`
-  /* 前回の修正スタイルをそのまま維持 + hover強化版 */
-  .kb-admin-root {
-    min-height: 100vh;
-    background: #f8fafc;
-    width: 100%;
-    animation: fadeIn 0.5s ease-in;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
+      {/* モーダル：確実に最前面に表示されるよう root 直下に配置 */}
+      {previewManual && (
+        <div className="kb-modal-overlay" onClick={() => setPreviewManual(null)}>
+          <div className="kb-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="kb-modal-header">
+              <h3>{previewManual.title}</h3>
+              <button className="kb-modal-close" onClick={() => setPreviewManual(null)}>✕</button>
+            </div>
+            <div className="kb-modal-body">
+              <iframe 
+                src={previewManual.embedUrl} 
+                className="kb-modal-iframe"
+                frameBorder="0" 
+                allowFullScreen
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      )}
 
-  .kb-topbar {
-    width: 100%;
-    height: 70px;
-    background: #ffffff;
-    border-bottom: 1px solid #e2e8f0;
-    display: flex;
-    align-items: center;
-  }
-  .kb-topbar-inner {
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0 40px;
-  }
-  .kb-topbar-left { display: flex; align-items: center; gap: 16px; }
-  .kb-header-logo-img { width: 44px; height: 44px; object-fit: contain; }
-  .kb-header-text-img { height: 20px; object-fit: contain; }
+      <style jsx global>{`
+        .kb-admin-root {
+          min-height: 100vh;
+          background-color: #fcfdfe;
+          color: #0f172a;
+          font-family: 'Inter', -apple-system, sans-serif;
+          position: relative;
+        }
 
-  .kb-logout-btn {
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
-    padding: 8px 20px;
-    border-radius: 99px;
-    font-size: 13px;
-    font-weight: 700;
-    color: #475569;
-    cursor: pointer;
-    transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
-  }
-  .kb-logout-btn:hover {
-    background: #e2e8f0;
-    color: #0f172a;
-    transform: translateY(-1px);
-  }
+        /* Topbar */
+        .kb-topbar {
+          height: 64px;
+          background: rgba(255, 255, 255, 0.9);
+          backdrop-filter: blur(10px);
+          border-bottom: 1px solid #e2e8f0;
+          position: sticky;
+          top: 0;
+          z-index: 1000;
+          display: flex;
+          align-items: center;
+        }
+        .kb-topbar-inner {
+          width: 100%;
+          max-width: 1280px;
+          margin: 0 auto;
+          display: flex;
+          justify-content: space-between;
+          padding: 0 32px;
+        }
+        .kb-logo-icon { width: 32px; height: 32px; }
+        .kb-logo-text { height: 16px; margin-left: 12px; }
 
-  .kb-admin-wrapper { max-width: 1120px; margin: 0 auto; padding: 60px 40px; }
-  .kb-admin-header { margin-bottom: 48px; }
-  .kb-admin-header h1 { font-size: 32px; font-weight: 900; color: #0f172a; margin: 0 0 8px 0; }
-  .kb-admin-header p { font-size: 15px; color: #64748b; margin: 0; }
+        .kb-exit-btn {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          padding: 6px 16px;
+          border-radius: 8px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #64748b;
+          cursor: pointer;
+          transition: 0.2s;
+        }
+        .kb-exit-btn:hover { background: #f8fafc; border-color: #3b82f6; color: #3b82f6; }
 
-  .kb-menu-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 24px;
-  }
+        /* Container */
+        .kb-main-container {
+          max-width: 1140px;
+          margin: 0 auto;
+          padding: 60px 32px;
+        }
 
-  /* =========================
-     ✅ Card（Hoverが確実に分かる版）
-     ========================= */
-  .kb-admin-card {
-    position: relative;
-    display: flex;
-    align-items: center;
-    padding: 36px 28px;
-    border-radius: 32px;
-    text-decoration: none;
+        .kb-page-header { margin-bottom: 50px; }
+        .kb-badge {
+          display: inline-block;
+          font-size: 10px;
+          font-weight: 800;
+          letter-spacing: 0.15em;
+          color: #3b82f6;
+          background: #eff6ff;
+          padding: 4px 10px;
+          border-radius: 4px;
+          margin-bottom: 12px;
+        }
+        .kb-page-header h1 { font-size: 32px; font-weight: 800; color: #0f172a; margin: 0 0 8px 0; }
+        .kb-page-header p { font-size: 15px; color: #64748b; margin: 0; }
 
-    border: 1px solid rgba(0,0,0,0.06);
-    box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
+        /* Grid & Card */
+        .kb-admin-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+          gap: 24px;
+        }
 
-    cursor: pointer;
-    pointer-events: auto; /* ← hover効かない対策 */
-    will-change: transform, box-shadow, border-color;
+        .kb-menu-link { text-decoration: none; color: inherit; display: block; }
 
-    transition:
-      transform 0.22s ease,
-      box-shadow 0.22s ease,
-      border-color 0.22s ease,
-      filter 0.22s ease;
-  }
+        .kb-modern-card {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 16px;
+          position: relative;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+          overflow: hidden;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
+        }
 
-  .kb-card-text-area { flex: 1; position: relative; z-index: 10; }
-  .kb-card-title { font-size: 20px; font-weight: 800; margin: 0 0 6px 0; color: #0f172a !important; }
-  .kb-card-desc { font-size: 13px; margin: 0; color: #475569 !important; line-height: 1.4; }
+        .kb-accent-bar {
+          position: absolute;
+          top: 0; left: 0; bottom: 0;
+          width: 0px;
+          transition: width 0.3s ease;
+        }
 
-  .kb-card-icon-bg {
-    font-size: 40px;
-    margin-right: 20px;
-    position: relative;
-    z-index: 10;
-    transition: transform 0.22s ease;
-  }
+        .kb-card-body { padding: 32px; flex: 1; }
+        .kb-card-no { display: block; font-size: 10px; font-weight: 700; color: #94a3b8; margin-bottom: 16px; letter-spacing: 0.1em; }
+        .kb-card-heading { font-size: 20px; font-weight: 800; color: #1e293b; margin-bottom: 12px; }
+        .kb-card-subtext { font-size: 14px; color: #64748b; line-height: 1.6; }
 
-  /* 矢印：通常は控えめ＆少し隠す → hoverで出す */
-  .kb-card-arrow {
-    font-size: 20px;
-    color: #0f172a;
-    opacity: 0;                 /* ✅ ここがポイント */
-    transform: translateX(12px); /* ✅ ここがポイント */
-    transition: opacity 0.22s ease, transform 0.22s ease;
-  }
+        .kb-card-footer {
+          padding: 16px 32px;
+          background: #fcfdfe;
+          border-top: 1px solid #f1f5f9;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .kb-action-label { font-size: 12px; font-weight: 700; color: #94a3b8; transition: 0.3s; }
+        .kb-action-icon { font-size: 18px; color: #cbd5e1; transition: 0.3s; }
 
-  /* ✅ hover：浮く + 影強め + 枠線 + リング（外側の光） */
-  .kb-admin-card:hover {
-    transform: translateY(-8px);
-    box-shadow: 0 26px 60px rgba(15, 23, 42, 0.18);
-    border-color: rgba(59, 130, 246, 0.45);
-    filter: saturate(1.02);
-  }
+        /* Hover Effects */
+        .kb-modern-card:hover {
+          transform: translateY(-8px);
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05);
+          border-color: #dbeafe;
+        }
+        .kb-modern-card:hover .kb-accent-bar { width: 5px; }
+        .kb-modern-card:hover .kb-action-label { color: #3b82f6; }
+        .kb-modern-card:hover .kb-action-icon { color: #3b82f6; transform: translateX(5px); }
 
-  /* hoverでアイコンが少し動く（分かりやすい） */
-  .kb-admin-card:hover .kb-card-icon-bg {
-    transform: translateY(-2px) scale(1.05);
-  }
+        /* Footer */
+        .kb-admin-footer { margin-top: 60px; text-align: center; }
+        .kb-guide-link-btn {
+          background: #fff; border: 1px solid #e2e8f0; color: #475569;
+          font-size: 14px; font-weight: 700; cursor: pointer;
+          padding: 12px 28px; border-radius: 99px; transition: 0.2s;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        .kb-guide-link-btn:hover {
+          border-color: #3b82f6; color: #3b82f6;
+          transform: translateY(-2px);
+          box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.1);
+        }
 
-  /* hoverで矢印が出る */
-  .kb-admin-card:hover .kb-card-arrow {
-    opacity: 0.95;
-    transform: translateX(0);
-  }
-
-  /* ✅ キーボード操作でも“選択中”が分かる */
-  .kb-admin-card:focus-visible {
-    outline: none;
-    border-color: rgba(59, 130, 246, 0.7);
-    box-shadow:
-      0 0 0 4px rgba(59, 130, 246, 0.24),
-      0 26px 60px rgba(15, 23, 42, 0.18);
-  }
-
-  /* 色テーマ（そのまま維持） */
-  .card-blue { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-left: 8px solid #3b82f6; }
-  .card-navy { background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border-left: 8px solid #1e293b; }
-  .card-sky  { background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-left: 8px solid #0ea5e9; }
-  .card-dark { background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-left: 8px solid #64748b; }
-
-  .kb-admin-footer {
-    margin-top: 60px;
-    padding-top: 40px;
-    border-top: 1px dashed #cbd5e1;
-    text-align: center;
-  }
-  .kb-footer-guide-btn {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    padding: 16px 32px;
-    border-radius: 99px;
-    font-size: 15px;
-    font-weight: 700;
-    color: #1e293b;
-    cursor: pointer;
-    transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-  }
-  .kb-footer-guide-btn:hover {
-    border-color: #3b82f6;
-    color: #3b82f6;
-    transform: translateY(-2px);
-    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.10);
-  }
-  .kb-admin-root {
-  position: relative;
-  z-index: 1;
-}
-
-.kb-admin-wrapper {
-  position: relative;
-  z-index: 2;
-}
-
-.kb-menu-grid {
-  position: relative;
-  z-index: 3;
-}
-
-.kb-admin-card {
-  position: relative;
-  z-index: 4;
-  pointer-events: auto;
-}
-`}</style>
-
+        /* Modal - 重なり順を最大に */
+        .kb-modal-overlay {
+          position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(15, 23, 42, 0.5);
+          backdrop-filter: blur(8px);
+          display: flex; align-items: center; justify-content: center;
+          z-index: 9999;
+          padding: 20px;
+        }
+        .kb-modal-content {
+          background: #fff; width: 100%; max-width: 1000px;
+          border-radius: 20px; overflow: hidden;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          display: flex; flex-direction: column;
+          max-height: 90vh;
+        }
+        .kb-modal-header {
+          padding: 20px 24px; border-bottom: 1px solid #f1f5f9;
+          display: flex; justify-content: space-between; align-items: center;
+        }
+        .kb-modal-header h3 { margin: 0; font-size: 18px; font-weight: 800; color: #0f172a; }
+        .kb-modal-close {
+          background: #f1f5f9; border: none; width: 32px; height: 32px;
+          border-radius: 50%; cursor: pointer; color: #64748b;
+          display: flex; align-items: center; justify-content: center; font-size: 14px;
+        }
+        .kb-modal-close:hover { background: #e2e8f0; color: #0f172a; }
+        .kb-modal-body { flex: 1; position: relative; background: #f8fafc; }
+        .kb-modal-iframe { width: 100%; height: 600px; display: block; }
+      `}</style>
     </div>
   );
 }
