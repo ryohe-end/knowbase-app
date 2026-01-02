@@ -1549,3 +1549,87 @@ body {
   padding: 8px 10px;
   gap: 12px;
 }
+/* おしゃれな削除ボタン */
+.kb-danger-btn {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.25);
+  transition: all 0.2s ease;
+}
+
+.kb-danger-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(239, 68, 68, 0.35);
+  background: linear-gradient(135deg, #f87171, #ef4444);
+}
+
+.kb-danger-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+}
+
+.kb-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+/* ===== Fullscreen Loading Overlay ===== */
+.kb-loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(15, 23, 42, 0.35); /* slate系の半透明 */
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kb-loading-card {
+  width: min(420px, calc(100vw - 32px));
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.22);
+}
+
+.kb-loading-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kb-spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 3px solid rgba(2, 132, 199, 0.25); /* 薄い */
+  border-top-color: rgba(2, 132, 199, 0.95); /* 濃い */
+  animation: kbspin 0.8s linear infinite;
+}
+
+@keyframes kbspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.kb-loading-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.kb-loading-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.4;
+}
