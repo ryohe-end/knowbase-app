@@ -1,31 +1,54 @@
-// app/login/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { auth as firebaseAuth } from "@/lib/firebaseClient";
+import { auth as firebaseAuth } from "@/lib/firebaseClient"; //
 import { useRouter } from 'next/navigation';
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
-  const [rememberMe, setRememberMe] = useState(false); // パスワード保存用
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false); // ローディング状態
+  const [isLoading, setIsLoading] = useState(false);
   const [isSkipping, setIsSkipping] = useState(false); 
   
   const router = useRouter();
 
-  // 強制スキップボタン (検証ツールで表示させて使用)
+  // 24時間経過チェック
+  useEffect(() => {
+    const loginTime = localStorage.getItem("kb_login_time");
+    if (loginTime) {
+      const now = new Date().getTime();
+      const twentyFourHours = 24 * 60 * 60 * 1000;
+      if (now - parseInt(loginTime) > twentyFourHours) {
+        localStorage.removeItem("kb_login_time");
+        document.cookie = "kb_user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+        document.cookie = "kb_admin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+      }
+    }
+  }, []);
+
+  /**
+   * クッキー設定ヘルパー
+   * maxAgeを指定しないことで、リロードやブラウザを閉じた際に破棄されやすい「セッションクッキー」になります。
+   */
+  const setAuthSession = (emailValue: string, isAdmin: boolean) => {
+    // 期限(max-age)を指定しない = セッションクッキー
+    document.cookie = `kb_user=${emailValue}; path=/; samesite=lax; secure`;
+    if (isAdmin) {
+      document.cookie = `kb_admin=1; path=/; samesite=lax; secure`;
+    }
+    localStorage.setItem("kb_login_time", new Date().getTime().toString());
+  };
+
   async function handleSkipLogin() {
     setIsSkipping(true);
     setError("");
-    document.cookie = "kb_user=admin@example.com; path=/; max-age=604800; secure";
-    document.cookie = "kb_admin=1; path=/; max-age=604800; secure";
+    setAuthSession("admin@example.com", true);
     router.push('/');
   }
 
-  // 通常ログイン
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     if (isLoading || isSkipping) return;
@@ -34,7 +57,7 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/login", {
+      const res = await fetch("/api/login", { //
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, pass }),
@@ -43,6 +66,7 @@ const LoginPage = () => {
       const json = await res.json();
 
       if (json.ok) {
+        setAuthSession(json.user.email, json.user.role === "admin");
         router.push("/");
       } else {
         setError(json.error || "ログインに失敗しました");
@@ -54,7 +78,6 @@ const LoginPage = () => {
     }
   }
 
-  // Googleログイン
   async function handleGoogleLogin() {
     if (isLoading || isSkipping) return;
     setError("");
@@ -80,6 +103,7 @@ const LoginPage = () => {
       const json = await res.json();
 
       if (json.ok) {
+        setAuthSession(json.user.email, json.user.role === "admin");
         router.push("/");
       } else {
         setError(json.error || "このメールアドレスでのログインは許可されていません。");
@@ -88,11 +112,7 @@ const LoginPage = () => {
     } catch (e: any) {
       console.error("Google login error:", e);
       setIsLoading(false);
-      if (e.code === 'auth/popup-closed-by-user') {
-        setError("ログインウィンドウが閉じられました。");
-      } else {
-        setError("Googleログイン中にエラーが発生しました。");
-      }
+      setError("Googleログイン中にエラーが発生しました。");
     }
   }
 
@@ -148,19 +168,20 @@ const LoginPage = () => {
               id="remember" 
               checked={rememberMe} 
               onChange={(e) => setRememberMe(e.target.checked)}
-              style={{ cursor: 'pointer' }}
+              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
             />
-            <label htmlFor="remember" style={{ fontSize: '13px', color: '#64748b', cursor: 'pointer' }}>
+            <label htmlFor="remember" style={{ fontSize: '13px', color: '#64748b', cursor: 'pointer', userSelect: 'none' }}>
               パスワードを保存する
             </label>
           </div>
 
-          {error && <div className="kb-login-error" style={{ marginBottom: '15px' }}>{error}</div>}
+          {error && <div className="kb-login-error" style={{ marginBottom: '15px', color: '#ef4444', fontSize: '13px' }}>{error}</div>}
 
           <button 
             type="submit" 
             className="kb-login-primary" 
             disabled={isLoading || isSkipping}
+            style={{ opacity: (isLoading || isSkipping) ? 0.7 : 1 }}
           >
             {isLoading ? "認証中..." : "ログイン"}
           </button>
@@ -198,32 +219,30 @@ const LoginPage = () => {
           Google アカウントでログイン
         </button>
 
-        {/* 開発用スキップボタン：検証ツールで display: 'none' を外すと表示されます */}
         <div className="kb-login-skip-wrapper" style={{ display: 'none' }}>
-          <div className="kb-login-divider">開発用</div>
+          <div className="kb-login-divider" style={{ margin: '20px 0 10px' }}>開発用</div>
           <button 
             type="button" 
             className="kb-login-skip"
             onClick={handleSkipLogin} 
             disabled={isSkipping}
             style={{ 
-              marginTop: '10px', 
-              backgroundColor: '#f1f1f1', 
-              color: '#333', 
-              border: '1px solid #ddd',
+              backgroundColor: '#f8fafc', 
+              color: '#64748b', 
+              border: '1px dashed #cbd5e1',
               width: '100%',
               padding: '10px',
               borderRadius: '8px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              fontSize: '12px'
             }}
           >
             {isSkipping ? "移動中..." : "ログインをスキップして進む"}
           </button>
         </div>
-        
       </div>
     </div>
   );
-}
+};
 
 export default LoginPage;

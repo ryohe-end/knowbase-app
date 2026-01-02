@@ -9,6 +9,10 @@ import {
   DeleteCommand,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
+import sgMail from "@sendgrid/mail";
+
+// SendGrid設定
+sgMail.setApiKey(process.env.SENDGRID_API_KEY || "");
 
 /**
  * ★ パスワードハッシュ生成（モック）
@@ -37,10 +41,7 @@ export type KbUser = {
 const region = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = "yamauchi-Users";
 
-// ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
 const ddbClient = new DynamoDBClient({ region });
-// ★★★
-
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 /**
@@ -76,12 +77,7 @@ export async function GET() {
 
 /**
  * POST /api/users
- * Body:
- * {
- * mode: "create" | "update" | "delete",
- * user: KbUser,
- * newPassword?: string
- * }
+ * Body: { mode, user, newPassword }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -111,14 +107,10 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toISOString();
-
-    /**
-     * パスワード処理の共通宣言
-     */
     let existingPasswordHash: string | undefined;
     
     /**
-     * UPDATE時：既存の passwordHash を取得
+     * UPDATE時：既存の passwordHash を保持させる
      */
     if (mode === "update") {
       const existingRes = await docClient.send(
@@ -128,23 +120,22 @@ export async function POST(req: NextRequest) {
           ProjectionExpression: "passwordHash",
         })
       );
-
-      existingPasswordHash = (existingRes.Item as KbUser | undefined)
-        ?.passwordHash;
+      existingPasswordHash = (existingRes.Item as KbUser | undefined)?.passwordHash;
     }
 
     /**
-     * パスワード処理
+     * パスワード更新判定
      */
-    let passwordHashToSave = existingPasswordHash; // 既存ハッシュで初期化
+    const isPasswordReset = newPassword && newPassword.trim().length > 0;
+    let passwordHashToSave = existingPasswordHash; 
 
-    if (newPassword && newPassword.trim().length > 0) {
-      passwordHashToSave = mockHash(newPassword.trim());
-      console.log(`[Users API] Password updated for ${user.userId}`);
+    if (isPasswordReset) {
+      passwordHashToSave = mockHash(newPassword!.trim());
+      console.log(`[Users API] Password set/updated for ${user.userId}`);
     }
 
     /**
-     * 保存データ
+     * 保存用データオブジェクトの作成
      */
     const putItem: KbUser = {
       userId: user.userId,
@@ -160,6 +151,9 @@ export async function POST(req: NextRequest) {
       passwordHash: passwordHashToSave,
     };
 
+    /**
+     * DynamoDBへ保存
+     */
     await docClient.send(
       new PutCommand({
         TableName: TABLE_NAME,
@@ -168,7 +162,69 @@ export async function POST(req: NextRequest) {
     );
 
     /**
-     * レスポンスでは passwordHash を除外
+     * ★ メール再送信ロジック ★
+     * 条件: 有効(isActive) 且つ (新規作成 OR パスワード入力あり)
+     */
+    if ((mode === "create" || (mode === "update" && isPasswordReset)) && putItem.isActive) {
+      const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      
+      const subject = mode === "create" 
+        ? "【KnowBase】アカウント登録完了のお知らせ" 
+        : "【KnowBase】ログイン情報更新のお知らせ";
+      
+      const introText = mode === "create"
+        ? "KnowBaseへのアカウント登録が完了しました。本システムでは社内のマニュアルや最新のお知らせをいつでも確認いただけます。"
+        : "管理者によってアカウント情報、またはパスワードが更新されました。最新の情報でログインしてご利用ください。";
+
+      const msg = {
+        to: putItem.email,
+        from: {
+          email: process.env.SENDGRID_FROM_EMAIL!,
+          name: "KnowBase運営事務局"
+        },
+        subject: subject,
+        html: `
+          <div style="font-family: 'Helvetica Neue', Arial, sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+            <div style="background-color: #0f172a; padding: 30px; text-align: center;">
+              <h1 style="color: #ffffff; margin: 0; font-size: 24px;">KnowBase Notice</h1>
+            </div>
+            <div style="padding: 30px; background-color: #ffffff;">
+              <p style="font-size: 16px; font-weight: bold;">${putItem.name} 様</p>
+              <p>${introText}</p>
+              
+              <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 15px; margin: 20px 0;">
+                <p style="margin: 0; font-size: 14px; font-weight: bold; color: #0369a1;">💡 KnowBaseでできること</p>
+                <ul style="margin: 10px 0 0 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
+                  <li>AIアシスタント「Knowbie」への質問（チャット形式）</li>
+                  <li>最新マニュアルの検索・閲覧</li>
+                  <li>本部や部署からの重要通知の確認</li>
+                </ul>
+              </div>
+
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${loginUrl}/login" style="background-color: #0ea5e9; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                  KnowBaseへログインする
+                </a>
+              </div>
+
+              <p style="font-size: 13px; color: #64748b;">
+                ※初期パスワードは管理者より案内されたもの、またはご自身で設定したものをご使用ください。<br>
+                ※このメールは送信専用です。お心当たりがない場合は破棄してください。
+              </p>
+            </div>
+            <div style="background-color: #f1f5f9; padding: 20px; text-align: center; font-size: 12px; color: #94a3b8;">
+              &copy; KnowBase All Rights Reserved.
+            </div>
+          </div>
+        `,
+      };
+
+      // 送信（非同期実行）
+      sgMail.send(msg).catch(err => console.error("[User Mail Error]", err));
+    }
+
+    /**
+     * レスポンス返却（パスワードハッシュは隠す）
      */
     const responseUser = { ...putItem };
     delete responseUser.passwordHash;

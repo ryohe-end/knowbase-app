@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from 'next/navigation';
 import ManualList from "@/components/ManualList";
 import ContactList from "@/components/ContactList";
 
@@ -219,21 +220,43 @@ function renderRichText(body?: string) {
 }
 
 /* ========= ページ ========= */
-
 export default function HomePage() {
-  /* ========= 1. ユーザー情報と権限の定義 (ここを一番上に!) ========= */
+  /* ========= 1. ユーザー情報と権限の定義 ========= */
   const [me, setMe] = useState<any>(null); 
   const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
+  const router = useRouter(); // router を使うために追加
 
   // isAdmin の判定
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
+
+  // ★ ここに追加：リロード時や初回読み込み時のチェック
+  useEffect(() => {
+  const checkAuth = async () => {
+    try {
+      // ページ読み込み（リロード）時に必ずサーバーへ確認
+      const res = await fetch("/api/me");
+      const data = await res.json();
+      
+      // サーバー側でセッションが切れている、あるいはユーザー情報がない場合
+      if (!res.ok || !data.user) {
+        router.push("/login");
+        return;
+      }
+      setMe(data.user);
+    } catch (e) {
+      router.push("/login");
+    }
+  };
+
+  checkAuth();
+}, [router]);
 
   // 管理画面ボタンクリック時のハンドラ
   const handleAdminClick = () => {
     if (isAdmin) {
       window.location.href = "/admin";
     } else {
-      setIsAdminErrorModalOpen(true); // ここで呼び出すStateが上に定義されているのでOK
+      setIsAdminErrorModalOpen(true);
     }
   };
 
