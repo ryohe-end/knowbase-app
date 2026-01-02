@@ -23,7 +23,6 @@ type Group = { groupId: string; groupName: string };
 
 const ROLE_OPTIONS: { value: KbUserRole; label: string }[] = [
   { value: "admin", label: "管理者" },
-  { value: "editor", label: "編集者" },
   { value: "viewer", label: "閲覧のみ" },
 ];
 
