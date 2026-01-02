@@ -221,7 +221,21 @@ function renderRichText(body?: string) {
 /* ========= ページ ========= */
 
 export default function HomePage() {
-  const isAdmin = true;
+  /* ========= 1. ユーザー情報と権限の定義 (ここを一番上に!) ========= */
+  const [me, setMe] = useState<any>(null); 
+  const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
+
+  // isAdmin の判定
+  const isAdmin = useMemo(() => me?.role === "admin", [me]);
+
+  // 管理画面ボタンクリック時のハンドラ
+  const handleAdminClick = () => {
+    if (isAdmin) {
+      window.location.href = "/admin";
+    } else {
+      setIsAdminErrorModalOpen(true); // ここで呼び出すStateが上に定義されているのでOK
+    }
+  };
 
   /* ========= Knowbie（Amazon Q） ========= */
 
@@ -298,7 +312,6 @@ export default function HomePage() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newsList, setNewsList] = useState<News[]>([]);
-  const [me, setMe] = useState<any>(null); 
 
   // ローディング状態の統合
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -606,10 +619,16 @@ export default function HomePage() {
         <div className="kb-topbar-right">
           <span className="kb-user-email">{me?.name ? `${me.name} 様` : "ゲスト"}</span>
 
-          {isAdmin && (
-            <button className="kb-tab kb-tab-active" onClick={() => (window.location.href = "/admin")}>
-              管理画面
-            </button>
+          {/* 4. ボタンの表示条件とクリックイベントを修正 */}
+          {/* ログイン済みの場合のみボタンを表示し、権限チェックを行う */}
+          {me && (
+            <button 
+  className={`kb-tab ${isAdmin ? "kb-tab-active" : ""}`} 
+  style={{ cursor: 'pointer' }} 
+  onClick={handleAdminClick}
+>
+  管理画面
+</button>
           )}
 
           <button className="kb-logout-btn" onClick={handleLogout}>
@@ -819,7 +838,7 @@ export default function HomePage() {
                           <span className="kb-news-meta-strong">
                             {brandName} / {deptName}
                           </span>
-                          {displayDate && <span className="kb-news-meta-muted">更新日時：{displayDate} (JST)</span>}
+                          {displayDate && <span className="kb-news-meta-muted">更新日時：{displayDate} </span>}
                         </div>
 
                         {(n.tags || []).length > 0 && (
@@ -1110,6 +1129,57 @@ export default function HomePage() {
                 );
               })()}
             </div>
+          </div>
+        </div>
+      )}
+      
+      {isAdminErrorModalOpen && (
+        <div
+          className="kb-modal-backdrop"
+          onClick={() => setIsAdminErrorModalOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(15,23,42,0.65)",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 16,
+            zIndex: 10001,
+            backdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            className="kb-modal"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 400,
+              padding: "32px 24px",
+              background: "#fff",
+              borderRadius: 24,
+              textAlign: "center",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1)",
+            }}
+          >
+            <div style={{ fontSize: "48px", marginBottom: "16px" }}>🚫</div>
+            <div style={{ fontSize: "20px", fontWeight: "bold", color: "#1e293b", marginBottom: "12px" }}>
+              アクセス権限がありません
+            </div>
+            <p style={{ fontSize: "14px", color: "#64748b", lineHeight: "1.6", marginBottom: "24px" }}>
+              管理画面へのアクセスには「管理者権限」が必要です。<br />
+              権限が必要な場合は管理者へ連絡してください。
+            </p>
+            <button
+              className="kb-primary-btn"
+              style={{ 
+                width: "100%", padding: "12px", borderRadius: "12px", 
+                background: "#0f172a", color: "#fff", border: "none", cursor: "pointer" 
+              }}
+              onClick={() => setIsAdminErrorModalOpen(false)}
+            >
+              閉じる
+            </button>
           </div>
         </div>
       )}

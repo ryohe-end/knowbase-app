@@ -1633,3 +1633,37 @@ body {
   color: #475569;
   line-height: 1.4;
 }
+
+/* デザイン調整の例 */
+.kb-tab {
+  padding: 8px 16px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.kb-tab:hover {
+  background-color: #f1f5f9; /* マウスを乗せた時に薄いグレーに */
+  border-color: #e2e8f0;
+}
+
+.kb-tab-active {
+  background-color: #0ea5e9 !important; /* 管理者の時は青 */
+  color: white !important;
+}
+.kb-login-root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+}
+
+.kb-login-card {
+  background: #ffffff;
+  padding: 40px;
+  border-radius: 16px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  max-width: 400px;
+}
