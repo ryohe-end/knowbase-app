@@ -9,7 +9,7 @@ type Dept = { deptId: string; name: string };
 type Group = { groupId: string; groupName: string };
 
 type NewsItem = {
-  newsId: string;      // パーティションキー
+  newsId: string;
   title: string;
   body: string;
   visibleFrom?: string | null;
@@ -55,6 +55,10 @@ export default function AdminNewsPage() {
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // ★ メール配信用のState
+  const [isNotifyChecked, setIsNotifyChecked] = useState(false); 
+  const [isNotifying, setIsNotifying] = useState(false); 
 
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -62,7 +66,6 @@ export default function AdminNewsPage() {
 
   const [newsForm, setNewsForm] = useState<NewsItem>(createEmptyNews());
   const [tagInput, setTagInput] = useState("");
-  const [sendEmail, setSendEmail] = useState(true);
 
   async function loadAllData() {
     try {
@@ -87,7 +90,6 @@ export default function AdminNewsPage() {
 
   const brandMap = useMemo(() => brands.reduce((acc, b) => ({ ...acc, [b.brandId]: b }), {} as Record<string, Brand>), [brands]);
   const deptMap = useMemo(() => depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>), [depts]);
-  const groupMap = useMemo(() => groups.reduce((acc, g) => ({ ...acc, [g.groupId]: g }), {} as Record<string, Group>), [groups]);
 
   const filteredNews = useMemo(() => {
     if (loading) return [];
@@ -103,7 +105,7 @@ export default function AdminNewsPage() {
   const handleNew = () => {
     setNewsForm(createEmptyNews());
     setTagInput("");
-    setSendEmail(true);
+    setIsNotifyChecked(false); // 新規作成時はオフ
     setSelectedNews(null);
     setIsEditing(true);
   };
@@ -111,8 +113,9 @@ export default function AdminNewsPage() {
   const handleEdit = (n: NewsItem) => {
     setNewsForm({ ...n, targetGroupIds: n.targetGroupIds || [], tags: n.tags || [] });
     setTagInput((n.tags || []).join(", "));
+    setIsNotifyChecked(false); 
     setSelectedNews(n);
-    setIsEditing(false); // 選択時はまず詳細表示
+    setIsEditing(false);
   };
 
   const handleCancel = () => {
@@ -120,6 +123,7 @@ export default function AdminNewsPage() {
     const original = selectedNews || createEmptyNews();
     setNewsForm(original);
     setTagInput((original.tags || []).join(", "));
+    setIsNotifyChecked(false);
   };
 
   const handleGroupToggle = (groupId: string) => {
@@ -140,9 +144,11 @@ export default function AdminNewsPage() {
     }));
   };
 
+  // ★ 修正された保存ハンドル
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newsForm.title || !newsForm.body) return alert("タイトルと本文は必須です。");
+    
     setIsSaving(true);
     const isNew = !selectedNews;
     const finalTags = tagInput.split(/[,、]/).map(s => s.trim()).filter(Boolean);
@@ -150,35 +156,50 @@ export default function AdminNewsPage() {
     
     const endpoint = isNew ? "/api/news" : `/api/news/${newsForm.newsId}`;
     const method = isNew ? "POST" : "PUT";
+
     try {
+      // 1. お知らせ本体の保存
       const res = await fetch(endpoint, {
         method, headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error(await res.text());
-      
-      if (isNew && sendEmail) {
-        fetch("/api/news/notify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: payload.title, body: payload.body, targetGroupIds: payload.targetGroupIds }),
-        }).catch(err => console.error("Notification failed:", err));
+      const resData = await res.json();
+      const savedNews = isNew ? resData.news : resData.item;
+
+      // 2. メール配信処理（チェックが入っている場合のみ）
+      if (isNotifyChecked && savedNews?.newsId) {
+        setIsNotifying(true);
+        try {
+          const notifyRes = await fetch("/api/news/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ newsId: savedNews.newsId }),
+          });
+          if (!notifyRes.ok) console.error("Notification failed");
+        } catch (err) {
+          console.error("Notification error:", err);
+        } finally {
+          setIsNotifying(false);
+        }
       }
 
+      alert(isNotifyChecked ? "保存とメール配信が完了しました。" : "保存しました。");
+      
       await loadAllData();
-      const resData = await res.json();
-      const saved = isNew ? resData.news : resData.item;
-      if (saved) {
-        setSelectedNews(saved);
-        setNewsForm(saved);
-        setTagInput((saved.tags || []).join(", "));
+      if (savedNews) {
+        setSelectedNews(savedNews);
+        setNewsForm(savedNews);
+        setTagInput((savedNews.tags || []).join(", "));
       }
       setIsEditing(false);
-      alert("保存しました。");
+      setIsNotifyChecked(false); // 送信後はリセット
+
     } catch (e: any) {
       alert(`保存エラー: ${e.message}`);
     } finally {
       setIsSaving(false);
+      setIsNotifying(false);
     }
   };
 
@@ -203,10 +224,10 @@ export default function AdminNewsPage() {
 
   return (
     <div className="kb-root">
-      {isSaving && (
+      {(isSaving || isNotifying) && (
         <div className="kb-loading-overlay">
           <div className="kb-spinner"></div>
-          <p>お知らせを保存しています...</p>
+          <p>{isNotifying ? "関係者へメールを配信しています..." : "お知らせを保存しています..."}</p>
         </div>
       )}
 
@@ -220,7 +241,6 @@ export default function AdminNewsPage() {
         </Link>
         <div className="kb-topbar-center" style={{ fontSize: "18px", fontWeight: "700" }}>お知らせ管理</div>
         <div className="kb-topbar-right">
-          {/* 戻るボタンを元の右端の位置へ配置 */}
           <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
         </div>
       </div>
@@ -262,44 +282,67 @@ export default function AdminNewsPage() {
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">タイトル</label>
-                <input type="text" name="title" className="kb-admin-input full" value={newsForm.title || ''} onChange={handleInputChange} readOnly={!isEditing} />
+                <input type="text" name="title" className="kb-admin-input full" value={newsForm.title || ''} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: システムメンテナンスのお知らせ" />
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">本文</label>
-                <textarea name="body" className="kb-admin-textarea full" value={newsForm.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={8} />
+                <textarea name="body" className="kb-admin-textarea full" value={newsForm.body || ''} onChange={handleInputChange} readOnly={!isEditing} rows={8} placeholder="お知らせの内容を入力してください..." />
               </div>
 
               <div className="kb-admin-form-row two-col">
                 <div>
-                  <label className="kb-admin-label">ブランド</label>
-                  <select name="brandId" className="kb-admin-select full" value={newsForm.brandId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
-                    <option value="ALL">全社共通</option>
-                    {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-                  </select>
+                  <label className="kb-admin-label">対象ブランド</label>
+  <select 
+    name="brandId" 
+    className="kb-admin-select full" 
+    value={newsForm.brandId || 'ALL'} 
+    onChange={handleInputChange} 
+    disabled={!isEditing}
+  >
+    <option value="ALL">全社共通</option>
+    {brands
+      .filter(b => b.brandId !== "ALL") // 重複除外
+      .map(b => (
+        <option key={b.brandId} value={b.brandId}>
+          {b.name}
+        </option>
+      ))
+    }
+  </select>
                 </div>
                 <div>
-                  <label className="kb-admin-label">配信部署</label>
-                  <select name="deptId" className="kb-admin-select full" value={newsForm.deptId || 'ALL'} onChange={handleInputChange} disabled={!isEditing}>
-                    <option value="ALL">全部署</option>
-                    {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
-                  </select>
+                  <label className="kb-admin-label">対象部署</label>
+  <select 
+    name="deptId" 
+    className="kb-admin-select full" 
+    value={newsForm.deptId || 'ALL'} 
+    onChange={handleInputChange} 
+    disabled={!isEditing}
+  >
+    {/* 1. まず固定の「全部署」を表示 */}
+    <option value="ALL">全部署</option>
+    
+    {/* 2. DBのリストから、IDが "ALL" 以外のものだけをループで回す */}
+    {depts
+      .filter(d => d.deptId !== "ALL") // 重複を防ぐために ALL を除外
+      .map(d => (
+        <option key={d.deptId} value={d.deptId}>
+          {d.name}
+        </option>
+      ))
+    }
+  </select>
                 </div>
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">対象属性グループ</label>
+                <label className="kb-admin-label full">対象属性グループ（複数選択可）</label>
                 <div className="kb-chip-list">
                   {groups.map(g => (
                     <button key={g.groupId} type="button" className={`kb-chip small ${newsForm.targetGroupIds?.includes(g.groupId) ? 'kb-chip-active' : ''}`} onClick={() => handleGroupToggle(g.groupId)} disabled={!isEditing}>{g.groupName}</button>
                   ))}
                 </div>
-              </div>
-
-              <div className="kb-admin-form-row">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
-                  <input type="checkbox" name="isActive" checked={newsForm.isActive ?? true} onChange={handleInputChange} disabled={!isEditing} /> 公開を有効にする
-                </label>
               </div>
 
               <div className="kb-admin-form-row two-col">
@@ -311,6 +354,33 @@ export default function AdminNewsPage() {
                 <label className="kb-admin-label full">タグ（カンマ区切り）</label>
                 <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: 重要, メンテナンス" />
               </div>
+
+              <div className="kb-admin-form-row" style={{ marginTop: 10 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer', fontWeight: 600 }}>
+                  <input type="checkbox" name="isActive" checked={newsForm.isActive ?? true} onChange={handleInputChange} disabled={!isEditing} />
+                  公開を有効にする（チェックを外すと下書き/非表示）
+                </label>
+              </div>
+
+              {/* ★ メール配信チェックボックス */}
+              {isEditing && (
+                <div style={{ marginTop: '20px', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #bae6fd' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={isNotifyChecked}
+                      onChange={(e) => setIsNotifyChecked(e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: '700', color: '#0369a1' }}>
+                      保存時に、対象者へメール通知を配信する
+                    </span>
+                  </label>
+                  <p style={{ fontSize: '12px', color: '#0c4a6e', marginTop: '6px', marginLeft: '28px' }}>
+                    ※選択したブランド・部署のユーザー全員にメールが送信されます。
+                  </p>
+                </div>
+              )}
 
               {/* ボタンアクションエリア */}
               <div className="kb-form-actions-news">
@@ -326,8 +396,8 @@ export default function AdminNewsPage() {
                   {isEditing ? (
                     <>
                       <button className="kb-secondary-btn" onClick={handleCancel} type="button">キャンセル</button>
-                      <button className="kb-primary-btn" type="submit" disabled={!newsForm.title || !newsForm.body}>
-                        {isNewCreationMode ? '新規登録' : '保存する'}
+                      <button className="kb-primary-btn" type="submit" disabled={!newsForm.title || !newsForm.body || isSaving || isNotifying}>
+                        {isNotifying ? 'メール配信中...' : isSaving ? '保存中...' : isNewCreationMode ? '新規登録して完了' : '変更を保存する'}
                       </button>
                     </>
                   ) : (
