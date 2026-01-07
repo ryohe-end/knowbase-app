@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Manual } from "@/types/manual";
 
-type Props = { manuals: Manual[] };
+// ★ 型定義に externalUrl を追加
+type Props = { manuals: (Manual & { externalUrl?: string })[] };
 
 function safeOpen(url: string) {
   const w = window.open(url, "_blank", "noopener,noreferrer");
@@ -64,7 +65,6 @@ export default function ManualList({ manuals }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
 
-  // 並び替え：updatedAt を使用
   const sorted = useMemo(() => {
     const list = [...manuals];
     list.sort((a, b) => {
@@ -91,7 +91,6 @@ export default function ManualList({ manuals }: Props) {
 
       <div className="kbm-list">
         {sorted.map((m) => {
-          // 種別判定
           const type: "video" | "doc" =
             (m.embedUrl ?? "").includes("youtube") ||
             (m.embedUrl ?? "").includes("youtu.be")
@@ -107,7 +106,6 @@ export default function ManualList({ manuals }: Props) {
             ? "このマニュアルはダウンロード不可です（閲覧のみ）"
             : "";
 
-          // NEW判定
           const now = Date.now();
           const updated = parseTime(m.updatedAt);
           const showNew = !!(updated && now - updated <= WINDOW);
@@ -136,7 +134,6 @@ export default function ManualList({ manuals }: Props) {
 
                   <div className="kbm-title">{m.title}</div>
 
-                  {/* ✅ 日付表示エリアを追加 */}
                   <div className="kbm-meta" style={{ display: "flex", gap: "12px", fontSize: "11px", color: "#94a3b8", marginTop: "4px", marginBottom: "4px" }}>
                     {m.startDate && (
                       <span>公開日: {m.startDate}</span>
@@ -159,7 +156,7 @@ export default function ManualList({ manuals }: Props) {
                   ) : null}
                 </div>
 
-                <div className="kbm-right">
+                <div className="kbm-right" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   <button
                     className="kbm-btn kbm-btn-primary"
                     type="button"
@@ -175,6 +172,28 @@ export default function ManualList({ manuals }: Props) {
                   >
                     プレビュー
                   </button>
+
+                  {/* ★ 外部サイト用ボタン：aタグにして target="_blank" を確実に適用 */}
+  {m.externalUrl && (
+    <a
+      href={m.externalUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="kbm-btn"
+      style={{ 
+        background: "#f8fafc", 
+        color: "#475569", 
+        border: "1px solid #cbd5e1",
+        textDecoration: "none",
+        textAlign: "center",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }}
+    >
+      外部リンク 
+    </a>
+  )}
 
                   <button
                     className={`kbm-btn ${dlDisabled ? "is-disabled" : ""}`}

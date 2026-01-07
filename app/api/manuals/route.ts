@@ -10,10 +10,8 @@ import {
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = "yamauchi-Manuals";
 
-// ★★★ 修正箇所: 認証情報の明示的設定を削除し、オリジナルの形に戻す ★★★
+// DynamoDBクライアントの初期化
 const ddbClient = new DynamoDBClient({ region: REGION });
-// ★★★
-
 const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
 
 export type ManualType = "doc" | "video";
@@ -33,19 +31,16 @@ export type Manual = {
   tags?: string[];
 
   embedUrl?: string;
+  externalUrl?: string; // ★ 追加：外部サイトURL
   noDownload?: boolean;
   readCount?: number;
 
-  // ★ 追加（フロントで使う）
   startDate?: string; // 公開開始 "YYYY-MM-DD"
   endDate?: string; // 公開終了 "YYYY-MM-DD"
   type?: ManualType; // "doc" | "video"
 
-  // 互換（古い名前が来ても吸収するため残す：保存はしない）
   publishStart?: string;
   publishEnd?: string;
-
-  // 既存互換（使ってもOK）
   isNew?: boolean;
 };
 
@@ -53,7 +48,6 @@ export type Manual = {
 function normalizeYmd(v: any): string | undefined {
   if (!v) return undefined;
   const s = String(v).slice(0, 10);
-  // ざっくり形式チェック
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
   return s;
 }
@@ -64,11 +58,10 @@ function normalizeType(v: any): ManualType | undefined {
   return undefined;
 }
 
-/** DynamoDB → Manual へのマッピング（フロントが期待する形に寄せる） */
+/** DynamoDB → Manual へのマッピング */
 function mapItemToManual(item: any): Manual {
   if (!item) throw new Error("Empty manual item");
 
-  // startDate/endDate は新旧どちらでも受ける（DDB内に両方あってもstartDate優先）
   const startDate =
     normalizeYmd(item.startDate) ?? normalizeYmd(item.publishStart);
   const endDate = normalizeYmd(item.endDate) ?? normalizeYmd(item.publishEnd);
@@ -86,6 +79,7 @@ function mapItemToManual(item: any): Manual {
     desc: item.desc ?? null,
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
     embedUrl: item.embedUrl ? String(item.embedUrl) : undefined,
+    externalUrl: item.externalUrl ? String(item.externalUrl) : undefined, // ★ マッピングに追加
 
     tags: Array.isArray(item.tags) ? item.tags.map((t: any) => String(t)) : [],
 
@@ -101,8 +95,6 @@ function mapItemToManual(item: any): Manual {
     startDate,
     endDate,
     type: normalizeType(item.type) ?? "doc",
-
-    // 既存互換（残っててもOK）
     isNew: item.isNew === true,
   };
 }
@@ -112,20 +104,16 @@ function buildDbItem(input: any): any {
   const manualId = String(input.manualId || "").trim();
   const title = String(input.title || "").trim();
 
-  // 旧 publishStart/publishEnd を受けても startDate/endDate へ寄せる
   const startDate =
     normalizeYmd(input.startDate) ?? normalizeYmd(input.publishStart);
   const endDate = normalizeYmd(input.endDate) ?? normalizeYmd(input.publishEnd);
 
-  // type
   const type = normalizeType(input.type) ?? "doc";
 
-  // tags
   const tags = Array.isArray(input.tags)
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
-  // updatedAt（未指定なら今日）
   const updatedAt =
     normalizeYmd(input.updatedAt) ?? new Date().toISOString().slice(0, 10);
 
@@ -141,6 +129,7 @@ function buildDbItem(input: any): any {
 
     desc: input.desc ?? null,
     embedUrl: input.embedUrl ? String(input.embedUrl) : undefined,
+    externalUrl: input.externalUrl ? String(input.externalUrl) : undefined, // ★ 保存対象に追加
 
     tags,
 
@@ -185,7 +174,7 @@ export async function GET() {
   }
 }
 
-/** POST: /api/manuals 新規登録（全項目上書き保存） */
+/** POST: /api/manuals 新規登録 */
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -219,7 +208,7 @@ export async function POST(req: Request) {
   }
 }
 
-/** PUT: /api/manuals 更新（全項目上書き） */
+/** PUT: /api/manuals 更新 */
 export async function PUT(req: Request) {
   try {
     const body = await req.json();

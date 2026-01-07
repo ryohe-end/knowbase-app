@@ -13,6 +13,7 @@ export type Manual = {
   tags?: string[] | null;
   previewUrl?: string | null;
   embedUrl?: string | null;
+  externalUrl?: string;
   downloadUrl?: string | null;
   noDownload?: boolean | null;
 };

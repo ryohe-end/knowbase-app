@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/* ========= 型定義 (676行構成維持) ========= */
+/* ========= 型定義 (外部URLを追加) ========= */
 
 type Manual = {
   manualId: string;
@@ -17,6 +17,7 @@ type Manual = {
   updatedAt?: string;
   tags?: string[];
   embedUrl?: string;
+  externalUrl?: string; // ★ 追加
   noDownload?: boolean;
   startDate?: string;
   endDate?: string;
@@ -49,6 +50,7 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   updatedAt: getTodayDate(),
   tags: [],
   embedUrl: "",
+  externalUrl: "", // ★ 追加
   noDownload: false,
   startDate: "",
   endDate: "",
@@ -94,7 +96,6 @@ export default function AdminManuals() {
   const [filterText, setFilterText] = useState("");
 
   const [manualForm, setManualForm] = useState<Manual>(createEmptyManual());
-
   const [tagInput, setTagInput] = useState("");
 
   const loadAllData = useCallback(async () => {
@@ -198,7 +199,6 @@ export default function AdminManuals() {
     const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
     const payload = { ...manualForm, tags: finalTags };
     try {
-      // ★ 判定条件を selectedManual の有無に変更
       const isNew = selectedManual === null;
       const res = await fetch("/api/manuals", {
         method: isNew ? "POST" : "PUT",
@@ -237,26 +237,26 @@ export default function AdminManuals() {
   return (
     <div className="kb-root">
       {isCopying && (
-      <div className="kb-loading-overlay">
-        <div className="kb-spinner"></div>
-        <p>テンプレートをコピーしています...<br/>しばらくお待ちください</p>
-      </div>
-    )}
+        <div className="kb-loading-overlay">
+          <div className="kb-spinner"></div>
+          <p>テンプレートをコピーしています...<br/>しばらくお待ちください</p>
+        </div>
+      )}
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
-  <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-      alt="Logo" 
-      style={{ width: 48, height: 48, objectFit: "contain" }} 
-    />
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-      alt="LogoText" 
-      style={{ height: 22, objectFit: "contain" }} 
-    />
-  </div>
-</Link>
+          <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
+              alt="Logo" 
+              style={{ width: 48, height: 48, objectFit: "contain" }} 
+            />
+            <img 
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
+              alt="LogoText" 
+              style={{ height: 22, objectFit: "contain" }} 
+            />
+          </div>
+        </Link>
         <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>マニュアル管理</div>
         <div className="kb-topbar-right">
           <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
@@ -271,7 +271,6 @@ export default function AdminManuals() {
           </div>
           <input type="text" className="kb-admin-input" placeholder="タイトル、ID、タグで検索..." value={filterText} onChange={e => setFilterText(e.target.value)} style={{ marginBottom: 12 }} />
           <div className="kb-manual-list-admin">
-            {loading && <div style={{ color: '#6b7280' }}>データ読み込み中...</div>}
             {!loading && filteredManuals.map(m => (
               <div key={m.manualId} className={`kb-manual-item-admin ${selectedManual?.manualId === m.manualId ? "selected" : ""}`} onClick={() => handleEditManual(m)}>
                 <div className="kb-manual-title-admin">{m.type === "video" ? "🎬 " : "📄 "}{m.title}</div>
@@ -282,7 +281,6 @@ export default function AdminManuals() {
         </div>
 
         <div className="kb-admin-card-large">
-          {/* ★ 表示タイトルの判定を selectedManual に変更 */}
           <div className="kb-admin-head">{isEditing ? (selectedManual === null ? "新規マニュアル作成" : "マニュアル編集") : selectedManual ? "マニュアル詳細" : "マニュアル未選択"}</div>
           {!selectedManual && !isEditing && !loading && <div style={{ color: '#6b7280', paddingTop: 30, textAlign: 'center' }}>編集したいマニュアルを選択するか、「＋ 新規作成」ボタンを押してください。</div>}
           {(isEditing || selectedManual) && (
@@ -295,6 +293,7 @@ export default function AdminManuals() {
                 <label className="kb-admin-label full">タイトル（必須）</label>
                 <input type="text" name="title" className="kb-admin-input full" value={manualForm.title || ""} onChange={handleInputChange} readOnly={!isEditing} />
               </div>
+              
               <div className="kb-admin-form-row two-col">
                 <div>
                   <label className="kb-admin-label">タイプ</label>
@@ -311,6 +310,7 @@ export default function AdminManuals() {
                   </select>
                 </div>
               </div>
+
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信部署</label>
                 <select name="bizId" className="kb-admin-select full" value={manualForm.bizId || ""} onChange={handleInputChange} disabled={!isEditing}>
@@ -318,31 +318,35 @@ export default function AdminManuals() {
                   {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
                 </select>
               </div>
+
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">説明</label>
                 <textarea name="desc" className="kb-admin-textarea full" value={manualForm.desc || ""} onChange={handleInputChange} readOnly={!isEditing} rows={3} />
               </div>
 
-              <div className="kb-admin-form-row two-col">
-                <div>
-                  <label className="kb-admin-label">公開開始日</label>
-                  <input type="date" name="startDate" className="kb-admin-input full" value={manualForm.startDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
-                </div>
-                <div>
-                  <label className="kb-admin-label">公開終了日</label>
-                  <input type="date" name="endDate" className="kb-admin-input full" value={manualForm.endDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
-                </div>
-              </div>
-
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">タグ（カンマ区切り）</label>
                 <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: 経理, 請求, PDF" />
-                <div className="kb-subnote full" style={{ marginTop: 4 }}>※カンマ、またはスペースで区切ってください。</div>
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">埋め込みURL（Google Drive/Slides）</label>
                 <input type="url" name="embedUrl" className="kb-admin-input full" value={manualForm.embedUrl || ""} onChange={handleInputChange} readOnly={!isEditing} placeholder="https://drive.google.com/..." />
+              </div>
+
+              {/* ★ 新機能：外部URL入力欄 */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">外部URL（参考リンクなど）</label>
+                <input 
+                  type="url" 
+                  name="externalUrl" 
+                  className="kb-admin-input full" 
+                  value={manualForm.externalUrl || ""} 
+                  onChange={handleInputChange} 
+                  readOnly={!isEditing} 
+                  placeholder="https://example.com" 
+                />
+                <div className="kb-subnote full" style={{ marginTop: 4 }}>※埋め込みではなく、別タブで開くリンクとして利用されます。</div>
               </div>
 
               {getEmbedSrc(manualForm.embedUrl) && (
@@ -355,14 +359,19 @@ export default function AdminManuals() {
               )}
 
               <div className="kb-form-actions">
-                {/* ★ テンプレート作成ボタンの条件を selectedManual に変更 */}
                 {isEditing && selectedManual === null && (
                   <button className="kb-secondary-btn" onClick={handleCreateFromTemplate} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
                 )}
                 {isEditing ? (
-                  <><button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button><button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{selectedManual === null ? "新規作成" : "保存"}</button></>
+                  <>
+                    <button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button>
+                    <button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{selectedManual === null ? "新規作成" : "保存"}</button>
+                  </>
                 ) : (
-                  <><button className="kb-delete-btn" onClick={() => handleDelete(selectedManual!.manualId)}>削除</button><button className="kb-primary-btn" onClick={() => handleEditManual(selectedManual!)} type="button">編集</button></>
+                  <>
+                    <button className="kb-delete-btn" onClick={() => handleDelete(selectedManual!.manualId)}>削除</button>
+                    <button className="kb-primary-btn" onClick={() => handleEditManual(selectedManual!)} type="button">編集</button>
+                  </>
                 )}
               </div>
             </div>
