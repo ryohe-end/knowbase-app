@@ -95,7 +95,6 @@ export default function AdminManuals() {
 
   const [manualForm, setManualForm] = useState<Manual>(createEmptyManual());
 
-  // ★ 【修正】タグ入力専用State（カンマやスペースを許容するため）
   const [tagInput, setTagInput] = useState("");
 
   const loadAllData = useCallback(async () => {
@@ -199,7 +198,8 @@ export default function AdminManuals() {
     const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
     const payload = { ...manualForm, tags: finalTags };
     try {
-      const isNew = manualForm.manualId.startsWith("M200-");
+      // ★ 判定条件を selectedManual の有無に変更
+      const isNew = selectedManual === null;
       const res = await fetch("/api/manuals", {
         method: isNew ? "POST" : "PUT",
         headers: { "Content-Type": "application/json" },
@@ -282,7 +282,8 @@ export default function AdminManuals() {
         </div>
 
         <div className="kb-admin-card-large">
-          <div className="kb-admin-head">{isEditing ? (manualForm.manualId.startsWith("M200-") ? "新規マニュアル作成" : "マニュアル編集") : selectedManual ? "マニュアル詳細" : "マニュアル未選択"}</div>
+          {/* ★ 表示タイトルの判定を selectedManual に変更 */}
+          <div className="kb-admin-head">{isEditing ? (selectedManual === null ? "新規マニュアル作成" : "マニュアル編集") : selectedManual ? "マニュアル詳細" : "マニュアル未選択"}</div>
           {!selectedManual && !isEditing && !loading && <div style={{ color: '#6b7280', paddingTop: 30, textAlign: 'center' }}>編集したいマニュアルを選択するか、「＋ 新規作成」ボタンを押してください。</div>}
           {(isEditing || selectedManual) && (
             <div className="kb-manual-form">
@@ -322,7 +323,6 @@ export default function AdminManuals() {
                 <textarea name="desc" className="kb-admin-textarea full" value={manualForm.desc || ""} onChange={handleInputChange} readOnly={!isEditing} rows={3} />
               </div>
 
-              {/* ★ 公開期間設定の追加 */}
               <div className="kb-admin-form-row two-col">
                 <div>
                   <label className="kb-admin-label">公開開始日</label>
@@ -355,11 +355,12 @@ export default function AdminManuals() {
               )}
 
               <div className="kb-form-actions">
-                {isEditing && manualForm.manualId.startsWith("M200-") && (
+                {/* ★ テンプレート作成ボタンの条件を selectedManual に変更 */}
+                {isEditing && selectedManual === null && (
                   <button className="kb-secondary-btn" onClick={handleCreateFromTemplate} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
                 )}
                 {isEditing ? (
-                  <><button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button><button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{manualForm.manualId.startsWith("M200-") ? "新規作成" : "保存"}</button></>
+                  <><button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button><button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{selectedManual === null ? "新規作成" : "保存"}</button></>
                 ) : (
                   <><button className="kb-delete-btn" onClick={() => handleDelete(selectedManual!.manualId)}>削除</button><button className="kb-primary-btn" onClick={() => handleEditManual(selectedManual!)} type="button">編集</button></>
                 )}
@@ -405,7 +406,6 @@ export default function AdminManuals() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        /* ★ 追加: ローディングオーバーレイのスタイル */
         .kb-loading-overlay {
           position: fixed;
           top: 0;
