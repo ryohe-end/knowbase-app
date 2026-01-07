@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ links: items });
   } catch (err) {
     console.error("Failed to fetch links:", err);
-    return NextResponse.json({ error: "外部リンクの取得に失敗しました" }, { status: 500 });
+    return NextResponse.json({ 
+    error: "外部リンクの取得に失敗しました", 
+    detail: err.message, // これを追加
+    stack: err.stack     // これも追加
+  }, { status: 500 });
   }
 }
 
