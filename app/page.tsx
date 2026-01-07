@@ -120,6 +120,59 @@ function formatToJST(dateStr?: string) {
   }
 }
 
+/* ========= キーワード分解（単語検索用） ========= */
+function tokenizeJP(input: string) {
+  const raw = (input || "").toLowerCase().trim();
+  if (!raw) return [];
+
+  // 1) 記号を空白化（英数は分離しやすくする）
+  const cleaned = raw.replace(
+    /[、。,.!！?？:：;；()（）[\]【】{}「」『』<>・/\\|"'`~^＝=＋+＿_〜\-\n\r\t]/g,
+    " "
+  );
+
+  // 2) 英数字トークン（fit365 / canva / 123 など）
+  const latin = cleaned.match(/[a-z0-9]+/g) ?? [];
+
+  // 3) 日本語かたまり（漢字/ひらがな/カタカナ）を抽出
+  //    例: "fit365の入館方法を教えて" → ["の入館方法を教えて"] になりやすいので後で分割する
+  const jpChunks = cleaned.match(/[一-龯々〆ヵヶぁ-んァ-ヴー]{2,}/g) ?? [];
+
+  // 4) 日本語かたまりを「助詞・よくある語」で分割して単語化
+  //    例: "入館方法を教えて" → "入館"
+  const particleSplitter =
+    /(の|を|は|が|に|へ|と|で|や|から|まで|です|ます|する|したい|教えて|について)/g;
+  const suffixSplitter =
+    /(方法|やり方|手順|手続き|流れ|とは|って|できない|したい)/g;
+
+  const jpTokens = jpChunks
+    .flatMap((chunk) =>
+      chunk
+        .replace(particleSplitter, " ")
+        .replace(suffixSplitter, " ")
+        .split(/\s+/)
+        .filter(Boolean)
+    )
+    .filter((t) => t.length >= 2);
+
+  // 5) ストップワード（最終ノイズ除去）
+  const stopWords = new Set([
+    "の","を","は","が","に","へ","と","で","や","から","まで",
+    "です","ます","する","したい","教えて","方法","やり方","手順","について","流れ",
+  ]);
+
+  let tokens = [...latin, ...jpTokens]
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 2)
+    .filter((t) => !stopWords.has(t));
+
+  // 6) "fit 365" 対策：2語以上なら連結も追加
+  if (tokens.length >= 2) tokens.push(tokens.join(""));
+
+  // 重複除去
+  return Array.from(new Set(tokens));
+}
+
 /* ========= ログアウト ========= */
 
 async function handleLogout() {
@@ -786,29 +839,36 @@ async function handleAsk() {
   }, [depts]);
 
   const filteredManuals = useMemo(() => {
-    const kw = keyword.trim().toLowerCase();
-    const hasKeyword = kw.length > 0;
+  const tokens = tokenizeJP(keyword);
+  const hasTokens = tokens.length > 0;
 
-    return manuals.filter((m) => {
-      const title = (m.title ?? "").toLowerCase();
-      const desc = (m.desc ?? "").toLowerCase();
-      const tags = (m.tags ?? []).map((t) => (t ?? "").toLowerCase());
+  return manuals.filter((m) => {
+    // --- ブランド・部署フィルタ（常に適用） ---
+    if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) {
+      return false;
+    }
+    if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) {
+      return false;
+    }
 
-      const matchKeyword =
-        !hasKeyword ||
-        title.includes(kw) ||
-        desc.includes(kw) ||
-        tags.some((t) => t.includes(kw));
+    // キーワードが無い場合はここでOK
+    if (!hasTokens) return true;
 
-      if (!matchKeyword) return false;
-      if (hasKeyword) return true;
+    // --- 検索対象テキストをまとめる ---
+    const haystack = [
+      m.title ?? "",
+      m.desc ?? "",
+      ...(m.tags ?? []),
+      m.brand ?? "",
+      m.biz ?? "",
+    ]
+      .join(" ")
+      .toLowerCase();
 
-      if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
-      if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
-
-      return true;
-    });
-  }, [manuals, keyword, selectedBrandId, selectedDeptId]);
+    // --- 単語 OR 検索（どれか1語でも含めばヒット） ---
+    return tokens.some((t) => haystack.includes(t));
+  });
+}, [manuals, keyword, selectedBrandId, selectedDeptId]);
 
   useEffect(() => setManualPage(1), [keyword, selectedBrandId, selectedDeptId]);
 
