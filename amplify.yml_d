@@ -9,6 +9,9 @@ frontend:
           echo "TEMPLATE_FILE_ID=$TEMPLATE_FILE_ID" > runtime-env.txt
           echo "TEMPLATE_COPY_PARENT_FOLDER_ID=$TEMPLATE_COPY_PARENT_FOLDER_ID" >> runtime-env.txt
           echo "GOOGLE_SERVICE_ACCOUNT_JSON=$GOOGLE_SERVICE_ACCOUNT_JSON" >> runtime-env.txt
+          echo "QBUSINESS_APP_ID=$QBUSINESS_APP_ID" >> runtime-env.txt
+          echo "QBUSINESS_REGION=$QBUSINESS_REGION" >> runtime-env.txt
+          echo "QBUSINESS_ACCESS_TOKEN=$QBUSINESS_ACCESS_TOKEN" >> runtime-env.txt
     build:
       commands:
         - npm run build
