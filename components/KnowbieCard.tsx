@@ -101,7 +101,7 @@ export default function KnowbieCard() {
             const eventName = extractSseEventName(part);
             const data = extractSseData(part);
 
-            if (eventName === "done") continue;
+            if (eventName === "done" || data === "[DONE]") return;
 
             if (eventName === "error") {
               // data が JSON のことが多い

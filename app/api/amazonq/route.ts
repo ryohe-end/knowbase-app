@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
     );
 
     const fullText = (result as any)?.systemMessage ?? "";
+    const sources = (result as any)?.sourceAttributions ?? [];
     const encoder = new TextEncoder();
 
     // ✅ 擬似ストリーミングSSE（全文を小分けで流す）
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest) {
           }
 
           // お好みで調整
-          const CHUNK_SIZE = 24; // 文字数（小さいほど “打ってる感”）
+          const CHUNK_SIZE = 15; // 文字数（小さいほど “打ってる感”）
           const DELAY_MS = 18;   // 遅延（小さいほど速い）
 
           for (let i = 0; i < text.length; i += CHUNK_SIZE) {
@@ -67,7 +68,9 @@ export async function POST(req: NextRequest) {
             controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
             await sleep(DELAY_MS);
           }
-
+          controller.enqueue(
+  encoder.encode(`event: sources\ndata: ${JSON.stringify(sources)}\n\n`)
+);
           controller.enqueue(encoder.encode(`event: done\ndata: [DONE]\n\n`));
         } catch (err: any) {
           controller.enqueue(
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
+        "X-From": "app/api/amazonq/route.ts",
       },
     });
   } catch (error: any) {

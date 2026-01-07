@@ -74,6 +74,18 @@ type Message = {
   loading?: boolean;
 };
 
+type SourceAttribution = {
+  title?: string;
+  url?: string;
+  snippet?: string;
+  citationNumber?: number;
+  updatedAt?: string;
+  documentId?: string;
+
+  // たまに来る可能性があるので保険で許可
+  [key: string]: any;
+};
+
 type ExternalLink = {
   linkId: string;
   title: string;
@@ -227,6 +239,65 @@ function renderRichText(body?: string) {
 
   return <div className="kb-news-rich">{blocks}</div>;
 }
+/* ===== SSE helpers（ここを追加） ===== */
+function extractSseData(eventBlock: string) {
+  const lines = eventBlock.split("\n");
+  const dataLines = lines
+    .filter((l) => l.startsWith("data:"))
+    .map((l) => l.replace(/^data:\s?/, ""));
+  return dataLines.join("\n"); // ←おすすめ
+}
+
+function extractSseEventName(eventBlock: string) {
+  const line = eventBlock.split("\n").find((l) => l.startsWith("event:"));
+  return line ? line.replace(/^event:\s?/, "").trim() : "";
+}
+/* ===== /SSE helpers ===== */
+
+// ✅ ここに「完成したSourcesPanel」を置く
+function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
+  if (!sources || sources.length === 0) return null;
+
+  return (
+    <div style={{ marginTop: 10, padding: 12, border: "1px solid #e5e7eb", borderRadius: 12, background: "#f8fafc" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>
+        参照元（Sources）
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {sources.map((s, i) => (
+          <a
+            key={`${s.citationNumber ?? i}-${i}`}
+            href={s.url || s.documentId || "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "block",
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: "#fff",
+              border: "1px solid #e5e7eb",
+              textDecoration: "none",
+              color: "#0f172a",
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35 }}>
+              {s.citationNumber ? `[${s.citationNumber}] ` : ""}{s.title || "参照元"}
+            </div>
+            {(s.snippet || "").trim() && (
+              <div style={{ fontSize: 12, color: "#475569", marginTop: 4, lineHeight: 1.5 }}>
+                {s.snippet}
+              </div>
+            )}
+            <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>
+              {(s.url || s.documentId || "").replace(/^https?:\/\//, "")}
+            </div>
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ========= ページ ========= */
 export default function HomePage() {
@@ -271,71 +342,199 @@ export default function HomePage() {
 
   /* ========= Knowbie（Amazon Q） ========= */
 
-  const [prompt, setPrompt] = useState("");
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+const [prompt, setPrompt] = useState("");
+const [loadingAI, setLoadingAI] = useState(false);
+const [messages, setMessages] = useState<Message[]>([]);
+const [sources, setSources] = useState<SourceAttribution[]>([]);
+const [showSources, setShowSources] = useState(false);
 
-  async function handleAsk() {
-    if (!prompt.trim() || loadingAI) return;
+function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
+  const next = [...prev, ...incoming];
 
-    const userPrompt = prompt.trim();
-    setKeyword(userPrompt);
-    setPrompt("");
+  // url / documentId / title の優先順で重複排除（必要なら調整）
+  const seen = new Set<string>();
+  return next.filter((s) => {
+    const key = String(s.url || s.documentId || s.title || JSON.stringify(s));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
-    const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
-    const newAssistantId = Date.now() + 1;
+async function handleAsk() {
+  if (!prompt.trim() || loadingAI) return;
 
-    const newAssistantMessage: Message = {
-      id: newAssistantId,
-      role: "assistant",
-      content: "送信しました。検索しています…",
-      loading: true,
-    };
+  const userPrompt = prompt.trim();
+  setKeyword(userPrompt);
+  setPrompt("");
+  setSources([]); // 質問ごとに参照元リセット
+  setShowSources(false);
 
-    setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
-    setLoadingAI(true);
+  const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
+  const newAssistantId = Date.now() + 1;
 
-    const slowTimer = window.setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === newAssistantId && m.loading
-            ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
-            : m
-        )
-      );
-    }, 3000);
+  const newAssistantMessage: Message = {
+    id: newAssistantId,
+    role: "assistant",
+    content: "送信しました。検索しています…",
+    loading: true,
+  };
 
-    try {
-      const res = await fetch("/api/amazonq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userPrompt }),
-      });
+  setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
+  setLoadingAI(true);
 
-      const data = await res.json().catch(() => null);
+  // 追記（assistantメッセージだけに append）
+  const appendToAssistant = (chunk: string) => {
+    if (!chunk) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
+      )
+    );
+  };
 
-      if (!res.ok || !data?.ok) {
-        const msg = data?.error || `API error: ${res.status} ${res.statusText}`;
-        throw new Error(msg);
+  const setAssistantDone = () => {
+    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
+  };
+
+  const slowTimer = window.setTimeout(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId && m.loading
+          ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
+          : m
+      )
+    );
+  }, 3000);
+
+  try {
+    const res = await fetch("/api/amazonq", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: userPrompt }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      try {
+        const j = JSON.parse(text);
+        throw new Error(j.error || j.message || `Server error: ${res.status}`);
+      } catch {
+        throw new Error(text || `Server error: ${res.status}`);
+      }
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+
+    // assistantを空にしてストリーム開始
+    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m)));
+
+    // ✅ SSE
+    if (contentType.includes("text/event-stream")) {
+      // イベント1個を処理する関数（SSE block = "event: ...\ndata: ...\n\n"）
+      const handleSseBlock = (block: string) => {
+        const eventName = extractSseEventName(block);
+        const data = extractSseData(block);
+
+        // ① sources（本文じゃないので最優先）
+        if (eventName === "sources") {
+          try {
+            const parsed = JSON.parse(data || "[]");
+            if (Array.isArray(parsed)) {
+              setSources((prev) => mergeSources(prev, parsed));
+            }
+          } catch (e) {
+            console.warn("Failed to parse sources:", e, data);
+          }
+          return { stop: false };
+        }
+
+        // ② done
+        if (eventName === "done" || data === "[DONE]") {
+          setAssistantDone();
+          return { stop: true };
+        }
+
+        // ③ error
+        if (eventName === "error") {
+          try {
+            const j = JSON.parse(data || "{}");
+            throw new Error(j.error || JSON.stringify(j));
+          } catch {
+            throw new Error(data || "unknown stream error");
+          }
+        }
+
+        // ④ 本文
+        if (data) appendToAssistant(data);
+
+        return { stop: false };
+      };
+
+      // --- フォールバック（res.bodyが無い場合）にも sources 対応 ---
+      if (!res.body) {
+        const all = await res.text().catch(() => "");
+        const blocks = all.split("\n\n");
+        for (const b of blocks) {
+          const r = handleSseBlock(b);
+          if (r?.stop) return;
+        }
+        setAssistantDone();
+        return;
       }
 
-      const answer = String(data.answer ?? "(回答が空でした)");
+      // --- 通常ストリーム ---
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      setMessages((prev) =>
-        prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
-      );
-    } catch (e: any) {
-      const errorMessage = e?.message || "通信エラーが発生しました。";
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === newAssistantId ? { ...m, loading: false, content: `[エラー] ${errorMessage}` } : m
-        )
-      );
-    } finally {
-      window.clearTimeout(slowTimer);
-      setLoadingAI(false);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const r = handleSseBlock(part);
+          if (r?.stop) return;
+        }
+      }
+
+      // 念のため
+      setAssistantDone();
+      return;
     }
+
+    // ✅ SSEじゃない場合（保険）
+    const text = await res.text().catch(() => "");
+    let answer = text;
+
+    try {
+      const j = JSON.parse(text);
+      if (j?.error) throw new Error(j.error);
+      answer = String(j.answer ?? j.text ?? JSON.stringify(j, null, 2));
+    } catch {
+      // textのまま
+    }
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+    );
+  } catch (e: any) {
+    const errorMessage = e?.message || "通信エラーが発生しました。";
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId ? { ...m, loading: false, content: `[エラー] ${errorMessage}` } : m
+      )
+    );
+  } finally {
+    window.clearTimeout(slowTimer);
+    setLoadingAI(false);
   }
+}
 
   /* ========= データ ========= */
 
@@ -789,7 +988,7 @@ export default function HomePage() {
                   <div className="kb-card-subtitle">社内マニュアル／手順の質問に回答します</div>
                 </div>
               </div>
-              <div className="kb-subnote">※ Amazon Q API を利用</div>
+              <div className="kb-subnote"></div>
             </div>
 
             <div className="kb-chat-box">
@@ -856,7 +1055,47 @@ export default function HomePage() {
                     )}
                   </div>
                 ))}
+                {sources.length > 0 && (
+  <div
+    style={{
+      marginTop: 10,
+      paddingTop: 10,
+      borderTop: "1px solid rgba(148,163,184,0.35)",
+    }}
+  >
+    <button
+      type="button"
+      onClick={() => setShowSources((v) => !v)}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        padding: "8px 10px",
+        borderRadius: 10,
+        border: "1px solid rgba(148,163,184,0.35)",
+        background: "rgba(15,23,42,0.25)",
+        color: "#e2e8f0",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 600,
+      }}
+    >
+      <span>参照元（{sources.length}件）</span>
+      <span style={{ color: "#93c5fd" }}>{showSources ? "▴" : "▾"}</span>
+    </button>
+
+    {showSources && (
+      <div style={{ marginTop: 8 }}>
+        <SourcesPanel sources={sources} />
+      </div>
+    )}
+  </div>
+)}
               </div>
+
+              
 
               <div className="kb-chat-input-row">
                 <input
