@@ -12,6 +12,8 @@ frontend:
           echo "QBUSINESS_APP_ID=$QBUSINESS_APP_ID" >> runtime-env.txt
           echo "QBUSINESS_REGION=$QBUSINESS_REGION" >> runtime-env.txt
           echo "QBUSINESS_ACCESS_TOKEN=$QBUSINESS_ACCESS_TOKEN" >> runtime-env.txt
+          echo "QBUSINESS_APP_ID=$QBUSINESS_APP_ID" >> .env.production
+          echo "QBUSINESS_REGION=$QBUSINESS_REGION" >> .env.production
     build:
       commands:
         - npm run build
