@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from 'next/navigation';
 import ManualList from "@/components/ManualList";
@@ -258,42 +258,151 @@ function extractSseEventName(eventBlock: string) {
 function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
   if (!sources || sources.length === 0) return null;
 
+  const normalizeUrlLabel = (s: SourceAttribution) => {
+    const raw = (s.url || s.documentId || "").trim();
+    if (!raw) return "";
+    return raw.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  };
+
   return (
-    <div style={{ marginTop: 10, padding: 12, border: "1px solid #e5e7eb", borderRadius: 12, background: "#f8fafc" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>
-        参照元（Sources）
+    <div
+      className="kb-sources"
+      style={{
+        borderRadius: 14,
+        border: "1px solid rgba(148,163,184,0.22)",
+        background: "rgba(2,6,23,0.35)",
+        backdropFilter: "blur(10px)",
+        padding: 12,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 10,
+        }}
+      >
+        <div style={{ fontSize: 12, fontWeight: 800, color: "#e2e8f0", letterSpacing: "0.02em" }}>
+          参照元
+        </div>
+        <div style={{ fontSize: 11, color: "rgba(226,232,240,0.65)" }}>{sources.length} 件</div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {sources.map((s, i) => (
-          <a
-            key={`${s.citationNumber ?? i}-${i}`}
-            href={s.url || s.documentId || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "block",
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "#fff",
-              border: "1px solid #e5e7eb",
-              textDecoration: "none",
-              color: "#0f172a",
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.35 }}>
-              {s.citationNumber ? `[${s.citationNumber}] ` : ""}{s.title || "参照元"}
-            </div>
-            {(s.snippet || "").trim() && (
-              <div style={{ fontSize: 12, color: "#475569", marginTop: 4, lineHeight: 1.5 }}>
-                {s.snippet}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {sources.map((s, i) => {
+          const href = (s.url || s.documentId || "").trim() || "#";
+          const domain = normalizeUrlLabel(s);
+          const num = s.citationNumber ?? i + 1;
+
+          return (
+            <a
+              key={`${num}-${i}-${domain}`}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "block",
+                textDecoration: "none",
+                borderRadius: 14,
+                border: "1px solid rgba(148,163,184,0.18)",
+                background:
+                  "linear-gradient(180deg, rgba(15,23,42,0.65) 0%, rgba(2,6,23,0.45) 100%)",
+                boxShadow: "0 8px 18px rgba(0,0,0,0.25)",
+                padding: 12,
+                transition: "transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.borderColor = "rgba(147,197,253,0.35)";
+                e.currentTarget.style.boxShadow = "0 12px 26px rgba(0,0,0,0.32)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "none";
+                e.currentTarget.style.borderColor = "rgba(148,163,184,0.18)";
+                e.currentTarget.style.boxShadow = "0 8px 18px rgba(0,0,0,0.25)";
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                {/* number badge */}
+                <div
+                  style={{
+                    minWidth: 28,
+                    height: 28,
+                    borderRadius: 999,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    fontWeight: 800,
+                    color: "#0b1220",
+                    background: "linear-gradient(180deg, #93c5fd 0%, #60a5fa 100%)",
+                    boxShadow: "0 6px 14px rgba(59,130,246,0.25)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {num}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 800,
+                      color: "#e2e8f0",
+                      lineHeight: 1.35,
+                      marginBottom: 4,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={s.title || "参照元"}
+                  >
+                    {s.title || "参照元"}
+                  </div>
+
+                  {String(s.snippet || "").trim() && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "rgba(226,232,240,0.75)",
+                        lineHeight: 1.55,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: "vertical" as any,
+                        overflow: "hidden",
+                        marginBottom: 8,
+                      }}
+                    >
+                      {s.snippet}
+                    </div>
+                  )}
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: "rgba(148,163,184,0.9)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: "85%",
+                      }}
+                      title={domain}
+                    >
+                      {domain || "source"}
+                    </div>
+
+                    <div style={{ fontSize: 11, color: "rgba(147,197,253,0.95)", fontWeight: 700 }}>
+                      開く ↗
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 6 }}>
-              {(s.url || s.documentId || "").replace(/^https?:\/\//, "")}
-            </div>
-          </a>
-        ))}
+            </a>
+          );
+        })}
       </div>
     </div>
   );
@@ -347,6 +456,16 @@ const [loadingAI, setLoadingAI] = useState(false);
 const [messages, setMessages] = useState<Message[]>([]);
 const [sources, setSources] = useState<SourceAttribution[]>([]);
 const [showSources, setShowSources] = useState(false);
+const chatEndRef = useRef<HTMLDivElement | null>(null);
+const [keyword, setKeyword] = useState("");
+  const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
+  const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
+  const [contactSearch, setContactSearch] = useState("");
+
+// ✅ 新しいメッセージ・参照元が来たら自動で一番下へ
+useEffect(() => {
+  chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+}, [messages, sources, showSources]);
 
 function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
   const next = [...prev, ...incoming];
@@ -652,10 +771,7 @@ async function handleAsk() {
     [depts]
   );
 
-  const [keyword, setKeyword] = useState("");
-  const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
-  const [contactSearch, setContactSearch] = useState("");
+  
 
   const brandOptions: { id: string; label: string }[] = useMemo(() => {
     const arr: { id: string; label: string }[] = [{ id: ALL_BRAND_ID, label: "全て" }];
@@ -1056,35 +1172,21 @@ async function handleAsk() {
                   </div>
                 ))}
                 {sources.length > 0 && (
-  <div
-    style={{
-      marginTop: 10,
-      paddingTop: 10,
-      borderTop: "1px solid rgba(148,163,184,0.35)",
-    }}
-  >
+  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(148,163,184,0.35)" }}>
     <button
-      type="button"
-      onClick={() => setShowSources((v) => !v)}
-      style={{
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid rgba(148,163,184,0.35)",
-        background: "rgba(15,23,42,0.25)",
-        color: "#e2e8f0",
-        cursor: "pointer",
-        fontSize: 12,
-        fontWeight: 600,
-      }}
-    >
-      <span>参照元（{sources.length}件）</span>
-      <span style={{ color: "#93c5fd" }}>{showSources ? "▴" : "▾"}</span>
-    </button>
+  type="button"
+  onClick={() => setShowSources((v) => !v)}
+  className="kb-sources-toggle"
+  aria-expanded={showSources}
+>
+  <span className="kb-sources-toggle-left">
+    <span className="kb-sources-dot" />
+    <span className="kb-sources-label">参照元</span>
+    <span className="kb-sources-count">{sources.length}件</span>
+  </span>
+
+  <span className={"kb-sources-caret" + (showSources ? " open" : "")}>▾</span>
+</button>
 
     {showSources && (
       <div style={{ marginTop: 8 }}>
@@ -1093,6 +1195,8 @@ async function handleAsk() {
     )}
   </div>
 )}
+
+<div ref={chatEndRef} />
               </div>
 
               
