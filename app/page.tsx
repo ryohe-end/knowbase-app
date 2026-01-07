@@ -74,6 +74,15 @@ type Message = {
   loading?: boolean;
 };
 
+type ExternalLink = {
+  linkId: string;
+  title: string;
+  url: string;
+  description?: string;
+  sortOrder?: number;
+  isActive: boolean;
+};
+
 /* ========= 定数 ========= */
 
 const ALL_BRAND_ID = "__ALL_BRAND__";
@@ -335,6 +344,7 @@ export default function HomePage() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newsList, setNewsList] = useState<News[]>([]);
+  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]); // [追加]
 
   // ローディング状態の統合
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -380,33 +390,39 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, meRes] = await Promise.all([
-          fetch("/api/manuals").then((res) => res.json()),
-          fetch("/api/brands").then((res) => res.json()),
-          fetch("/api/depts").then((res) => res.json()),
-          fetch("/api/contacts").then((res) => res.json()),
-          fetch("/api/news?onlyActive=1").then((res) => res.json()),
-          fetch("/api/me").then((res) => res.json()),
-        ]);
+  const fetchData = async () => {
+    try {
+      // 1. 変数受け取り側に 「linksRes」 を追加（合計7つにする）
+      const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, meRes, linksRes] = await Promise.all([
+        fetch("/api/manuals").then((res) => res.json()),
+        fetch("/api/brands").then((res) => res.json()),
+        fetch("/api/depts").then((res) => res.json()),
+        fetch("/api/contacts").then((res) => res.json()),
+        fetch("/api/news?onlyActive=1").then((res) => res.json()),
+        fetch("/api/me").then((res) => res.json()),
+        fetch("/api/external-links").then((res) => res.json()), // [追加済]
+      ]);
 
-        const brandsList: Brand[] = (brandsRes.brands || []).sort(
-          (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-        );
-        const deptsList: Dept[] = (deptsRes.depts || []).sort(
-          (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-        );
+      const brandsList: Brand[] = (brandsRes.brands || []).sort(
+        (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      );
+      const deptsList: Dept[] = (deptsRes.depts || []).sort(
+        (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      );
 
-        setManuals(manualsRes.manuals || []);
-        setBrands(brandsList);
-        setDepts(deptsList);
-        setContacts(contactsRes.contacts || []);
-        setNewsList(newsRes.news || []);
-        setMe(meRes.user || null);
-      } catch (e) {
-        console.error("Failed to fetch initial data:", e);
-      } finally {
+      setManuals(manualsRes.manuals || []);
+      setBrands(brandsList);
+      setDepts(deptsList);
+      setContacts(contactsRes.contacts || []);
+      setNewsList(newsRes.news || []);
+      setMe(meRes.user || null);
+      
+      // 2. これで linksRes が定義されているので動きます
+      setExternalLinks(linksRes.links || []); 
+      
+    } catch (e) {
+      console.error("Failed to fetch initial data:", e);
+    } finally {
         // 全ての通信が終わったら初期ローディングを解除
         setIsInitialLoading(false);
         setLoadingManuals(false);
@@ -705,7 +721,57 @@ export default function HomePage() {
               {recentTags.length === 0 && <span className="kb-subnote">タグがまだ登録されていません。</span>}
             </div>
           </div>
+          
+          {/* ---- [追加] 外部リンクセクション ---- */}
+          <div className="kb-panel-section" style={{ marginTop: "20px" }}>
+            <div className="kb-panel-title">外部リンク</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {externalLinks
+                .filter((l) => l.isActive) // 有効なものだけ表示
+                .map((link) => (
+                  <a
+                    key={link.linkId}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="kb-external-link-card"
+                    style={{
+                      display: "block",
+                      padding: "10px 12px",
+                      borderRadius: "10px",
+                      background: "#ffffff",
+                      border: "1px solid #e2e8f0",
+                      textDecoration: "none",
+                      transition: "transform 0.1s, box-shadow 0.1s",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = "translateY(-1px)";
+                      e.currentTarget.style.boxShadow = "0 4px 6px -1px rgba(0, 0, 0, 0.1)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = "none";
+                      e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
+                    }}
+                  >
+                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#0f172a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      {link.title}
+                      <span style={{ fontSize: "10px", color: "#94a3b8" }}>↗</span>
+                    </div>
+                    {link.description && (
+                      <div style={{ fontSize: "11px", color: "#64748b", marginTop: "4px", lineHeight: "1.4" }}>
+                        {link.description}
+                      </div>
+                    )}
+                  </a>
+                ))}
+              {externalLinks.filter(l => l.isActive).length === 0 && (
+                <span className="kb-subnote">登録されたリンクはありません。</span>
+              )}
+            </div>
+          </div>
         </aside>
+
 
         <main className="kb-center">
           <div className="kb-card">

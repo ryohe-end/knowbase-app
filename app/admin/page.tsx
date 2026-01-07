@@ -31,6 +31,7 @@ export default function AdminHome() {
     { href: "/admin/news", label: "02. ANNOUNCEMENT", title: "お知らせ管理", desc: "重要な告知事項を社内全体へスムーズに届けます", color: "#1e293b" },
     { href: "/admin/contacts", label: "03. MASTER DATA", title: "担当者管理", desc: "窓口情報や連絡先マスタの正確性を維持します", color: "#0ea5e9" },
     { href: "/admin/users", label: "04. ACCOUNT", title: "ユーザー管理", desc: "利用権限と所属部署の構成をセキュアに管理します", color: "#64748b" },
+    { href: "/admin/links", label: "05. EXTERNAL LINKS", title: "外部リンク管理", desc: "ポータル内に表示する便利な外部ツール等のリンクを管理します", color: "#10b981" },
   ];
 
   return (

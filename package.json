@@ -11,10 +11,11 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-agent-runtime": "^3.946.0",
     "@aws-sdk/client-dynamodb": "^3.947.0",
-    "@aws-sdk/client-qbusiness": "^3.946.0",
+    "@aws-sdk/client-qbusiness": "^3.964.0",
     "@aws-sdk/lib-dynamodb": "^3.947.0",
     "@aws-sdk/util-dynamodb": "^3.946.0",
     "@sendgrid/mail": "^8.1.6",
+    "@smithy/node-http-handler": "^4.4.7",
     "@types/uuid": "^10.0.0",
     "firebase": "^11.10.0",
     "googleapis": "^168.0.0",
