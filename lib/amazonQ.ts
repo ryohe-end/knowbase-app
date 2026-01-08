@@ -1,5 +1,11 @@
 export async function askAmazonQ(prompt: string, userId = "anonymous") {
-  const endpoint = `https://qbusiness-runtime.${process.env.AWS_REGION}.amazonaws.com/applications/${process.env.QBUSINESS_APPLICATION_ID}/chat`;
+  // 環境変数名を統一
+  const appId = process.env.QBUSINESS_APP_ID;
+  const region = process.env.AWS_REGION || "us-east-1";
+  
+  if (!appId) throw new Error("Missing env: QBUSINESS_APP_ID");
+
+  const endpoint = `https://qbusiness-runtime.${region}.amazonaws.com/applications/${appId}/chat`;
 
   const body = {
     userId,
@@ -27,7 +33,6 @@ export async function askAmazonQ(prompt: string, userId = "anonymous") {
   }
 
   const data = await res.json();
-
   const answer =
     data.output?.message?.content
       ?.map((c: any) => c.text)
