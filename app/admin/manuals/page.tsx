@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/* ========= 型定義 (外部URLを追加) ========= */
+/* ========= 型定義 (外部URL, 公開期間, ダウンロード禁止を追加) ========= */
 
 type Manual = {
   manualId: string;
@@ -17,7 +17,7 @@ type Manual = {
   updatedAt?: string;
   tags?: string[];
   embedUrl?: string;
-  externalUrl?: string; // ★ 追加
+  externalUrl?: string; 
   noDownload?: boolean;
   startDate?: string;
   endDate?: string;
@@ -50,7 +50,7 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   updatedAt: getTodayDate(),
   tags: [],
   embedUrl: "",
-  externalUrl: "", // ★ 追加
+  externalUrl: "", 
   noDownload: false,
   startDate: "",
   endDate: "",
@@ -311,6 +311,32 @@ export default function AdminManuals() {
                 </div>
               </div>
 
+              {/* ✅ 公開期間の追加 */}
+              <div className="kb-admin-form-row two-col">
+                <div>
+                  <label className="kb-admin-label">公開開始日</label>
+                  <input 
+                    type="date" 
+                    name="startDate" 
+                    className="kb-admin-input full" 
+                    value={manualForm.startDate || ""} 
+                    onChange={handleInputChange} 
+                    readOnly={!isEditing} 
+                  />
+                </div>
+                <div>
+                  <label className="kb-admin-label">公開終了日</label>
+                  <input 
+                    type="date" 
+                    name="endDate" 
+                    className="kb-admin-input full" 
+                    value={manualForm.endDate || ""} 
+                    onChange={handleInputChange} 
+                    readOnly={!isEditing} 
+                  />
+                </div>
+              </div>
+
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信部署</label>
                 <select name="bizId" className="kb-admin-select full" value={manualForm.bizId || ""} onChange={handleInputChange} disabled={!isEditing}>
@@ -334,7 +360,6 @@ export default function AdminManuals() {
                 <input type="url" name="embedUrl" className="kb-admin-input full" value={manualForm.embedUrl || ""} onChange={handleInputChange} readOnly={!isEditing} placeholder="https://drive.google.com/..." />
               </div>
 
-              {/* ★ 新機能：外部URL入力欄 */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">外部URL（参考リンクなど）</label>
                 <input 
@@ -347,6 +372,21 @@ export default function AdminManuals() {
                   placeholder="https://example.com" 
                 />
                 <div className="kb-subnote full" style={{ marginTop: 4 }}>※埋め込みではなく、別タブで開くリンクとして利用されます。</div>
+              </div>
+
+              {/* ✅ ダウンロード禁止チェックボックスの追加 */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <input 
+                    type="checkbox" 
+                    name="noDownload" 
+                    checked={!!manualForm.noDownload} 
+                    onChange={handleInputChange} 
+                    disabled={!isEditing} 
+                    style={{ width: 18, height: 18 }}
+                  />
+                  <span>ダウンロードを禁止する（閲覧のみ）</span>
+                </label>
               </div>
 
               {getEmbedSrc(manualForm.embedUrl) && (
