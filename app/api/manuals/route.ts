@@ -79,7 +79,7 @@ function mapItemToManual(item: any): Manual {
     desc: item.desc ?? null,
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
     embedUrl: item.embedUrl ? String(item.embedUrl) : undefined,
-    externalUrl: item.externalUrl ? String(item.externalUrl) : undefined, // ★ マッピングに追加
+    externalUrl: item.externalUrl ? String(item.externalUrl) : undefined,
 
     tags: Array.isArray(item.tags) ? item.tags.map((t: any) => String(t)) : [],
 
@@ -114,8 +114,10 @@ function buildDbItem(input: any): any {
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
-  const updatedAt =
-    normalizeYmd(input.updatedAt) ?? new Date().toISOString().slice(0, 10);
+  // 【修正ポイント】
+  // 更新日を強制的に「実行時の今日の日付」に固定します。
+  // これにより、フロントから古い日付が送られてきても常に最新の更新日が保存されます。
+  const updatedAt = new Date().toISOString().slice(0, 10);
 
   return {
     manualId,
@@ -129,7 +131,7 @@ function buildDbItem(input: any): any {
 
     desc: input.desc ?? null,
     embedUrl: input.embedUrl ? String(input.embedUrl) : undefined,
-    externalUrl: input.externalUrl ? String(input.externalUrl) : undefined, // ★ 保存対象に追加
+    externalUrl: input.externalUrl ? String(input.externalUrl) : undefined,
 
     tags,
 
@@ -145,7 +147,7 @@ function buildDbItem(input: any): any {
     endDate,
     type,
 
-    updatedAt,
+    updatedAt, // 整形した本日の日付を格納
   };
 }
 

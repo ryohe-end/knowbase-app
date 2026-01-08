@@ -197,7 +197,14 @@ export default function AdminManuals() {
       return;
     }
     const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
-    const payload = { ...manualForm, tags: finalTags };
+    
+    // 送信データに最新の「今日の日付」をセットする
+    const payload = { 
+      ...manualForm, 
+      tags: finalTags,
+      updatedAt: getTodayDate() 
+    };
+
     try {
       const isNew = selectedManual === null;
       const res = await fetch("/api/manuals", {
@@ -206,6 +213,7 @@ export default function AdminManuals() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
+      
       await loadAllData();
       setIsEditing(false);
       alert("保存しました");
