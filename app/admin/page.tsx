@@ -27,11 +27,11 @@ export default function AdminHome() {
   if (isInitializing) return <Loading />;
 
   const menuItems = [
-    { href: "/admin/manuals", label: "01. CONTENTS", title: "マニュアル管理", desc: "ナレッジの核となるコンテンツを最適化します", color: "#3b82f6" },
-    { href: "/admin/news", label: "02. ANNOUNCEMENT", title: "お知らせ管理", desc: "重要な告知事項を社内全体へスムーズに届けます", color: "#1e293b" },
-    { href: "/admin/contacts", label: "03. MASTER DATA", title: "担当者管理", desc: "窓口情報や連絡先マスタの正確性を維持します", color: "#0ea5e9" },
-    { href: "/admin/users", label: "04. ACCOUNT", title: "ユーザー管理", desc: "利用権限と所属部署の構成をセキュアに管理します", color: "#64748b" },
-    { href: "/admin/links", label: "05. EXTERNAL LINKS", title: "外部リンク管理", desc: "ポータル内に表示する便利な外部ツール等のリンクを管理します", color: "#10b981" },
+    { href: "/admin/manuals", label: "1. CONTENTS", title: "マニュアル管理", desc: "ナレッジの核となるコンテンツを最適化します", color: "#3b82f6" },
+    { href: "/admin/news", label: "2. ANNOUNCEMENT", title: "お知らせ管理", desc: "重要な告知事項を社内全体へスムーズに届けます", color: "#1e293b" },
+    { href: "/admin/contacts", label: "3. MASTER DATA", title: "担当者管理", desc: "窓口情報や連絡先マスタの正確性を維持します", color: "#0ea5e9" },
+    { href: "/admin/users", label: "4. ACCOUNT", title: "ユーザー管理", desc: "利用権限と所属部署の構成をセキュアに管理します", color: "#64748b" },
+    { href: "/admin/links", label: "5. EXTERNAL LINKS", title: "外部リンク管理", desc: "ポータル内に表示する便利な外部ツール等のリンクを管理します", color: "#10b981" },
   ];
 
   return (
@@ -57,23 +57,49 @@ export default function AdminHome() {
         </header>
 
         <div className="kb-admin-grid">
-          {menuItems.map((item) => (
-            <Link href={item.href} key={item.href} className="kb-menu-link">
-              <div className="kb-modern-card">
-                <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
-                <div className="kb-card-body">
-                  <span className="kb-card-no">{item.label}</span>
-                  <h3 className="kb-card-heading">{item.title}</h3>
-                  <p className="kb-card-subtext">{item.desc}</p>
-                </div>
-                <div className="kb-card-footer">
-                  <span className="kb-action-label">管理画面を開く</span>
-                  <span className="kb-action-icon">→</span>
-                </div>
-              </div>
-            </Link>
-          ))}
+  {menuItems.map((item) => {
+    // --- ここでラベルを「数字」と「文字」にバラバラに分解します ---
+    const parts = item.label.split("."); // "01. CONTENTS" -> ["01", " CONTENTS"]
+    const number = parts[0];             // "01"
+    const text = parts[1];               // " CONTENTS"
+
+    return (
+      <Link href={item.href} key={item.href} className="kb-menu-link">
+        <div className="kb-modern-card">
+          <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
+          <div className="kb-card-body">
+            {/* ↓ここが元の <span className="kb-card-no">...</span> の代わりです */}
+            <div style={{ marginBottom: "8px", display: "flex", alignItems: "baseline" }}>
+              <span style={{ 
+                fontSize: "42px",       // 01を大きく！
+                fontWeight: "900", 
+                color: "#64748b", 
+                lineHeight: "1" 
+              }}>
+                {number}
+              </span>
+              <span style={{ 
+                fontSize: "12px",       // . CONTENTSは小さく
+                fontWeight: "700", 
+                color: "#64748b", 
+                marginLeft: "4px" 
+              }}>
+                .{text}
+              </span>
+            </div>
+            
+            <h3 className="kb-card-heading">{item.title}</h3>
+            <p className="kb-card-subtext">{item.desc}</p>
+          </div>
+          <div className="kb-card-footer">
+            <span className="kb-action-label">管理画面を開く</span>
+            <span className="kb-action-icon">→</span>
+          </div>
         </div>
+      </Link>
+    );
+  })}
+</div>
 
         <footer className="kb-admin-footer">
           <button 

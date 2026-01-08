@@ -1,5 +1,4 @@
 // app/api/users/route.ts
-
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -11,8 +10,35 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 
-// SendGrid設定
-sgMail.setApiKey(process.env.SENDGRID_API_KEY || "");
+// SendGrid（使う直前に初期化する）
+let sendgridInitialized = false;
+
+function initSendGrid() {
+  if (sendgridInitialized) return;
+
+  const key = process.env.SENDGRID_API_KEY ?? "";
+  const from = process.env.SENDGRID_FROM_EMAIL ?? "";
+
+  console.log("[SendGrid key check]", {
+    hasKey: !!key,
+    prefix: key.slice(0, 3),
+    len: key.length,
+    hasFrom: !!from,
+  });
+
+  if (!key) throw new Error("Missing env: SENDGRID_API_KEY");
+  if (!key.startsWith("SG.")) throw new Error("Invalid SENDGRID_API_KEY (must start with 'SG.')");
+  if (!from) throw new Error("Missing env: SENDGRID_FROM_EMAIL");
+
+  sgMail.setApiKey(key);
+  sendgridInitialized = true;
+}
+
+function getSendGridFrom() {
+  const from = process.env.SENDGRID_FROM_EMAIL ?? "";
+  if (!from) throw new Error("Missing env: SENDGRID_FROM_EMAIL");
+  return from;
+}
 
 /**
  * ★ パスワードハッシュ生成（モック）
@@ -108,7 +134,7 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
     let existingPasswordHash: string | undefined;
-    
+
     /**
      * UPDATE時：既存の passwordHash を保持させる
      */
@@ -126,8 +152,8 @@ export async function POST(req: NextRequest) {
     /**
      * パスワード更新判定
      */
-    const isPasswordReset = newPassword && newPassword.trim().length > 0;
-    let passwordHashToSave = existingPasswordHash; 
+    const isPasswordReset = !!(newPassword && newPassword.trim().length > 0);
+    let passwordHashToSave = existingPasswordHash;
 
     if (isPasswordReset) {
       passwordHashToSave = mockHash(newPassword!.trim());
@@ -166,23 +192,26 @@ export async function POST(req: NextRequest) {
      * 条件: 有効(isActive) 且つ (新規作成 OR パスワード入力あり)
      */
     if ((mode === "create" || (mode === "update" && isPasswordReset)) && putItem.isActive) {
+      // ✅ 送信する直前に初期化
+      initSendGrid();
+      const from = getSendGridFrom();
+
       const loginUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-      
-      const subject = mode === "create" 
-        ? "【KnowBase】アカウント登録完了のお知らせ" 
-        : "【KnowBase】ログイン情報更新のお知らせ";
-      
-      const introText = mode === "create"
-        ? "KnowBaseへのアカウント登録が完了しました。本システムでは社内のマニュアルや最新のお知らせをいつでも確認いただけます。"
-        : "管理者によってアカウント情報、またはパスワードが更新されました。最新の情報でログインしてご利用ください。";
+
+      const subject =
+        mode === "create"
+          ? "【KnowBase】アカウント登録完了のお知らせ"
+          : "【KnowBase】ログイン情報更新のお知らせ";
+
+      const introText =
+        mode === "create"
+          ? "KnowBaseへのアカウント登録が完了しました。本システムでは社内のマニュアルや最新のお知らせをいつでも確認いただけます。"
+          : "管理者によってアカウント情報、またはパスワードが更新されました。最新の情報でログインしてご利用ください。";
 
       const msg = {
         to: putItem.email,
-        from: {
-          email: process.env.SENDGRID_FROM_EMAIL!,
-          name: "KnowBase運営事務局"
-        },
-        subject: subject,
+        from: { email: from, name: "KnowBase運営事務局" },
+        subject,
         html: `
           <div style="font-family: 'Helvetica Neue', Arial, sans-serif; color: #334155; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
             <div style="background-color: #0f172a; padding: 30px; text-align: center;">
@@ -191,7 +220,7 @@ export async function POST(req: NextRequest) {
             <div style="padding: 30px; background-color: #ffffff;">
               <p style="font-size: 16px; font-weight: bold;">${putItem.name} 様</p>
               <p>${introText}</p>
-              
+
               <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 15px; margin: 20px 0;">
                 <p style="margin: 0; font-size: 14px; font-weight: bold; color: #0369a1;">💡 KnowBaseでできること</p>
                 <ul style="margin: 10px 0 0 0; padding-left: 20px; font-size: 14px; line-height: 1.6;">
@@ -219,14 +248,14 @@ export async function POST(req: NextRequest) {
         `,
       };
 
-      // 送信（非同期実行）
-      sgMail.send(msg).catch(err => console.error("[User Mail Error]", err));
+      // 送信（失敗しても API 全体は落とさない）
+      sgMail.send(msg).catch((err) => console.error("[User Mail Error]", err));
     }
 
     /**
      * レスポンス返却（パスワードハッシュは隠す）
      */
-    const responseUser = { ...putItem };
+    const responseUser: any = { ...putItem };
     delete responseUser.passwordHash;
 
     return NextResponse.json({ ok: true, user: responseUser });
