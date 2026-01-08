@@ -13,47 +13,69 @@ type Source = {
   excerpt?: string;
 };
 
+/* =========================
+   runtime-env.txt 読み取り（Amplify Hosting Compute 用）
+   - 毎回 fs しないように軽くメモ化
+========================= */
+let _runtimeEnvCache: { at: number; data: Record<string, string> } | null = null;
+const RUNTIME_ENV_CACHE_TTL_MS = 5_000; // 5秒だけキャッシュ（デバッグ用途なので十分）
+
 function readRuntimeEnvFile(): Record<string, string> {
-  // Amplify Hosting Compute では .next/server に置かれる想定
+  const now = Date.now();
+  if (_runtimeEnvCache && now - _runtimeEnvCache.at < RUNTIME_ENV_CACHE_TTL_MS) {
+    return _runtimeEnvCache.data;
+  }
+
   const p = path.join(process.cwd(), ".next", "server", "runtime-env.txt");
   try {
     const text = fs.readFileSync(p, "utf8");
     const out: Record<string, string> = {};
+
     for (const line of text.split("\n")) {
       const s = line.trim();
       if (!s || s.startsWith("#")) continue;
       const i = s.indexOf("=");
       if (i <= 0) continue;
+
       const k = s.slice(0, i).trim();
-      const v = s.slice(i + 1);
+      let v = s.slice(i + 1);
+
+      // runtime-env.txt に書いたときにクォートが付くケースを剥がす
+      v = v.replace(/^'(.*)'$/, "$1").replace(/^"(.*)"$/, "$1");
+
       out[k] = v;
     }
+
+    _runtimeEnvCache = { at: now, data: out };
     return out;
   } catch {
+    _runtimeEnvCache = { at: now, data: {} };
     return {};
   }
 }
 
-function getEnv(name: string): string | undefined {
+function getEnv(name: string, runtimeEnv: Record<string, string>): string | undefined {
   const v1 = process.env[name];
-  if (v1) return v1;
+  if (v1 && v1.length > 0) return v1;
 
-  const runtimeEnv = readRuntimeEnvFile();
   const v2 = runtimeEnv[name];
-  if (v2) {
-    // runtime-env.txt に書いたときにクォートが付くケースを剥がす
-    return v2.replace(/^'(.*)'$/, "$1").replace(/^"(.*)"$/, "$1");
-  }
+  if (v2 && v2.length > 0) return v2;
+
   return undefined;
 }
 
-function mustEnv(name: string): string {
-  const v = getEnv(name);
+function mustEnv(name: string, runtimeEnv: Record<string, string>): string {
+  const v = getEnv(name, runtimeEnv);
   if (!v) throw new Error(`Missing env: ${name}`);
   return v;
 }
 
-function pickUserId(req: Request): string {
+/* =========================
+   userId の抽出
+   - Anonymous identity 有効アプリでは userId を送ると ValidationException
+   - なので「まずは取る」だけ。送るかどうかは後で決める/リトライで決める
+========================= */
+function pickUserId(req: Request): string | undefined {
   // 1) 明示ヘッダ（フロントから渡す用）
   const h = req.headers.get("x-kb-user");
   if (h) return h.slice(0, 128);
@@ -69,33 +91,39 @@ function pickUserId(req: Request): string {
     }
   }
 
-  // 3) fallback
-  return "anon";
+  // 3) fallback（未ログインなど）
+  return undefined;
 }
 
-/**
- * Q Business のレスポンスからテキストとソースをできるだけ拾う
- * ※SDK/設定によって形が変わるので “頑丈に” しています
- */
+/* =========================
+   Q Business レスポンスから text / sources を頑丈に抽出
+========================= */
 function extractAnswerAndSources(raw: any): { text: string; sources: Source[] } {
-  // 1) まずテキスト（存在しがちな候補を総当たり）
+  // ✅ ChatSync の本命は finalTextMessage
   const textCandidates: (string | undefined)[] = [
+    raw?.finalTextMessage,     // ← 追加
     raw?.systemMessage,
     raw?.output?.text,
     raw?.outputText,
-    raw?.messages?.find?.((m: any) => m?.role === "assistant")?.content?.[0]?.text,
     raw?.assistantMessage,
+    raw?.messages?.find?.((m: any) => m?.role === "assistant")?.content?.[0]?.text,
+    raw?.message?.text,
   ];
-  const text = textCandidates.find((t) => typeof t === "string" && t.trim().length > 0) || "";
 
-  // 2) ソース（sourceAttribution / citations っぽいところ）
+  const text =
+    textCandidates.find((t) => typeof t === "string" && t.trim().length > 0)?.trim() || "";
+
   const sources: Source[] = [];
 
-  // sourceAttribution がある場合（AWS側の典型）
-  const sa = raw?.sourceAttribution ?? raw?.citations ?? raw?.attributions;
+  // ✅ ChatSync の本命は sourceAttributions（複数形）
+  const sa =
+    raw?.sourceAttributions ?? // ← 追加（最優先）
+    raw?.sourceAttribution ??
+    raw?.citations ??
+    raw?.attributions;
+
   if (Array.isArray(sa)) {
     for (const item of sa) {
-      // 形が色々あるので拾えるものを拾う
       const title =
         item?.title ??
         item?.documentTitle ??
@@ -108,20 +136,20 @@ function extractAnswerAndSources(raw: any): { text: string; sources: Source[] } 
         item?.source?.url ??
         item?.retrievedReferences?.[0]?.url;
 
+      // ✅ SourceAttribution の本文は snippet が基本
       const excerpt =
+        item?.snippet ?? // ← snippet を前に
         item?.excerpt ??
         item?.text ??
-        item?.snippet ??
+        item?.snippetExcerpt?.text ?? // 念のため
+        item?.textMessageSegments?.[0]?.snippetExcerpt?.text ?? // 念のため
         item?.source?.excerpt ??
         item?.retrievedReferences?.[0]?.excerpt;
 
-      if (title || url || excerpt) {
-        sources.push({ title, url, excerpt });
-      }
+      if (title || url || excerpt) sources.push({ title, url, excerpt });
     }
   }
 
-  // “references” っぽいキーも拾う
   const refs = raw?.references ?? raw?.sourceReferences;
   if (Array.isArray(refs)) {
     for (const r of refs) {
@@ -132,11 +160,11 @@ function extractAnswerAndSources(raw: any): { text: string; sources: Source[] } 
     }
   }
 
-  // 重複URLを軽く除去
+  // 軽い重複除去
   const seen = new Set<string>();
   const uniq = sources.filter((s) => {
-    const key = (s.url || "") + "|" + (s.title || "") + "|" + (s.excerpt || "");
-    if (!key.trim()) return false;
+    const key = `${s.url || ""}|${s.title || ""}|${s.excerpt || ""}`.trim();
+    if (!key) return false;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -149,18 +177,31 @@ function getClient(region: string) {
   return new QBusinessClient({ region });
 }
 
+function isAnonymousUserIdValidation(err: any): boolean {
+  const name = err?.name || "";
+  const msg = err?.message || "";
+  return (
+    name === "ValidationException" &&
+    typeof msg === "string" &&
+    msg.includes("User ID must be null for Anonymous identity enabled applications")
+  );
+}
+
 export async function POST(req: Request) {
+  const runtimeEnv = readRuntimeEnvFile();
+
   try {
-    const body = await req.json().catch(() => ({} as any));
-    const prompt: string = (body?.prompt ?? "").toString();
+    const body = (await req.json().catch(() => ({} as any))) as any;
+
+    const prompt = (body?.prompt ?? "").toString();
     const conversationId: string | undefined =
       body?.conversationId ? String(body.conversationId) : undefined;
 
-    // ✅ env check は “デバッグ専用”
+    // ✅ デバッグ専用：env check（値そのものは返さない）
     if (prompt === "env check") {
-      const QBUSINESS_APP_ID = getEnv("QBUSINESS_APP_ID");
-      const AWS_REGION = getEnv("AWS_REGION") ?? "us-east-1";
-      const QBUSINESS_REGION = getEnv("QBUSINESS_REGION") || null;
+      const QBUSINESS_APP_ID = getEnv("QBUSINESS_APP_ID", runtimeEnv);
+      const AWS_REGION = getEnv("AWS_REGION", runtimeEnv) ?? "us-east-1";
+      const QBUSINESS_REGION = getEnv("QBUSINESS_REGION", runtimeEnv) || null;
 
       return NextResponse.json({
         ok: true,
@@ -178,40 +219,69 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "prompt is required" }, { status: 400 });
     }
 
-    const appId = mustEnv("QBUSINESS_APP_ID");
-    const awsRegion = getEnv("AWS_REGION") ?? "us-east-1";
-    const qRegion = getEnv("QBUSINESS_REGION") || awsRegion;
+    const appId = mustEnv("QBUSINESS_APP_ID", runtimeEnv);
+    const awsRegion = getEnv("AWS_REGION", runtimeEnv) ?? "us-east-1";
+    const qRegion = getEnv("QBUSINESS_REGION", runtimeEnv) || awsRegion;
 
     const client = getClient(qRegion);
+
+    // まずは userId を “取るだけ取る”
     const userId = pickUserId(req);
 
-    // 会話を続けたいなら conversationId をフロント側で保持して渡す
-    const cmd = new ChatSyncCommand({
-      applicationId: appId,
-      userId,
-      conversationId,
-      userMessage: prompt,
-    });
+    // 送信関数（userId あり/なしを切り替えられる）
+    const sendChat = async (opts: { includeUserId: boolean }) => {
+      const input: any = {
+        applicationId: appId,
+        conversationId,
+        userMessage: prompt,
+      };
 
-    const result = await client.send(cmd);
+      // includeUserId=true の時だけ userId を渡す（undefined は入れない）
+      if (opts.includeUserId && userId) {
+        input.userId = userId;
+      }
+
+      const cmd = new ChatSyncCommand(input);
+      return client.send(cmd);
+    };
+
+    let result: any;
+
+    // ✅ 1回目：userId ありで試す（ログイン運用アプリならこれが正）
+    // ✅ Anonymous 有効アプリなら ValidationException が来るので userId なしでリトライ
+    try {
+      result = await sendChat({ includeUserId: true });
+    } catch (err: any) {
+      if (isAnonymousUserIdValidation(err)) {
+        // Anonymous identity 有効 → userId を付けずに再試行
+        result = await sendChat({ includeUserId: false });
+      } else {
+        throw err;
+      }
+    }
 
     const { text, sources } = extractAnswerAndSources(result);
 
-    // テキストが拾えない場合もあるので、最低限 raw をログに残す
+    // テキストが拾えない場合もあるので、最低限ログ
     if (!text) {
-      console.log("[amazonq] empty text extracted. keys=", Object.keys(result as any));
+      const keys = result ? Object.keys(result) : [];
+      console.log("[amazonq] empty text extracted. keys=", keys);
     }
 
     return NextResponse.json({
       ok: true,
-      text, // ✅ これがチャット本文
-      sources, // ✅ これがソース（タイトル/URL/抜粋）
+      text, // ✅ チャット本文
+      sources, // ✅ ソース（タイトル/URL/抜粋）
       conversationId: (result as any)?.conversationId ?? conversationId ?? null,
     });
   } catch (err: any) {
     console.error("[amazonq] error:", err);
     return NextResponse.json(
-      { ok: false, error: err?.name || "InternalError", detail: err?.message || String(err) },
+      {
+        ok: false,
+        error: err?.name || "InternalError",
+        detail: err?.message || String(err),
+      },
       { status: 500 }
     );
   }

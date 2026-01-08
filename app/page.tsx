@@ -681,28 +681,35 @@ async function handleAsk() {
       return;
     }
 
-    // ✅ SSEじゃない場合（保険）
-    const text = await res.text().catch(() => "");
-    let answer = text;
+    // ✅ SSEじゃない場合（= JSONで { ok, text, sources } が返る想定）
+const text = await res.text().catch(() => "");
+let answer = text;
 
-    try {
-      const j = JSON.parse(text);
-      if (j?.error) throw new Error(j.error);
-      answer = String(j.answer ?? j.text ?? JSON.stringify(j, null, 2));
-    } catch {
-      // textのまま
-    }
+try {
+  const j = JSON.parse(text);
 
-    setMessages((prev) =>
-      prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
-    );
-  } catch (e: any) {
-    const errorMessage = e?.message || "通信エラーが発生しました。";
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === newAssistantId ? { ...m, loading: false, content: `[エラー] ${errorMessage}` } : m
-      )
-    );
+  // 1) エラー形式
+  if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
+  if (j?.error) throw new Error(j.error);
+
+  // 2) 本文（あなたのレスポンスは text）
+  answer = String(j.text ?? j.answer ?? "");
+
+  // 3) ✅ 参照元（ここが今回の本題）
+  const incoming = Array.isArray(j.sources) ? j.sources : [];
+  setSources(incoming); // 質問ごとに入れ替えるならこれでOK
+
+  // 表示トグル：参照元があるなら開く（不要なら消してOK）
+  setShowSources(incoming.length > 0);
+} catch {
+  // JSONじゃない時はテキストだけ表示
+  setSources([]);
+  setShowSources(false);
+}
+
+setMessages((prev) =>
+  prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+);
   } finally {
     window.clearTimeout(slowTimer);
     setLoadingAI(false);
