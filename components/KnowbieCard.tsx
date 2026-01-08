@@ -2,9 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
+type Source = {
+  title?: string;
+  url?: string;
+  excerpt?: string;
+};
+
 export default function KnowbieCard() {
   const [prompt, setPrompt] = useState("");
   const [response, setResponse] = useState("");
+  const [sources, setSources] = useState<Source[]>([]);
   const [loadingAI, setLoadingAI] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -22,9 +29,7 @@ export default function KnowbieCard() {
   }
 
   function extractSseEventName(eventBlock: string) {
-    const line = eventBlock
-      .split("\n")
-      .find((l) => l.startsWith("event:"));
+    const line = eventBlock.split("\n").find((l) => l.startsWith("event:"));
     return line ? line.replace(/^event:\s?/, "").trim() : "";
   }
 
@@ -37,6 +42,7 @@ export default function KnowbieCard() {
 
     setLoadingAI(true);
     setResponse("");
+    setSources([]);
 
     try {
       const res = await fetch("/api/amazonq", {
@@ -64,11 +70,12 @@ export default function KnowbieCard() {
         // ※環境によって res.body が null になることがあるので、nullならフォールバック
         if (!res.body) {
           const all = await res.text().catch(() => "");
-          // SSEをまとめて受け取った可能性があるので簡易パース
           const blocks = all.split("\n\n");
+
           for (const b of blocks) {
             const ev = extractSseEventName(b);
             const data = extractSseData(b);
+
             if (ev === "error" && data) {
               try {
                 const j = JSON.parse(data);
@@ -77,9 +84,11 @@ export default function KnowbieCard() {
                 throw new Error(data);
               }
             }
+
+            if (ev === "done" || data === "[DONE]") break;
             if (data) setResponse((p) => p + data);
           }
-          setLoadingAI(false);
+
           return;
         }
 
@@ -104,7 +113,6 @@ export default function KnowbieCard() {
             if (eventName === "done" || data === "[DONE]") return;
 
             if (eventName === "error") {
-              // data が JSON のことが多い
               try {
                 const j = JSON.parse(data);
                 throw new Error(j.error || JSON.stringify(j));
@@ -121,14 +129,32 @@ export default function KnowbieCard() {
         return;
       }
 
-      // ✅ SSEじゃない場合：text/json で読む（非ストリーミングの保険）
+      // ✅ SSEじゃない場合：JSON を優先で読む（あなたのAPIはこれ）
+      if (contentType.includes("application/json")) {
+        const j = await res.json().catch(() => null);
+
+        if (j && typeof j === "object") {
+          if (j.ok === false) throw new Error(j.error || j.detail || "Unknown error");
+          // APIの形：{ ok: true, text, sources, conversationId }
+          if (typeof j.text === "string") setResponse(j.text);
+          else setResponse(JSON.stringify(j, null, 2));
+
+          if (Array.isArray(j.sources)) setSources(j.sources);
+          else setSources([]);
+
+          return;
+        }
+      }
+
+      // ✅ JSONじゃない場合：text で読む（保険）
       const text = await res.text().catch(() => "");
-      // もしJSONなら error を拾う
+      // もしJSONっぽかったらエラー拾う
       try {
         const j = JSON.parse(text);
         if (j?.error) throw new Error(j.error);
-        // JSONが普通の結果ならそれっぽく表示（必要に応じて調整）
-        setResponse(JSON.stringify(j, null, 2));
+        if (typeof j?.text === "string") setResponse(j.text);
+        else setResponse(JSON.stringify(j, null, 2));
+        if (Array.isArray(j?.sources)) setSources(j.sources);
       } catch {
         setResponse(text);
       }
@@ -184,6 +210,29 @@ export default function KnowbieCard() {
             <div style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: "1.6" }}>
               {response}
               {loadingAI && response && <span className="kb-cursor">|</span>}
+            </div>
+          )}
+
+          {/* ✅ ソース表示（APIが返している sources をそのまま出す） */}
+          {sources.length > 0 && (
+            <div className="kb-sources">
+              <div className="kb-sources-title">参照ソース</div>
+              <ul className="kb-sources-list">
+                {sources.map((s, i) => (
+                  <li className="kb-source-item" key={`${s.url ?? s.title ?? "src"}-${i}`}>
+                    <div className="kb-source-title">
+                      {s.url ? (
+                        <a href={s.url} target="_blank" rel="noreferrer">
+                          {s.title ?? s.url}
+                        </a>
+                      ) : (
+                        <span>{s.title ?? "source"}</span>
+                      )}
+                    </div>
+                    {s.excerpt && <div className="kb-source-excerpt">{s.excerpt}</div>}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -277,8 +326,42 @@ export default function KnowbieCard() {
           border: 1px solid rgba(0, 0, 0, 0.12);
           background: rgba(0, 0, 0, 0.04);
         }
+
+        /* ✅ sources UI */
+        .kb-sources {
+          margin-top: 12px;
+          padding: 10px 12px;
+          border-radius: 14px;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          background: rgba(0, 0, 0, 0.03);
+        }
+        .kb-sources-title {
+          font-size: 12px;
+          font-weight: 700;
+          margin-bottom: 8px;
+          opacity: 0.85;
+        }
+        .kb-sources-list {
+          margin: 0;
+          padding-left: 18px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .kb-source-item {
+          line-height: 1.45;
+        }
+        .kb-source-title a {
+          text-decoration: underline;
+        }
+        .kb-source-excerpt {
+          margin-top: 6px;
+          font-size: 12px;
+          opacity: 0.8;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
       `}</style>
     </div>
   );
 }
-
