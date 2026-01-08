@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/* ========= 型定義 (外部URL, 公開期間, ダウンロード禁止を追加) ========= */
+/* ========= 型定義 (外部URL, 公開期間, ダウンロード禁止) ========= */
 
 type Manual = {
   manualId: string;
@@ -222,11 +222,17 @@ export default function AdminManuals() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("削除しますか？")) return;
-    await fetch(`/api/manuals?manualId=${id}`, { method: "DELETE" });
-    await loadAllData();
-    setSelectedManual(null);
-    setIsEditing(false);
+    if (!confirm("本当にこのマニュアルを削除しますか？")) return;
+    try {
+      const res = await fetch(`/api/manuals?manualId=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      await loadAllData();
+      setSelectedManual(null);
+      setIsEditing(false);
+      alert("削除しました");
+    } catch (e) {
+      alert("削除に失敗しました");
+    }
   };
 
   const filteredManuals = useMemo(() => {
@@ -311,29 +317,14 @@ export default function AdminManuals() {
                 </div>
               </div>
 
-              {/* ✅ 公開期間の追加 */}
               <div className="kb-admin-form-row two-col">
                 <div>
                   <label className="kb-admin-label">公開開始日</label>
-                  <input 
-                    type="date" 
-                    name="startDate" 
-                    className="kb-admin-input full" 
-                    value={manualForm.startDate || ""} 
-                    onChange={handleInputChange} 
-                    readOnly={!isEditing} 
-                  />
+                  <input type="date" name="startDate" className="kb-admin-input full" value={manualForm.startDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
                 </div>
                 <div>
                   <label className="kb-admin-label">公開終了日</label>
-                  <input 
-                    type="date" 
-                    name="endDate" 
-                    className="kb-admin-input full" 
-                    value={manualForm.endDate || ""} 
-                    onChange={handleInputChange} 
-                    readOnly={!isEditing} 
-                  />
+                  <input type="date" name="endDate" className="kb-admin-input full" value={manualForm.endDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
                 </div>
               </div>
 
@@ -362,29 +353,13 @@ export default function AdminManuals() {
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">外部URL（参考リンクなど）</label>
-                <input 
-                  type="url" 
-                  name="externalUrl" 
-                  className="kb-admin-input full" 
-                  value={manualForm.externalUrl || ""} 
-                  onChange={handleInputChange} 
-                  readOnly={!isEditing} 
-                  placeholder="https://example.com" 
-                />
+                <input type="url" name="externalUrl" className="kb-admin-input full" value={manualForm.externalUrl || ""} onChange={handleInputChange} readOnly={!isEditing} placeholder="https://example.com" />
                 <div className="kb-subnote full" style={{ marginTop: 4 }}>※埋め込みではなく、別タブで開くリンクとして利用されます。</div>
               </div>
 
-              {/* ✅ ダウンロード禁止チェックボックスの追加 */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input 
-                    type="checkbox" 
-                    name="noDownload" 
-                    checked={!!manualForm.noDownload} 
-                    onChange={handleInputChange} 
-                    disabled={!isEditing} 
-                    style={{ width: 18, height: 18 }}
-                  />
+                  <input type="checkbox" name="noDownload" checked={!!manualForm.noDownload} onChange={handleInputChange} disabled={!isEditing} style={{ width: 18, height: 18 }} />
                   <span>ダウンロードを禁止する（閲覧のみ）</span>
                 </label>
               </div>
@@ -398,20 +373,30 @@ export default function AdminManuals() {
                 </div>
               )}
 
-              <div className="kb-form-actions">
+              <div className="kb-form-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                {/* ✅ 削除ボタン: 既存データを選択している時のみ表示 */}
+                {selectedManual && (
+                  <button 
+                    className="kb-delete-btn" 
+                    onClick={() => handleDelete(selectedManual.manualId)} 
+                    type="button"
+                    style={{ marginRight: 'auto' }}
+                  >
+                    削除
+                  </button>
+                )}
+
                 {isEditing && selectedManual === null && (
                   <button className="kb-secondary-btn" onClick={handleCreateFromTemplate} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
                 )}
+
                 {isEditing ? (
                   <>
                     <button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button>
                     <button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{selectedManual === null ? "新規作成" : "保存"}</button>
                   </>
                 ) : (
-                  <>
-                    <button className="kb-delete-btn" onClick={() => handleDelete(selectedManual!.manualId)}>削除</button>
-                    <button className="kb-primary-btn" onClick={() => handleEditManual(selectedManual!)} type="button">編集</button>
-                  </>
+                  <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button">編集</button>
                 )}
               </div>
             </div>
@@ -449,7 +434,7 @@ export default function AdminManuals() {
         .kb-primary-btn:disabled { background: #94a3b8; cursor: not-allowed; transform: none; box-shadow: none; }
         .kb-secondary-btn { background: #fff; border: 1px solid #cbd5e1; color: #475569; padding: 10px 24px; border-radius: 999px; font-weight: 700; cursor: pointer; transition: 0.2s; }
         .kb-secondary-btn:hover { background: #f8fafc; border-color: #94a3b8; }
-        .kb-delete-btn { background: #fff1f2; color: #e11d48; padding: 10px 24px; border-radius: 999px; border: 1px solid #fecaca; font-weight: 700; cursor: pointer; transition: 0.2s; margin-right: auto; }
+        .kb-delete-btn { background: #fff1f2; color: #e11d48; padding: 10px 24px; border-radius: 999px; border: 1px solid #fecaca; font-weight: 700; cursor: pointer; transition: 0.2s; }
         .kb-delete-btn:hover { background: #ffe4e6; border-color: #fb7185; }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
