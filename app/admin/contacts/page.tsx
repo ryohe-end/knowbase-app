@@ -13,13 +13,11 @@ type Contact = {
   brandId: string; 
   deptId: string;
   role?: string;
-  tags?: string[];
 };
 
 const generateNewContactId = () => `C100-${Date.now().toString().slice(-6)}`;
 const ALL_BRAND_ID = "ALL";
 const ALL_DEPT_ID = "ALL";
-const PAGE_SIZE = 10; // 少し多めに設定
 
 export default function AdminContactsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -38,12 +36,10 @@ export default function AdminContactsPage() {
   const [formBrandId, setFormBrandId] = useState(ALL_BRAND_ID);
   const [formDeptId, setFormDeptId] = useState(ALL_DEPT_ID);
   const [formRole, setFormRole] = useState("");
-  const [formTags, setFormTags] = useState(""); 
 
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(1); 
 
   const loadAllData = async () => {
     try {
@@ -65,9 +61,6 @@ export default function AdminContactsPage() {
 
   useEffect(() => { loadAllData(); }, []);
   
-  // フィルター条件が変わったらページを1に戻す
-  useEffect(() => { setPage(1); }, [keyword, filterBrand, filterDept]);
-
   useEffect(() => { 
     if (!formContactId && !editingId) setFormContactId(generateNewContactId()); 
   }, [formContactId, editingId]);
@@ -81,24 +74,15 @@ export default function AdminContactsPage() {
       if (filterBrand !== ALL_BRAND_ID && c.brandId !== filterBrand) return false;
       if (filterDept !== ALL_DEPT_ID && c.deptId !== filterDept) return false;
       if (!kw) return true;
-      const haystack = [c.contactId, c.name, c.email, c.role ?? "", deptMap[c.deptId]?.name ?? "", brandMap[c.brandId]?.name ?? "", ...(c.tags || [])].join(" ").toLowerCase();
+      const haystack = [c.contactId, c.name, c.email, c.role ?? "", deptMap[c.deptId]?.name ?? "", brandMap[c.brandId]?.name ?? ""].join(" ").toLowerCase();
       return haystack.includes(kw);
     }).sort((a, b) => a.name.localeCompare(b.name, "ja"));
   }, [contacts, filterBrand, filterDept, keyword, deptMap, brandMap]);
 
-  const { currentContacts, totalPages } = useMemo(() => {
-    const total = Math.max(1, Math.ceil(filteredContacts.length / PAGE_SIZE));
-    const sp = Math.min(Math.max(1, page), total);
-    return { 
-        currentContacts: filteredContacts.slice((sp - 1) * PAGE_SIZE, sp * PAGE_SIZE), 
-        totalPages: total 
-    };
-  }, [filteredContacts, page]);
-
   const startNew = () => {
     setEditingId(null); setFormContactId(generateNewContactId());
     setFormName(""); setFormEmail(""); setFormBrandId(ALL_BRAND_ID);
-    setFormDeptId(ALL_DEPT_ID); setFormRole(""); setFormTags("");
+    setFormDeptId(ALL_DEPT_ID); setFormRole(""); 
     setMessage(null); setError(null);
   };
 
@@ -106,7 +90,7 @@ export default function AdminContactsPage() {
     setEditingId(c.contactId); setFormContactId(c.contactId);
     setFormName(c.name); setFormEmail(c.email); setFormBrandId(c.brandId || ALL_BRAND_ID);
     setFormDeptId(c.deptId || ALL_DEPT_ID); setFormRole(c.role || "");
-    setFormTags((c.tags || []).join(", ")); setMessage(null); setError(null);
+    setMessage(null); setError(null);
   };
 
   const handleSave = async (e: FormEvent) => {
@@ -121,7 +105,6 @@ export default function AdminContactsPage() {
       brandId: formBrandId,
       deptId: formDeptId,
       role: formRole.trim() || undefined,
-      tags: formTags.split(",").map(s => s.trim()).filter(Boolean),
     };
 
     try {
@@ -130,14 +113,11 @@ export default function AdminContactsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
-        setError(`保存に失敗しました: ${data.detail || '権限またはDBエラー'}`);
+        setError(`保存に失敗しました: ${data.detail || 'エラー'}`);
         return;
       }
-
       await loadAllData();
       setMessage(editingId ? "更新しました。" : "追加しました。");
       startNew();
@@ -162,20 +142,12 @@ export default function AdminContactsPage() {
   return (
     <div className="kb-root">
       <div className="kb-topbar">
-       <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
-  <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-      alt="Logo" 
-      style={{ width: 48, height: 48, objectFit: "contain" }} 
-    />
-    <img 
-      src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-      alt="LogoText" 
-      style={{ height: 22, objectFit: "contain" }} 
-    />
-  </div>
-</Link>
+        <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
+          <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
+          </div>
+        </Link>
         <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>担当者管理</div>
         <div className="kb-topbar-right">
           <Link href="/admin"><button className="kb-logout-btn">管理者メニューへ戻る</button></Link>
@@ -183,6 +155,37 @@ export default function AdminContactsPage() {
       </div>
 
       <div className="kb-admin-grid-2col" style={{ marginTop: 16 }}>
+        {/* 左側：担当者一覧（縦スライダー） */}
+        <section className="kb-admin-card-large">
+          <div className="kb-admin-head">担当者一覧 ({filteredContacts.length}件)</div>
+          <div className="kb-admin-body" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="kb-admin-form-row" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+              <input className="kb-admin-input" placeholder="名前 / IDで検索..." value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+              <select className="kb-admin-select" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
+                <option value={ALL_BRAND_ID}>全ブランド</option>
+                {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
+              </select>
+              <select className="kb-admin-select" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
+                <option value={ALL_DEPT_ID}>全部署</option>
+                {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
+              </select>
+            </div>
+            
+            <div className="kb-manual-list-admin scroll-container">
+              {filteredContacts.length === 0 ? <p style={{ padding: 20, textAlign: 'center', color: '#999' }}>該当するデータがありません</p> : 
+                filteredContacts.map(c => (
+                <div key={c.contactId} className={`kb-user-item-admin scroll-item ${editingId === c.contactId ? 'selected' : ''}`} onClick={() => startEdit(c)}>
+                  <div className="kb-user-title">{c.name} <span style={{fontSize: 11, fontWeight: 400, color: '#666'}}>({c.contactId})</span></div>
+                  <div className="kb-user-email-meta">{c.email}</div>
+                  <div className="kb-user-meta-info">{brandMap[c.brandId]?.name || '共通'} / {deptMap[c.deptId]?.name || '共通'}</div>
+                  {c.role && <div style={{fontSize: '11px', color: '#0ea5e9', marginTop: 4}}>{c.role}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* 右側：担当者 編集/追加フォーム */}
         <section className="kb-admin-card-large">
           <div className="kb-admin-head">担当者 {editingId ? "編集" : "新規追加"}</div>
           <div className="kb-manual-form">
@@ -190,7 +193,7 @@ export default function AdminContactsPage() {
             {error && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8, padding: 8, borderRadius: 6, background: '#fee2e2' }}>{error}</div>}
             <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column' }}>
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">contactId</label>
+                <label className="kb-admin-label full">担当者ID</label>
                 <input className="kb-admin-input full" type="text" value={formContactId} readOnly style={{ background: '#f3f4f8' }} />
               </div>
               <div className="kb-admin-form-row two-col">
@@ -221,13 +224,10 @@ export default function AdminContactsPage() {
               </div>
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">担当業務</label>
-                <input className="kb-admin-input full" type="text" value={formRole} onChange={(e) => setFormRole(e.target.value)} placeholder="例：QSCチェック" />
+                <input className="kb-admin-input full" type="text" value={formRole} onChange={(e) => setFormRole(e.target.value)} placeholder="例：QSCチェック、発注管理" />
               </div>
-              <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">タグ（カンマ区切り）</label>
-                <input className="kb-admin-input full" type="text" value={formTags} onChange={(e) => setFormTags(e.target.value)} />
-              </div>
-              <div className="kb-form-actions" style={{ marginTop: 20 }}>
+              
+              <div className="kb-form-actions" style={{ marginTop: 'auto', paddingTop: 20 }}>
                 {editingId && <button className="kb-delete-btn" type="button" onClick={() => handleDelete(editingId)}>削除</button>}
                 <button className="kb-secondary-btn" type="button" onClick={startNew}>キャンセル</button>
                 <button className="kb-primary-btn" type="submit" disabled={saving}>{saving ? "保存中..." : "保存"}</button>
@@ -235,60 +235,43 @@ export default function AdminContactsPage() {
             </form>
           </div>
         </section>
-
-        <section className="kb-admin-card-large">
-          <div className="kb-admin-head">担当者一覧 ({filteredContacts.length}件)</div>
-          <div className="kb-admin-body" style={{ padding: '0 0 10px 0', flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div className="kb-admin-form-row" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
-              <input className="kb-admin-input" placeholder="検索..." value={keyword} onChange={(e) => setKeyword(e.target.value)} />
-              <select className="kb-admin-select" value={filterBrand} onChange={(e) => setFilterBrand(e.target.value)}>
-                <option value={ALL_BRAND_ID}>全ブランド</option>
-                {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
-              </select>
-              <select className="kb-admin-select" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
-                <option value={ALL_DEPT_ID}>全部署</option>
-                {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
-              </select>
-            </div>
-            <div className="kb-manual-list-admin">
-              {currentContacts.length === 0 ? <p style={{ padding: 20, textAlign: 'center', color: '#999' }}>データがありません</p> : 
-                currentContacts.map(c => (
-                <div key={c.contactId} className={`kb-user-item-admin ${editingId === c.contactId ? 'selected' : ''}`} onClick={() => startEdit(c)}>
-                  <div className="kb-user-title">{c.name} <span style={{fontSize: 11, fontWeight: 400, color: '#666'}}>({c.contactId})</span></div>
-                  <div className="kb-user-email-meta">{c.email}</div>
-                  <div className="kb-user-meta-info">{brandMap[c.brandId]?.name || '共通'} / {deptMap[c.deptId]?.name || '共通'}</div>
-                </div>
-              ))}
-            </div>
-            {totalPages > 1 && (
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 10, marginTop: 10 }}>
-                    <button disabled={page === 1} onClick={() => setPage(p => p - 1)}>前</button>
-                    <span>{page} / {totalPages}</span>
-                    <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>次</button>
-                </div>
-            )}
-          </div>
-        </section>
       </div>
 
       <style jsx>{`
-        .kb-admin-grid-2col { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; }
+        .kb-admin-grid-2col { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; }
         .kb-admin-card-large { background: #fff; border-radius: 16px; padding: 16px; border: 1px solid #e5e7eb; height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
         .kb-admin-head { font-size: 16px; font-weight: 700; margin-bottom: 12px; }
-        .kb-manual-list-admin { flex: 1; overflow-y: auto; }
-        .kb-user-item-admin { padding: 10px; border-radius: 10px; margin-bottom: 8px; background: #f9fafb; cursor: pointer; border: 1px solid #f1f5f9; }
-        .kb-user-item-admin.selected { border-color: #0ea5e9; background: #e0f2fe; }
-        .kb-user-title { font-weight: 600; font-size: 14px; }
-        .kb-user-email-meta { font-size: 12px; color: #64748b; }
-        .kb-user-meta-info { font-size: 11px; margin-top: 4px; color: #94a3b8; }
-        .kb-admin-input, .kb-admin-select { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 14px; }
-        .kb-admin-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block; }
-        .kb-admin-form-row { margin-bottom: 12px; }
+        
+        /* 縦スライダー設定 */
+        .scroll-container { 
+          flex: 1; 
+          overflow-y: auto; 
+          scroll-snap-type: y mandatory; 
+        }
+        .scroll-item { 
+          scroll-snap-align: start; 
+          scroll-margin-top: 10px;
+        }
+        .scroll-container::-webkit-scrollbar { width: 6px; }
+        .scroll-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .kb-user-item-admin { padding: 16px; border-radius: 12px; margin-bottom: 12px; background: #f8fafc; cursor: pointer; border: 1px solid #f1f5f9; transition: all 0.2s; }
+        .kb-user-item-admin:hover { background: #f1f5f9; border-color: #cbd5e1; }
+        .kb-user-item-admin.selected { border-color: #0ea5e9; background: #f0f9ff; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        
+        .kb-user-title { font-weight: 600; font-size: 15px; }
+        .kb-user-email-meta { font-size: 13px; color: #64748b; margin-top: 2px; }
+        .kb-user-meta-info { font-size: 12px; margin-top: 6px; color: #94a3b8; }
+        
+        .kb-admin-input, .kb-admin-select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #d1d5db; font-size: 14px; outline: none; transition: border-color 0.2s; }
+        .kb-admin-input:focus, .kb-admin-select:focus { border-color: #0ea5e9; }
+        .kb-admin-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; display: block; color: #475569; }
+        .kb-admin-form-row { margin-bottom: 16px; }
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .kb-form-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 15px; border-top: 1px dashed #eee; }
-        .kb-primary-btn { background: #0ea5e9; color: #fff; padding: 8px 20px; border-radius: 999px; border: none; font-weight: 600; cursor: pointer; }
-        .kb-secondary-btn { background: #fff; border: 1px solid #d1d5db; padding: 8px 20px; border-radius: 999px; cursor: pointer; }
-        .kb-delete-btn { background: #fee2e2; color: #b91c1c; padding: 8px 20px; border-radius: 999px; border: none; margin-right: auto; cursor: pointer; }
+        .kb-form-actions { display: flex; justify-content: flex-end; gap: 10px; border-top: 1px dashed #e2e8f0; }
+        .kb-primary-btn { background: #0ea5e9; color: #fff; padding: 10px 24px; border-radius: 999px; border: none; font-weight: 600; cursor: pointer; }
+        .kb-secondary-btn { background: #fff; border: 1px solid #cbd5e1; padding: 10px 24px; border-radius: 999px; cursor: pointer; color: #475569; }
+        .kb-delete-btn { background: #fee2e2; color: #b91c1c; padding: 10px 24px; border-radius: 999px; border: none; margin-right: auto; cursor: pointer; font-weight: 600; }
       `}</style>
     </div>
   );
