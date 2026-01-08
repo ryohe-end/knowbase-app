@@ -901,34 +901,36 @@ setMessages((prev) =>
   }, [manuals]);
 
   const filteredContacts = useMemo(() => {
-    const kw = contactSearch.trim().toLowerCase();
+  // メインの検索窓（keyword）と担当者専用の検索窓（contactSearch）の両方を見るように調整
+  const kw = (contactSearch || keyword).trim().toLowerCase(); 
 
-    return contacts
-      .map((c) => {
-        if (
-          selectedBrandId !== ALL_BRAND_ID &&
-          selectedBrandId &&
-          !(c.brandId === "ALL" || c.brandId === selectedBrandId)
-        ) {
-          return null;
-        }
-        if (selectedDeptId !== ALL_DEPT_ID && selectedDeptId && c.deptId !== selectedDeptId) {
-          return null;
-        }
+  return contacts
+    .map((c) => {
+      // ブランド・部署フィルタ
+      if (selectedBrandId !== ALL_BRAND_ID && selectedBrandId && !(c.brandId === "ALL" || c.brandId === selectedBrandId)) return null;
+      if (selectedDeptId !== ALL_DEPT_ID && selectedDeptId && c.deptId !== selectedDeptId) return null;
 
-        if (!kw) return { ...c, hitTags: [] as string[] };
+      if (!kw) return { ...c, hitTags: [] as string[] };
 
-        const deptLabel = deptMap[c.deptId]?.name ?? "";
-        const tags = c.tags ?? [];
-        const haystack = [c.name, c.email, c.role ?? "", deptLabel, ...tags].join(" ").toLowerCase();
+      const deptLabel = deptMap[c.deptId]?.name ?? "";
+      const tags = c.tags ?? [];
+      
+      // 【強化ポイント】検索対象に role(担当業務) と tags を含める
+      const haystack = [
+        c.name, 
+        c.email, 
+        c.role ?? "",     // 担当業務
+        deptLabel, 
+        ...tags           // タグ
+      ].join(" ").toLowerCase();
 
-        if (!haystack.includes(kw)) return null;
+      if (!haystack.includes(kw)) return null;
 
-        const hitTags = tags.filter((tag) => tag.toLowerCase().includes(kw));
-        return { ...c, hitTags };
-      })
-      .filter((v): v is Contact & { hitTags: string[] } => v !== null);
-  }, [contacts, selectedBrandId, selectedDeptId, contactSearch, deptMap]);
+      const hitTags = tags.filter((tag) => tag.toLowerCase().includes(kw));
+      return { ...c, hitTags };
+    })
+    .filter((v): v is Contact & { hitTags: string[] } => v !== null);
+}, [contacts, selectedBrandId, selectedDeptId, contactSearch, keyword, deptMap]);
 
   const currentBrandLabel =
     selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
@@ -936,25 +938,35 @@ setMessages((prev) =>
   const currentDeptTitleLabel = selectedDeptId === ALL_DEPT_ID ? "" : `（${deptMap[selectedDeptId]?.name}）`;
 
   const filteredNews = useMemo(() => {
-    return newsList.filter((n) => {
-      // 1. 非表示フラグのチェック
-      if (n.isHidden) return false;
+  const kw = keyword.trim().toLowerCase();
 
-      // 2. 権限グループの判定
-      if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
-        if (!n.targetGroupIds.includes(me.groupId)) return false;
-      }
+  return newsList.filter((n) => {
+    // 基本フィルタ（非表示・グループ権限・ブランド・部署）
+    if (n.isHidden) return false;
+    if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
+      if (!n.targetGroupIds.includes(me.groupId)) return false;
+    }
+    if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId) return false;
+    if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId) return false;
 
-      if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId) return false;
-      if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId) return false;
-      return true;
-    }).sort((a, b) => {
-      // API側のキー名に合わせる（もしnews_id, from_date等で来るならここを修正）
-      const ad = a.updatedAt || a.fromDate || "";
-      const bd = b.updatedAt || b.fromDate || "";
-      return (bd || "").localeCompare(ad || "");
-    });
-  }, [newsList, selectedBrandId, selectedDeptId, me]);
+    // 【追加】キーワード検索ロジック
+    if (kw) {
+      const haystack = [
+        n.title,
+        n.body ?? "",      // お知らせ本文
+        ...(n.tags ?? [])  // お知らせのタグ
+      ].join(" ").toLowerCase();
+      
+      if (!haystack.includes(kw)) return false;
+    }
+
+    return true;
+  }).sort((a, b) => {
+    const ad = a.updatedAt || a.fromDate || "";
+    const bd = b.updatedAt || b.fromDate || "";
+    return (bd || "").localeCompare(ad || "");
+  });
+}, [newsList, selectedBrandId, selectedDeptId, me, keyword]);
 
   useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
 
