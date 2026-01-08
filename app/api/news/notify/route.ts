@@ -1,71 +1,113 @@
 // app/api/news/notify/route.ts
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  ScanCommand,
+  GetCommand,
+} from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 
-const ddbClient = new DynamoDBClient({ region: process.env.AWS_REGION || "us-east-1" });
+// DynamoDB
+const region = process.env.AWS_REGION || "us-east-1";
+const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-// SendGrid APIキーの設定
-sgMail.setApiKey(process.env.SENDGRID_API_KEY || "");
+// SendGrid（使う直前に初期化する）
+function initSendGrid() {
+  const key = process.env.SENDGRID_API_KEY ?? "";
+  const from = process.env.SENDGRID_FROM_EMAIL ?? "";
+
+  // 値そのものはログに出さない（prefix/len のみ）
+  console.log("[SendGrid key check]", {
+    hasKey: !!key,
+    prefix: key.slice(0, 3),
+    len: key.length,
+    hasFrom: !!from,
+  });
+
+  if (!key) throw new Error("Missing env: SENDGRID_API_KEY");
+  if (!key.startsWith("SG.")) throw new Error("Invalid SENDGRID_API_KEY (must start with 'SG.')");
+  if (!from) throw new Error("Missing env: SENDGRID_FROM_EMAIL");
+
+  sgMail.setApiKey(key);
+  return { from };
+}
 
 export async function POST(req: Request) {
   try {
     const { newsId } = await req.json();
     if (!newsId) {
-      return NextResponse.json({ error: "newsIdが指定されていません" }, { status: 400 });
+      return NextResponse.json(
+        { error: "newsIdが指定されていません" },
+        { status: 400 }
+      );
     }
 
     // 1. お知らせ詳細をDynamoDBから取得
-    const newsRes = await docClient.send(new GetCommand({
-      TableName: "yamauchi-News",
-      Key: { newsId }
-    }));
-    const news = newsRes.Item;
+    const newsRes = await docClient.send(
+      new GetCommand({
+        TableName: "yamauchi-News",
+        Key: { newsId },
+      })
+    );
+    const news = newsRes.Item as any;
     if (!news) {
-      return NextResponse.json({ error: "お知らせが見つかりませんでした" }, { status: 404 });
+      return NextResponse.json(
+        { error: "お知らせが見つかりませんでした" },
+        { status: 404 }
+      );
     }
 
-    // 2. ユーザー一覧を取得（isActive = true のユーザーを抽出するため全件スキャン）
-    const usersRes = await docClient.send(new ScanCommand({
-      TableName: "yamauchi-Users"
-    }));
-    const allUsers = usersRes.Items || [];
+    // 2. ユーザー一覧を取得
+    const usersRes = await docClient.send(
+      new ScanCommand({
+        TableName: "yamauchi-Users",
+      })
+    );
+    const allUsers = (usersRes.Items || []) as any[];
 
     // 3. 配信対象ユーザーの絞り込み
-    const targetUsers = allUsers.filter(user => {
-      // 条件1: isActive が true (または未定義) であること
+    const targetUsers = allUsers.filter((user) => {
       const isActiveUser = user.isActive !== false;
 
-      // 条件2: ブランド一致 (お知らせが ALL または ユーザーのブランドと一致)
       const matchBrand = news.brandId === "ALL" || user.brandId === news.brandId;
-
-      // 条件3: 部署一致 (お知らせが ALL または ユーザーの部署と一致)
       const matchDept = news.deptId === "ALL" || user.deptId === news.deptId;
 
-      // 条件4: 属性グループ一致 (お知らせの targetGroupIds にユーザーの groupId が含まれるか)
-      const matchGroup = !news.targetGroupIds || 
-                         news.targetGroupIds.length === 0 || 
-                         news.targetGroupIds.includes(user.groupId);
+      const matchGroup =
+        !news.targetGroupIds ||
+        news.targetGroupIds.length === 0 ||
+        news.targetGroupIds.includes(user.groupId);
 
       return isActiveUser && matchBrand && matchDept && matchGroup;
     });
 
     if (targetUsers.length === 0) {
-      return NextResponse.json({ ok: true, count: 0, message: "対象ユーザーがいません" });
+      return NextResponse.json({
+        ok: true,
+        count: 0,
+        message: "対象ユーザーがいません",
+      });
     }
 
-    // 4. SendGridメッセージの作成
-    // 受信者全員に個別に送る（BCCのように他人のアドレスが見えない）設定
-    const emails = targetUsers.map(u => u.email).filter(Boolean);
-    
+    // 4. 受信者（空や不正を除外）
+    const emails = targetUsers.map((u) => u.email).filter(Boolean);
+    if (emails.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        count: 0,
+        message: "対象ユーザーにメールアドレスがありません",
+      });
+    }
+
+    // 5. SendGrid 初期化（ここで初めて setApiKey）
+    const { from } = initSendGrid();
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
     const msg = {
       to: emails,
-      from: {
-        email: process.env.SENDGRID_FROM_EMAIL!,
-        name: "KnowBase運営事務局" // 受信トレイに表示される名前
-      },
+      from: { email: from, name: "KnowBase運営事務局" },
       subject: `【KnowBase】お知らせ：${news.title}`,
       text: `${news.body}\n\n詳細はKnowBaseにログインして確認してください。`,
       html: `
@@ -77,7 +119,7 @@ export async function POST(req: Request) {
             <h2 style="margin-top: 0; color: #0f172a;">${news.title}</h2>
             <div style="white-space: pre-wrap; line-height: 1.6; color: #475569;">${news.body}</div>
             <div style="margin-top: 32px; text-align: center;">
-              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}" 
+              <a href="${appUrl}"
                  style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600;">
                 KnowBaseで詳細を見る
               </a>
@@ -93,12 +135,11 @@ export async function POST(req: Request) {
     // 一括送信（個人宛てとして複数人に送信）
     await sgMail.sendMultiple(msg);
 
-    return NextResponse.json({ 
-      ok: true, 
-      count: targetUsers.length,
-      message: `${targetUsers.length}名の有効なユーザーに配信しました` 
+    return NextResponse.json({
+      ok: true,
+      count: emails.length,
+      message: `${emails.length}名の有効なユーザーに配信しました`,
     });
-
   } catch (error: any) {
     console.error("[NOTIFY_ERROR]", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
