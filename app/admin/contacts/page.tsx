@@ -19,6 +19,36 @@ const generateNewContactId = () => `C100-${Date.now().toString().slice(-6)}`;
 const ALL_BRAND_ID = "ALL";
 const ALL_DEPT_ID = "ALL";
 
+/* ハイライト用コンポーネント */
+function HighlightText({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword.trim()) return <>{text}</>;
+  
+  // 検索ワードで分割（大文字小文字を区別しない）
+  const parts = text.split(new RegExp(`(${keyword})`, 'gi'));
+  
+  return (
+    <>
+      {parts.map((part, i) => 
+        part.toLowerCase() === keyword.toLowerCase() 
+          ? (
+            <mark 
+              key={i} 
+              style={{ 
+                backgroundColor: '#ffef9c', 
+                color: 'inherit', 
+                padding: '0 2px', 
+                borderRadius: '2px' 
+              }}
+            >
+              {part}
+            </mark>
+          )
+          : part
+      )}
+    </>
+  );
+}
+
 export default function AdminContactsPage() {
   const [brands, setBrands] = useState<Brand[]>([]);
   const [depts, setDepts] = useState<Dept[]>([]);
@@ -71,10 +101,23 @@ export default function AdminContactsPage() {
   const filteredContacts = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
     return contacts.filter((c) => {
+      // 1. ブランド・部署フィルター
       if (filterBrand !== ALL_BRAND_ID && c.brandId !== filterBrand) return false;
       if (filterDept !== ALL_DEPT_ID && c.deptId !== filterDept) return false;
+      
+      // キーワードが空なら全件表示
       if (!kw) return true;
-      const haystack = [c.contactId, c.name, c.email, c.role ?? "", deptMap[c.deptId]?.name ?? "", brandMap[c.brandId]?.name ?? ""].join(" ").toLowerCase();
+
+      // 2. 検索対象（haystack）から tags を除外し、role を含める
+      const haystack = [
+        c.contactId, 
+        c.name, 
+        c.email, 
+        c.role ?? "", // 担当業務（カンマ区切り文字列）を検索対象にする
+        deptMap[c.deptId]?.name ?? "", 
+        brandMap[c.brandId]?.name ?? ""
+      ].join(" ").toLowerCase();
+
       return haystack.includes(kw);
     }).sort((a, b) => a.name.localeCompare(b.name, "ja"));
   }, [contacts, filterBrand, filterDept, keyword, deptMap, brandMap]);
@@ -175,10 +218,44 @@ export default function AdminContactsPage() {
               {filteredContacts.length === 0 ? <p style={{ padding: 20, textAlign: 'center', color: '#999' }}>該当するデータがありません</p> : 
                 filteredContacts.map(c => (
                 <div key={c.contactId} className={`kb-user-item-admin scroll-item ${editingId === c.contactId ? 'selected' : ''}`} onClick={() => startEdit(c)}>
-                  <div className="kb-user-title">{c.name} <span style={{fontSize: 11, fontWeight: 400, color: '#666'}}>({c.contactId})</span></div>
-                  <div className="kb-user-email-meta">{c.email}</div>
-                  <div className="kb-user-meta-info">{brandMap[c.brandId]?.name || '共通'} / {deptMap[c.deptId]?.name || '共通'}</div>
-                  {c.role && <div style={{fontSize: '11px', color: '#0ea5e9', marginTop: 4}}>{c.role}</div>}
+                  <div className="kb-user-title">
+                    <HighlightText text={c.name} keyword={keyword} /> 
+                    <span style={{fontSize: 11, fontWeight: 400, color: '#666'}}>
+                      (<HighlightText text={c.contactId} keyword={keyword} />)
+                    </span>
+                  </div>
+                  <div className="kb-user-email-meta">
+                    <HighlightText text={c.email} keyword={keyword} />
+                  </div>
+                  <div className="kb-user-meta-info">
+                    <HighlightText text={brandMap[c.brandId]?.name || '共通'} keyword={keyword} /> / <HighlightText text={deptMap[c.deptId]?.name || '共通'} keyword={keyword} />
+                  </div>
+                  
+                  {/* 担当業務バッジ表示（安全なsplit処理） */}
+                  {typeof c.role === 'string' && c.role.trim() !== "" && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                      {c.role.split(/[、,]/).map((r: string, idx: number) => {
+                        const trimmedRole = r.trim();
+                        if (!trimmedRole) return null;
+                        return (
+                          <span
+                            key={idx}
+                            style={{
+                              fontSize: '10px',
+                              background: '#e0f2fe',
+                              color: '#0369a1',
+                              padding: '2px 8px',
+                              borderRadius: '12px',
+                              border: '1px solid #bae6fd',
+                              fontWeight: 500
+                            }}
+                          >
+                            <HighlightText text={trimmedRole} keyword={keyword} />
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -5,5 +5,4 @@ export type Contact = {
   brandId: string; // "ALL" or brandId
   deptId: string;
   role?: string;
-  tags?: string[];
 };

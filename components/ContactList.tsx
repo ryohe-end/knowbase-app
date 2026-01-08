@@ -49,6 +49,17 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
           const initial = (c.name ?? "?").charAt(0);
           const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.email)}&su=${encodeURIComponent("[Know Base] お問い合わせ")}`;
 
+          // --- 検索ヒット箇所の判定 ---
+          // 名前や部署名以外（role）でヒットしている単語を探す（tagsは含めない）
+          let hitInRole = "";
+          if (searching && typeof c.role === "string") {
+            const roles = c.role.split(/[、,]/);
+            const foundRole = roles.find((r: string) => r.toLowerCase().includes(kw));
+            if (foundRole) {
+              hitInRole = foundRole.trim();
+            }
+          }
+
           return (
             <div className="kb-contact-item" key={c.contactId} style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '10px' }}>
               <div className="kb-contact-avatar" style={{ flexShrink: 0 }}>{initial}</div>
@@ -83,16 +94,19 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
                   {searching ? highlightText(deptLabel, contactSearch) : deptLabel}
                 </div>
 
-                {/* 役割：改行禁止 */}
-                {!!c.role && (
-                  <div className="kb-contact-dept" style={{ 
-                    fontSize: '11px', 
-                    opacity: 0.8,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
+                {/* ヒットした「担当業務」の索引表示 */}
+                {hitInRole && (
+                  <div style={{ 
+                    marginTop: '4px', 
+                    fontSize: '10px', 
+                    color: '#0284c7', 
+                    background: '#f0f9ff', 
+                    display: 'inline-block',
+                    padding: '1px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid #e0f2fe'
                   }}>
-                    {searching ? highlightText(c.role ?? "", contactSearch) : c.role}
+                    <span style={{ fontWeight: 'bold' }}>ヒット:</span> {highlightText(hitInRole, contactSearch)}
                   </div>
                 )}
               </div>

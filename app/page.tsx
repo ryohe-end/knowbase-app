@@ -917,19 +917,19 @@ setMessages((prev) =>
       
       // 【強化ポイント】検索対象に role(担当業務) と tags を含める
       const haystack = [
-        c.name, 
-        c.email, 
-        c.role ?? "",     // 担当業務
-        deptLabel, 
-        ...tags           // タグ
-      ].join(" ").toLowerCase();
+  c.name, 
+  c.email, 
+  c.role ?? "",     // 担当業務（ここを残すことで「ヒット：〇〇」が表示されます）
+  deptLabel, 
+  // ...tags        // ← ここを削除（またはコメントアウト）
+].join(" ").toLowerCase();
 
-      if (!haystack.includes(kw)) return null;
+if (!haystack.includes(kw)) return null;
 
-      const hitTags = tags.filter((tag) => tag.toLowerCase().includes(kw));
-      return { ...c, hitTags };
-    })
-    .filter((v): v is Contact & { hitTags: string[] } => v !== null);
+// tagsに関連する処理（hitTagsなど）は削除し、シンプルにコンタクト情報を返します
+return { ...c };
+})
+.filter((v): v is Contact => v !== null); // 型定義もシンプルに修正
 }, [contacts, selectedBrandId, selectedDeptId, contactSearch, keyword, deptMap]);
 
   const currentBrandLabel =
