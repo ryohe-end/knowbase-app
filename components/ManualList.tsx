@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Manual } from "@/types/manual";
 
-// ★ 型定義に externalUrl を追加
 type Props = { manuals: (Manual & { externalUrl?: string })[] };
 
 function safeOpen(url: string) {
@@ -11,19 +10,27 @@ function safeOpen(url: string) {
   if (!w) window.location.href = url;
 }
 
-function toEmbeddableUrl(url: string) {
+/**
+ * URLを埋め込み可能な形式に変換する
+ * カテゴリが「動画」の場合は再生用のURL(embed)を優先する
+ */
+function toEmbeddableUrl(url: string, isVideo: boolean) {
   const u = (url ?? "").trim();
   if (!u) return "";
 
+  // Google Drive
   const m1 = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
   if (m1?.[1]) return `https://drive.google.com/file/d/${m1[1]}/preview`;
 
-  const m2 = u.match(/drive\.google\.com\/open\?id=([^&]+)/);
-  if (m2?.[1]) return `https://drive.google.com/file/d/${m2[1]}/preview`;
-
+  // Google Slides / Docs / Sheets
   const docs = u.match(/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([^/]+)/);
-  if (docs?.[1] && docs?.[2]) return `https://docs.google.com/${docs[1]}/d/${docs[2]}/preview`;
+  if (docs?.[1] && docs?.[2]) {
+    // ✅ 動画タイプなら /embed (再生モード)、資料なら /preview (閲覧モード)
+    const suffix = isVideo ? "embed" : "preview";
+    return `https://docs.google.com/${docs[1]}/d/${docs[2]}/${suffix}`;
+  }
 
+  // YouTube
   const yt = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]+)/);
   if (yt?.[1]) return `https://www.youtube.com/embed/${yt[1]}`;
 
@@ -41,7 +48,6 @@ const WINDOW = 30 * DAY;
 export default function ManualList({ manuals }: Props) {
   const [sort, setSort] = useState<"new" | "old">("new");
 
-  // --- Modal state ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalUrl, setModalUrl] = useState("");
@@ -91,15 +97,21 @@ export default function ManualList({ manuals }: Props) {
 
       <div className="kbm-list">
         {sorted.map((m) => {
-          const type: "video" | "doc" =
+          // DBの値を優先。なければURLから判定
+          const typeFromDb = m.type;
+          const type: "video" | "doc" = typeFromDb || (
             (m.embedUrl ?? "").includes("youtube") ||
             (m.embedUrl ?? "").includes("youtu.be")
               ? "video"
-              : "doc";
+              : "doc"
+          );
 
+          const isVideo = type === "video";
           const previewRaw = (m.embedUrl ?? "").trim();
           const hasPreview = !!previewRaw;
-          const embeddable = hasPreview ? toEmbeddableUrl(previewRaw) : "";
+          
+          // ✅ 動画タイプ情報を渡して、再生用URLを生成
+          const embeddable = hasPreview ? toEmbeddableUrl(previewRaw, isVideo) : "";
 
           const dlDisabled = !!m.noDownload || !m.embedUrl;
           const dlReason = dlDisabled
@@ -113,18 +125,20 @@ export default function ManualList({ manuals }: Props) {
           return (
             <article className="kbm-card" key={m.manualId}>
               <div className="kbm-card-grid">
+                {/* ✅ data-kind={type} によってCSS側で不要なアイコンが出ている可能性があるため、必要に応じてCSS側も確認してください */}
                 <div className="kbm-left" data-kind={type}>
                   <div className="kbm-badges">
                     <span
                       className={`kbm-pill ${
-                        type === "video" ? "kbm-pill-video" : "kbm-pill-doc"
+                        isVideo ? "kbm-pill-video" : "kbm-pill-doc"
                       }`}
-                      title={type === "video" ? "動画マニュアル" : "資料マニュアル"}
+                      title={isVideo ? "動画マニュアル" : "資料マニュアル"}
                     >
+                      {/* ✅ アイコン（🎬/📄）は残しました */}
                       <span className="kbm-pill-ico" aria-hidden="true">
-                        {type === "video" ? "🎬" : "📄"}
+                        {isVideo ? "🎬" : "📄"}
                       </span>
-                      {type === "video" ? "動画" : "資料"}
+                      {isVideo ? "動画" : "資料"}
                     </span>
 
                     {showNew && (
@@ -135,12 +149,8 @@ export default function ManualList({ manuals }: Props) {
                   <div className="kbm-title">{m.title}</div>
 
                   <div className="kbm-meta" style={{ display: "flex", gap: "12px", fontSize: "11px", color: "#94a3b8", marginTop: "4px", marginBottom: "4px" }}>
-                    {m.startDate && (
-                      <span>公開日: {m.startDate}</span>
-                    )}
-                    {m.updatedAt && (
-                      <span>最終更新: {m.updatedAt}</span>
-                    )}
+                    {m.startDate && <span>公開日: {m.startDate}</span>}
+                    {m.updatedAt && <span>最終更新: {m.updatedAt}</span>}
                   </div>
 
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
@@ -148,9 +158,7 @@ export default function ManualList({ manuals }: Props) {
                   {m.tags?.length ? (
                     <div className="kbm-tags">
                       {m.tags.map((t) => (
-                        <span key={t} className="kbm-tag">
-                          #{t}
-                        </span>
+                        <span key={t} className="kbm-tag">#{t}</span>
                       ))}
                     </div>
                   ) : null}
@@ -173,27 +181,26 @@ export default function ManualList({ manuals }: Props) {
                     プレビュー
                   </button>
 
-                  {/* ★ 外部サイト用ボタン：aタグにして target="_blank" を確実に適用 */}
-  {m.externalUrl && (
-    <a
-      href={m.externalUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="kbm-btn"
-      style={{ 
-        background: "#f8fafc", 
-        color: "#475569", 
-        border: "1px solid #cbd5e1",
-        textDecoration: "none",
-        textAlign: "center",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center"
-      }}
-    >
-      外部リンク 
-    </a>
-  )}
+                  {m.externalUrl && (
+                    <a
+                      href={m.externalUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="kbm-btn"
+                      style={{ 
+                        background: "#f8fafc", 
+                        color: "#475569", 
+                        border: "1px solid #cbd5e1",
+                        textDecoration: "none",
+                        textAlign: "center",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center"
+                      }}
+                    >
+                      外部リンク 
+                    </a>
+                  )}
 
                   <button
                     className={`kbm-btn ${dlDisabled ? "is-disabled" : ""}`}
@@ -267,6 +274,7 @@ export default function ManualList({ manuals }: Props) {
                   src={modalUrl}
                   title={modalTitle}
                   referrerPolicy="no-referrer"
+                  allow="autoplay; encrypted-media; fullscreen"
                 />
               )}
             </div>

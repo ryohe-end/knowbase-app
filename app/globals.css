@@ -1174,19 +1174,7 @@ body {
   z-index: 1;
 }
 
-/* Video watermark (buttonと被らない：左カラム内) */
-.kbm-left[data-kind="video"]::after {
-  content: "▶";
-  position: absolute;
-  right: 4px;
-  top: 4px;
-  font-size: 26px;
-  font-weight: 900;
-  color: #0f172a;
-  opacity: 0.1;
-  pointer-events: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
-}
+
 
 .kbm-card:hover .kbm-left[data-kind="video"]::after {
   opacity: 0.16;
