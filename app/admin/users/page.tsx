@@ -432,85 +432,109 @@ export default function AdminUsersPage() {
               style={{ marginBottom: 12 }}
             />
 
-            <div className="kb-manual-list-admin">
-              {loading && <div style={{ padding: "10px" }}>データ読み込み中...</div>}
+            <div 
+  className="kb-manual-list-admin" 
+  style={{
+    display: 'flex',
+    flexDirection: 'column',      // 縦並びに設定
+    overflowY: 'auto',            // 縦スクロールを許可
+    scrollSnapType: 'y mandatory', // 縦方向のスナップを有効化
+    height: '400px',              // 表示領域の高さを固定（適宜調整してください）
+    gap: '12px',                  // アイテム間の余白
+    padding: '4px',               // 選択時のボーダーが切れないよう調整
+    WebkitOverflowScrolling: 'touch',
+    scrollbarWidth: 'thin'
+  }}
+>
+  {loading && <div style={{ padding: "10px" }}>データ読み込み中...</div>}
 
-              {!loading && filteredUsers.length === 0 && (
-                <div
-                  style={{
-                    padding: "12px 10px",
-                    fontSize: 12,
-                    color: "#6b7280",
-                  }}
-                >
-                  {users.length === 0
-                    ? "ユーザーが登録されていません。"
-                    : "検索条件に一致するユーザーがいません。"}
-                </div>
-              )}
+  {!loading && filteredUsers.length === 0 && (
+    <div
+      style={{
+        padding: "12px 10px",
+        fontSize: 12,
+        color: "#6b7280",
+      }}
+    >
+      {users.length === 0
+        ? "ユーザーが登録されていません。"
+        : "検索条件に一致するユーザーがいません。"}
+    </div>
+  )}
 
-              {!loading &&
-                filteredUsers.map((u) => (
-                  <div
-                    key={u.userId}
-                    onClick={() => handleSelectUser(u)}
-                    className={`kb-user-item-admin ${
-                      selectedUserId === u.userId ? "selected" : ""
-                    }`}
-                    style={{ cursor: saving ? "not-allowed" : "pointer" }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <div className="kb-user-title">
-                        {u.name} ({u.userId})
-                      </div>
-                      <div
-                        className="kb-user-role-badge"
-                        style={{
-                          backgroundColor:
-                            u.role === "admin"
-                              ? "#fecaca"
-                              : u.role === "editor"
-                              ? "#ffedd5"
-                              : "#e0f2fe",
-                          color:
-                            u.role === "admin"
-                              ? "#b91c1c"
-                              : u.role === "editor"
-                              ? "#9a3412"
-                              : "#0369a1",
-                        }}
-                      >
-                        {ROLE_OPTIONS.find((r) => r.value === u.role)?.label || u.role}
-                      </div>
-                    </div>
+  {!loading &&
+    filteredUsers.map((u) => (
+      <div
+        key={u.userId}
+        onClick={() => handleSelectUser(u)}
+        className={`kb-user-item-admin ${
+          selectedUserId === u.userId ? "selected" : ""
+        }`}
+        style={{ 
+          cursor: saving ? "not-allowed" : "pointer",
+          flex: '0 0 auto',            // 高さが内容に応じて決まるように設定
+          scrollSnapAlign: 'start',    // スナップ位置を各アイテムの先頭に合わせる
+          margin: 0,
+          border: selectedUserId === u.userId ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+          borderRadius: '12px',
+          padding: '16px',
+          backgroundColor: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <div className="kb-user-title" style={{ fontWeight: 'bold' }}>
+            {u.name} ({u.userId})
+          </div>
+          <div
+            className="kb-user-role-badge"
+            style={{
+              backgroundColor:
+                u.role === "admin"
+                  ? "#fecaca"
+                  : u.role === "editor"
+                  ? "#ffedd5"
+                  : "#e0f2fe",
+              color:
+                u.role === "admin"
+                  ? "#b91c1c"
+                  : u.role === "editor"
+                  ? "#9a3412"
+                  : "#0369a1",
+              padding: '2px 8px',
+              borderRadius: '99px',
+              fontSize: '11px'
+            }}
+          >
+            {ROLE_OPTIONS.find((r) => r.value === u.role)?.label || u.role}
+          </div>
+        </div>
 
-                    <div className="kb-user-email-meta">{u.email}</div>
+        <div className="kb-user-email-meta" style={{ color: '#6b7280', fontSize: '13px', margin: '4px 0' }}>
+          {u.email}
+        </div>
 
-                    <div className="kb-user-meta-info">
-                      {u.brandIds?.length
-                        ? `ブランド: ${u.brandIds
-                            .map((id) => brandMap[id]?.name || id)
-                            .join(", ")}`
-                        : "ブランド: 全て"}
-                      {" / "}
-                      {(u.groupIds?.length ?? 0) > 0 && (
-                        <span style={{ color: "#374151" }}>
-                          属性: {(u.groupIds ?? [])
-                            .map((id) => groupMap[id]?.groupName || id)
-                            .join(", ")}
-                        </span>
-                      )}
-                      {u.isActive ? "" : " / [無効]"}
-                    </div>
-                  </div>
-                ))}
-            </div>
+        <div className="kb-user-meta-info" style={{ fontSize: '12px', marginTop: '8px', color: '#4b5563' }}>
+          {u.brandIds?.length
+            ? `ブランド: ${u.brandIds.map((id) => brandMap[id]?.name || id).join(", ")}`
+            : "ブランド: 全て"}
+          {" / "}
+          {(u.groupIds?.length ?? 0) > 0 && (
+            <span>
+              属性: {(u.groupIds ?? []).map((id) => groupMap[id]?.groupName || id).join(", ")}
+            </span>
+          )}
+          {u.isActive ? "" : " / [無効]"}
+        </div>
+      </div>
+    ))}
+</div>
           </div>
         </section>
 
