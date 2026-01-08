@@ -8,10 +8,21 @@ export function middleware(req: NextRequest) {
   const user = req.cookies.get("kb_user")?.value;
   const isAdmin = req.cookies.get("kb_admin")?.value === "1";
 
-  // ログイン不要ページ
-  const publicPaths = ["/login", "/api/login"];
+  // ✅ ログイン不要ページ / API
+  // - /api/amazonq は SSE や curl で叩くので、middleware で /login に飛ばさない
+  // - 他にも public にしたい API があればここへ
+  const publicPaths = [
+    "/login",
+    "/api/login",
+    "/api/amazonq", // ✅ 追加
+  ];
 
-  if (publicPaths.includes(path)) {
+  // /api/amazonq 配下も許可したい場合（将来の拡張用）
+  const publicPrefixes = [
+    "/api/amazonq", // ✅ 追加
+  ];
+
+  if (publicPaths.includes(path) || publicPrefixes.some((p) => path.startsWith(p))) {
     return NextResponse.next();
   }
 
