@@ -5,24 +5,19 @@ export function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const path = req.nextUrl.pathname;
 
+  // ✅ API は middleware で触らない（307 /login の元凶を潰す）
+  if (path.startsWith("/api")) {
+    return NextResponse.next();
+  }
+
+  // Cookie
   const user = req.cookies.get("kb_user")?.value;
   const isAdmin = req.cookies.get("kb_admin")?.value === "1";
 
-  // ✅ ログイン不要ページ / API
-  // - /api/amazonq は SSE や curl で叩くので、middleware で /login に飛ばさない
-  // - 他にも public にしたい API があればここへ
-  const publicPaths = [
-    "/login",
-    "/api/login",
-    "/api/amazonq", // ✅ 追加
-  ];
+  // ✅ ログイン不要ページ（APIは上で除外済み）
+  const publicPaths = ["/login"];
 
-  // /api/amazonq 配下も許可したい場合（将来の拡張用）
-  const publicPrefixes = [
-    "/api/amazonq", // ✅ 追加
-  ];
-
-  if (publicPaths.includes(path) || publicPrefixes.some((p) => path.startsWith(p))) {
+  if (publicPaths.includes(path)) {
     return NextResponse.next();
   }
 
@@ -32,7 +27,7 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // /admin へアクセスしたが admin 権限なし → Top へ
+  // /admin は admin のみ
   if (path.startsWith("/admin") && !isAdmin) {
     url.pathname = "/";
     return NextResponse.redirect(url);
