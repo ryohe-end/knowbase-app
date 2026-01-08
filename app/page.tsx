@@ -510,6 +510,7 @@ const [messages, setMessages] = useState<Message[]>([]);
 const [sources, setSources] = useState<SourceAttribution[]>([]);
 const [showSources, setShowSources] = useState(false);
 const chatEndRef = useRef<HTMLDivElement | null>(null);
+const manualListRef = useRef<HTMLDivElement | null>(null);
 const [keyword, setKeyword] = useState("");
   const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
   const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
@@ -1023,11 +1024,19 @@ async function handleAsk() {
 
         <div className="kb-topbar-center">
           <input
-            className="kb-search-input"
-            placeholder="キーワードで探す（例：Canva テロップ）"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-          />
+  className="kb-search-input"
+  placeholder="キーワードで探す（例：Canva テロップ）"
+  value={keyword}
+  onChange={(e) => setKeyword(e.target.value)}
+  // ↓ ここを追加
+  onKeyDown={(e) => {
+    // エンターキー、かつ IMEの変換確定ではない場合
+    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+      // マニュアル一覧のカードまでスクロールさせる
+      manualListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }}
+/>
         </div>
 
         <div className="kb-topbar-right">
@@ -1383,10 +1392,10 @@ async function handleAsk() {
             )}
           </div>
 
-          <div className="kb-card kb-manual-card">
-            <div className="kb-card-header">
-              <div>
-                <div className="kb-card-title">マニュアル一覧</div>
+          <div className="kb-card kb-manual-card" ref={manualListRef}> {/* ← refを追加 */}
+  <div className="kb-card-header">
+    <div>
+      <div className="kb-card-title">マニュアル一覧</div>
                 <div className="kb-card-meta">
                   {loadingManuals
                     ? "読み込み中..."
