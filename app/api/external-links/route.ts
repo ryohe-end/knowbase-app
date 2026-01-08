@@ -1,9 +1,10 @@
+// app/api/external-links/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { DynamoDBClient, ScanCommand, PutItemCommand, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
+import { DynamoDBClient, ScanCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 import { v4 as uuidv4 } from "uuid";
 
-// DynamoDBテーブル名（環境に合わせて変更してください）
+// DynamoDBテーブル名
 const TABLE_NAME = "yamauchi-ExternalLinks";
 
 function getClient() {
@@ -29,13 +30,13 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.json({ links: items });
-  } catch (err) {
+  } catch (err: any) { // エラー型をanyにするか、内部で型判定を行う
     console.error("Failed to fetch links:", err);
     return NextResponse.json({ 
-    error: "外部リンクの取得に失敗しました", 
-    detail: err.message, // これを追加
-    stack: err.stack     // これも追加
-  }, { status: 500 });
+      error: "外部リンクの取得に失敗しました", 
+      detail: err instanceof Error ? err.message : String(err), 
+      stack: err instanceof Error ? err.stack : undefined
+    }, { status: 500 });
   }
 }
 
@@ -49,7 +50,6 @@ export async function POST(req: NextRequest) {
     const payload = await req.json();
     const now = new Date().toISOString();
     
-    // linkId がなければ新規作成(uuid)、あれば更新
     const linkId = payload.linkId || uuidv4();
 
     const dbItem = {
