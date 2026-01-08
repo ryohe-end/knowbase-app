@@ -609,6 +609,11 @@ async function handleAsk() {
         const eventName = extractSseEventName(block);
         const data = extractSseData(block);
 
+        // ✅ 0) ping（keep-alive）は無視
+  if (eventName === "ping") {
+    return { stop: false };
+  }
+
         // ① sources（本文じゃないので最優先）
         if (eventName === "sources") {
           try {
