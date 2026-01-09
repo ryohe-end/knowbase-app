@@ -91,6 +91,7 @@ export default function AdminManuals() {
   const [loading, setLoading] = useState(true);
 
   const [isCopying, setIsCopying] = useState(false);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedManual, setSelectedManual] = useState<Manual | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [filterText, setFilterText] = useState("");
@@ -148,11 +149,16 @@ export default function AdminManuals() {
     setIsEditing(true);
   };
 
-  const handleCreateFromTemplate = async () => {
+  const handleOpenTemplateModal = () => {
     if (!manualForm.title) {
       alert("先にタイトルを入力してください。");
       return;
     }
+    setShowTemplateModal(true);
+  };
+
+  const handleExecuteCopy = async (templateType: "landscape" | "portrait") => {
+    setShowTemplateModal(false);
     setIsCopying(true);
     const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
     const draft = { ...manualForm, tags: finalTags };
@@ -162,14 +168,13 @@ export default function AdminManuals() {
       const res = await fetch("/api/drive/copy-template", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: manualForm.title }),
+        body: JSON.stringify({ title: manualForm.title, templateType }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       router.push(`/admin/manuals/edit?fileId=${data.fileId}&editUrl=${encodeURIComponent(data.editUrl)}`);
     } catch (e: any) {
       alert(`コピー失敗: ${e.message}`);
-    } finally {
       setIsCopying(false);
     }
   };
@@ -197,14 +202,7 @@ export default function AdminManuals() {
       return;
     }
     const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
-    
-    // 送信データに最新の「今日の日付」をセットする
-    const payload = { 
-      ...manualForm, 
-      tags: finalTags,
-      updatedAt: getTodayDate() 
-    };
-
+    const payload = { ...manualForm, tags: finalTags, updatedAt: getTodayDate() };
     try {
       const isNew = selectedManual === null;
       const res = await fetch("/api/manuals", {
@@ -213,7 +211,6 @@ export default function AdminManuals() {
         body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
-      
       await loadAllData();
       setIsEditing(false);
       alert("保存しました");
@@ -256,19 +253,39 @@ export default function AdminManuals() {
           <p>テンプレートをコピーしています...<br/>しばらくお待ちください</p>
         </div>
       )}
+
+      {showTemplateModal && (
+        <div className="kb-modal-overlay">
+          <div className="kb-modal-content">
+            <div className="kb-modal-header">テンプレートの向きを選択</div>
+            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>作成するマニュアルの形式を選んでください。</p>
+            
+            <div className="kb-template-options">
+              <button className="kb-template-card" onClick={() => handleExecuteCopy('landscape')}>
+                <div className="kb-template-icon-wrapper">
+                  <div className="kb-template-icon landscape"></div>
+                </div>
+                <span>横Ver</span>
+              </button>
+              
+              <button className="kb-template-card" onClick={() => handleExecuteCopy('portrait')}>
+                <div className="kb-template-icon-wrapper">
+                  <div className="kb-template-icon portrait"></div>
+                </div>
+                <span>縦Ver</span>
+              </button>
+            </div>
+            
+            <button className="kb-secondary-btn" onClick={() => setShowTemplateModal(false)} style={{ marginTop: '32px', width: '100%' }}>キャンセル</button>
+          </div>
+        </div>
+      )}
+
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" 
-              alt="Logo" 
-              style={{ width: 48, height: 48, objectFit: "contain" }} 
-            />
-            <img 
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" 
-              alt="LogoText" 
-              style={{ height: 22, objectFit: "contain" }} 
-            />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
+            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
           </div>
         </Link>
         <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>マニュアル管理</div>
@@ -382,22 +399,12 @@ export default function AdminManuals() {
               )}
 
               <div className="kb-form-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
-                {/* ✅ 削除ボタン: 既存データを選択している時のみ表示 */}
                 {selectedManual && (
-                  <button 
-                    className="kb-delete-btn" 
-                    onClick={() => handleDelete(selectedManual.manualId)} 
-                    type="button"
-                    style={{ marginRight: 'auto' }}
-                  >
-                    削除
-                  </button>
+                  <button className="kb-delete-btn" onClick={() => handleDelete(selectedManual.manualId)} type="button" style={{ marginRight: 'auto' }}>削除</button>
                 )}
-
                 {isEditing && selectedManual === null && (
-                  <button className="kb-secondary-btn" onClick={handleCreateFromTemplate} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
+                  <button className="kb-secondary-btn" onClick={handleOpenTemplateModal} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
                 )}
-
                 {isEditing ? (
                   <>
                     <button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button>
@@ -448,38 +455,58 @@ export default function AdminManuals() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* ✅ モーダル用：画像を完全中央に、文字の高さを左右で一致させる */
+        .kb-modal-overlay { 
+          position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
+          background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
+          display: flex; align-items: center; justify-content: center; z-index: 10000; 
+        }
+        .kb-modal-content { 
+          background: #fff; padding: 32px; border-radius: 24px; 
+          width: 440px; max-width: 90%; text-align: center; 
+          box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); border: 1px solid #f1f5f9;
+        }
+        .kb-modal-header { font-size: 20px; font-weight: 800; margin-bottom: 8px; color: #1e293b; }
+        .kb-template-options { 
+          display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 32px; 
+          align-items: stretch; /* 左右のカードの高さを揃える */
+        }
+        .kb-template-card { 
+          border: 2px solid #e2e8f0; background: #f8fafc; border-radius: 16px; 
+          padding: 24px 16px; cursor: pointer; transition: all 0.2s ease;
+          display: flex; flex-direction: column; align-items: center; 
+          justify-content: space-between; /* 上(アイコン)と下(文字)を離して配置 */
+        }
+        .kb-template-card:hover { border-color: #3b82f6; background: #eff6ff; transform: translateY(-4px); }
+        
+        /* アイコンを常に中央配置するためのラッパー */
+        .kb-template-icon-wrapper {
+          flex: 1; 
+          display: flex; align-items: center; justify-content: center;
+          margin-bottom: 16px; min-height: 60px; /* アイコンの高さに合わせた最小値 */
+        }
+        .kb-template-icon { background: #cbd5e1; border-radius: 4px; border: 2px solid #94a3b8; }
+        .kb-template-icon.landscape { width: 56px; height: 36px; }
+        .kb-template-icon.portrait { width: 36px; height: 56px; }
+        
+        .kb-template-card span { 
+          font-size: 14px; font-weight: 700; color: #1e293b; 
+          display: block; width: 100%; text-align: center;
+        }
+
         .kb-loading-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100vw;
-          height: 100vh;
-          background: rgba(255, 255, 255, 0.8);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          z-index: 9999;
+          position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+          background: rgba(255, 255, 255, 0.85); display: flex; flex-direction: column;
+          align-items: center; justify-content: center; z-index: 9999;
         }
         .kb-spinner {
-          width: 50px;
-          height: 50px;
-          border: 5px solid #e2e8f0;
-          border-top: 5px solid #3b82f6;
-          border-radius: 50%;
-          animation: spin 1s linear infinite;
-          margin-bottom: 16px;
+          width: 50px; height: 50px; border: 5px solid #e2e8f0;
+          border-top: 5px solid #3b82f6; border-radius: 50%;
+          animation: spin 1s linear infinite; margin-bottom: 16px;
         }
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        .kb-loading-overlay p {
-          font-weight: 700;
-          color: #1e293b;
-          text-align: center;
-          line-height: 1.6;
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .kb-loading-overlay p { font-weight: 700; color: #1e293b; text-align: center; line-height: 1.6; }
       `}</style>
     </div>
   );

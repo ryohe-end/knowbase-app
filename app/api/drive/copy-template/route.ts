@@ -15,18 +15,13 @@ type SAJson = {
 
 /**
  * ✅ Amplify Hosting (SSR) 対策
- * ビルド時に生成した runtime-env.txt を読み込み、process.env に注入する
  */
 function loadEnvFromFileOnce() {
-  // すでに必要な変数が存在すればスキップ
   if (process.env.TEMPLATE_FILE_ID && process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
     return;
   }
-
   const cwd = process.cwd();
   const lambdaRoot = process.env.LAMBDA_TASK_ROOT || "/var/task";
-
-  // Amplify SSR環境でファイルが存在する可能性が高いパスを網羅
   const candidates = [
     path.join(cwd, ".next", "server", "runtime-env.txt"),
     path.join(lambdaRoot, "server", "runtime-env.txt"),
@@ -35,58 +30,43 @@ function loadEnvFromFileOnce() {
     path.join(cwd, ".env.production"),
   ];
 
-  console.log("[env-load] Checking candidates...", { cwd, lambdaRoot });
-
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
         const raw = fs.readFileSync(p, "utf-8");
-        let loadedCount = 0;
-
         raw.split("\n").forEach((line) => {
           const trimmed = line.trim();
           if (!trimmed || trimmed.startsWith("#")) return;
-          
           const splitIdx = trimmed.indexOf("=");
           if (splitIdx < 0) return;
-
           const key = trimmed.slice(0, splitIdx).trim();
           let val = trimmed.slice(splitIdx + 1).trim();
-
-          // クォートの除去
           if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
             val = val.slice(1, -1);
           }
-
           if (key && val && !process.env[key]) {
             process.env[key] = val;
-            loadedCount++;
           }
         });
-
-        console.log(`[env-load] Successfully loaded ${loadedCount} keys from: ${p}`);
         return; 
       } catch (e) {
         console.error(`[env-load] Failed to read ${p}:`, e);
       }
     }
   }
-  console.warn("[env-load] No environment file found in candidates.");
 }
 
 function loadServiceAccount(): SAJson {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is missing");
-
   try {
     const json = JSON.parse(raw) as SAJson;
     if (typeof json.private_key === "string") {
       json.private_key = json.private_key.replace(/\\n/g, "\n");
     }
-    if (!json.client_email || !json.private_key) throw new Error("JSON missing email or private_key");
     return json;
   } catch (err) {
-    throw new Error(`Failed to parse Service Account JSON: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error("Failed to parse Service Account JSON");
   }
 }
 
@@ -100,32 +80,25 @@ export async function POST(req: Request) {
   const reqId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
   try {
-    // 1. 環境変数のロード
     loadEnvFromFileOnce();
 
-    const templateId = process.env.TEMPLATE_FILE_ID;
+    // ✅ 横Verと縦VerのIDを環境変数から取得
+    const templateIdLandscape = process.env.TEMPLATE_FILE_ID; 
+    const templateIdPortrait = process.env.TEMPLATE_FILE_ID_PORTRAIT;
     const parentId = process.env.TEMPLATE_COPY_PARENT_FOLDER_ID?.trim() || null;
-
-    console.log("[copy-template] Env Check:", {
-      reqId,
-      hasTemplateId: !!templateId,
-      templateIdLen: templateId?.length ?? 0,
-      hasParentId: !!parentId,
-      hasSaJson: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
-    });
-
-    if (!templateId) {
-      return NextResponse.json({ 
-        error: "TEMPLATE_FILE_ID is not set", 
-        reqId 
-      }, { status: 500 });
-    }
 
     const body = await req.json().catch(() => ({}));
     const title = String(body?.title ?? "").trim();
+    const templateType = body?.templateType || "landscape"; // "landscape" or "portrait"
+
+    // ✅ タイプに応じてテンプレートIDを切り替え
+    const templateId = templateType === "portrait" ? templateIdPortrait : templateIdLandscape;
+
+    if (!templateId) {
+      return NextResponse.json({ error: `${templateType} template ID is not set`, reqId }, { status: 500 });
+    }
     if (!title) return NextResponse.json({ error: "title is required", reqId }, { status: 400 });
 
-    // 2. 認証の準備
     const sa = loadServiceAccount();
     const auth = new google.auth.JWT({
       email: sa.client_email,
@@ -135,19 +108,7 @@ export async function POST(req: Request) {
 
     const drive = google.drive({ version: "v3", auth });
 
-    // 3. テンプレート確認
-    try {
-      await drive.files.get({
-        fileId: templateId,
-        fields: "id, name",
-        supportsAllDrives: true,
-      });
-    } catch (e: any) {
-      const { status, details } = extractGoogleError(e);
-      return NextResponse.json({ error: "Template access denied", details, reqId }, { status });
-    }
-
-    // 4. コピー実行
+    // コピー実行
     const copyRes = await drive.files.copy({
       fileId: templateId,
       supportsAllDrives: true,
@@ -158,45 +119,27 @@ export async function POST(req: Request) {
     });
 
     const newFileId = copyRes.data.id;
-    if (!newFileId) throw new Error("Copy failed to return file ID");
+    if (!newFileId) throw new Error("Copy failed");
 
-    // ====================================================
-    // ✅ 追加：権限設定（リンクを知っている全員を編集者に）
-    // ====================================================
+    // 権限設定
     try {
       await drive.permissions.create({
         fileId: newFileId,
         supportsAllDrives: true,
-        requestBody: {
-          role: "writer",
-          type: "anyone",
-        },
+        requestBody: { role: "writer", type: "anyone" },
       });
-      console.log(`[copy-template] Permission created for: ${newFileId}`);
-    } catch (permError: any) {
-      console.error("[copy-template] Permission error (continuing...):", permError.message);
-    }
-    // ====================================================
+    } catch (permError) {}
 
-    // 5. URL取得
     const meta = await drive.files.get({
       fileId: newFileId,
       fields: "webViewLink",
       supportsAllDrives: true,
     });
 
-    return NextResponse.json({ 
-      reqId, 
-      fileId: newFileId, 
-      editUrl: meta.data.webViewLink 
-    }, { status: 200 });
+    return NextResponse.json({ reqId, fileId: newFileId, editUrl: meta.data.webViewLink }, { status: 200 });
 
   } catch (e: any) {
     const { status, details } = extractGoogleError(e);
-    console.error("[copy-template] Unexpected error:", { reqId, status, details });
-    return NextResponse.json(
-      { error: "Internal Server Error", reqId, details: typeof details === "object" ? JSON.stringify(details) : details },
-      { status }
-    );
+    return NextResponse.json({ error: "Internal Server Error", reqId, details }, { status });
   }
 }
