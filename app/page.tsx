@@ -461,6 +461,20 @@ function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
   );
 }
 
+function HighlightText({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword.trim()) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${keyword})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) => 
+        part.toLowerCase() === keyword.toLowerCase() 
+          ? <mark key={i} style={{ backgroundColor: '#ffef9c', color: 'inherit', padding: '0 2px', borderRadius: '2px' }}>{part}</mark> 
+          : part
+      )}
+    </>
+  );
+}
+
 /* ========= ページ ========= */
 export default function HomePage() {
   /* ========= 1. ユーザー情報と権限の定義 ========= */
