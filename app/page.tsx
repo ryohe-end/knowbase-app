@@ -138,10 +138,9 @@ function formatToJST(dateStr?: string) {
 
 type ManualViewScope = "all" | "direct";
 
-const normalizeManualViewScope = (v: any): ManualViewScope => {
-  const s = String(v ?? "").trim();
-  if (s === "DIRECT" || s === "direct") return "direct";
-  return "all"; // ALL/undefined/その他は all
+const normalizeManualViewScope = (v: unknown): "all" | "direct" => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "direct" ? "direct" : "all";
 };
 
 /* ========= キーワード分解（単語検索用） ========= */
@@ -202,7 +201,7 @@ function tokenizeJP(input: string) {
     "流れ",
   ]);
 
-  let tokens = [...latin, ...jpTokens]
+  const tokens = [...latin, ...jpTokens]
     .map((t) => t.trim())
     .filter((t) => t.length >= 2)
     .filter((t) => !stopWords.has(t));
@@ -458,7 +457,7 @@ function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
                         lineHeight: 1.55,
                         display: "-webkit-box",
                         WebkitLineClamp: 3,
-                        WebkitBoxOrient: "vertical" as any,
+                        WebkitBoxOrient: "vertical" as React.CSSProperties["WebkitBoxOrient"],
                         overflow: "hidden",
                         marginBottom: 8,
                       }}
@@ -500,6 +499,8 @@ function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
 
 export default function HomePage() {
   const router = useRouter();
+  const [nowMs, setNowMs] = useState(0);
+useEffect(() => setNowMs(Date.now()), []);
 
   /* ========= ユーザー情報 ========= */
   type Me = { name?: string; email?: string; role?: string; groupId?: string; mustChangePassword?: boolean };
@@ -888,8 +889,11 @@ const groupHeaders: HeadersInit = groupIds
         (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
       );
 
+
+      type ManualsApiResponse = { manuals?: Manual[] };
+      const manualsJson = manualsRes as ManualsApiResponse;
       setManuals(
-        (manualsRes.manuals || []).map((m: any) => ({
+        (manualsJson.manuals ?? []).map((m) => ({
           ...m,
           viewScope: normalizeManualViewScope(m.viewScope),
         }))
@@ -957,7 +961,7 @@ const groupHeaders: HeadersInit = groupIds
 
   return manuals.filter((m) => {
     // ✅ フランチャイズは direct のみ表示
-    if (isFranchise && normalizeManualViewScope((m as any).viewScope) !== "direct") return false;
+    if (isFranchise && normalizeManualViewScope(m.viewScope) !== "direct") return false;
 
     if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
     if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
@@ -1637,7 +1641,7 @@ const groupHeaders: HeadersInit = groupIds
     ...m,
     startDate: formatToJST(m.startDate),
     updatedAt: formatToJST(m.updatedAt),
-    viewScope: normalizeManualViewScope((m as any).viewScope),
+    viewScope: normalizeManualViewScope(m.viewScope),
   }))}
 />
 

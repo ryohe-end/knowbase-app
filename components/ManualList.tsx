@@ -79,7 +79,10 @@ export default function ManualList({ manuals }: Props) {
 
   // ✅ react-hooks/purity 対策：Date.now() を render(map) 中で呼ばない
   //   （マウント時に 1回だけ固定の now を確保）
-  const now = useMemo(() => Date.now(), []);
+    const [now, setNow] = useState<number>(0);
+  useEffect(() => {
+    setNow(Date.now());
+  }, []);
 
   const closeModal = () => {
     setIsModalOpen(false);
