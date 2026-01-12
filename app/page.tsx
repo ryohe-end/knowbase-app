@@ -621,188 +621,187 @@ useEffect(() => {
   }
 
   async function handleAsk() {
-    if (!prompt.trim() || loadingAI) return;
+  if (!prompt.trim() || loadingAI) return;
 
-    const userPrompt = prompt.trim();
-    setKeyword(userPrompt);
-    setPrompt("");
-    setSources([]);
-    setShowSources(false);
+  const userPrompt = prompt.trim();
+  setKeyword(userPrompt);
+  setPrompt("");
+  setSources([]);
+  setShowSources(false);
 
-    const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
-    const newAssistantId = Date.now() + 1;
+  const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
+  const newAssistantId = Date.now() + 1;
 
-    const newAssistantMessage: Message = {
-      id: newAssistantId,
-      role: "assistant",
-      content: "送信しました。検索しています…",
-      loading: true,
-    };
+  const newAssistantMessage: Message = {
+    id: newAssistantId,
+    role: "assistant",
+    content: "送信しました。検索しています…",
+    loading: true,
+  };
 
-    setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
-    setLoadingAI(true);
+  setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
+  setLoadingAI(true);
 
-    const appendToAssistant = (chunk: string) => {
-      if (!chunk) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
-        )
-      );
-    };
+  const appendToAssistant = (chunk: string) => {
+    if (!chunk) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
+      )
+    );
+  };
 
-    const setAssistantDone = () => {
-      setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
-    };
+  const setAssistantDone = () => {
+    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
+  };
 
-    const slowTimer = window.setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === newAssistantId && m.loading
-            ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
-            : m
-        )
-      );
-    }, 3000);
+  const slowTimer = window.setTimeout(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId && m.loading
+          ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
+          : m
+      )
+    );
+  }, 3000);
 
-    try {
-  const res = await fetch("/api/amazonq", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: userPrompt }),
-  });
+  try {
+    const res = await fetch("/api/amazonq", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: userPrompt }),
+    });
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    try {
-      const j = JSON.parse(text);
-      throw new Error(j.error || j.message || `Server error: ${res.status}`);
-    } catch {
-      throw new Error(text || `Server error: ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      try {
+        const j = JSON.parse(text);
+        throw new Error(j.error || j.message || `Server error: ${res.status}`);
+      } catch {
+        throw new Error(text || `Server error: ${res.status}`);
+      }
     }
-  }
 
-  const contentType = res.headers.get("content-type") || "";
+    const contentType = res.headers.get("content-type") || "";
 
-  // assistantを空にしてストリーム開始
-  setMessages((prev) =>
-    prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m))
-  );
+    // assistantを空にしてストリーム開始
+    setMessages((prev) =>
+      prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m))
+    );
 
-  // ✅ SSE
-  if (contentType.includes("text/event-stream")) {
-    const handleSseBlock = (block: string) => {
-      const eventName = extractSseEventName(block);
-      const data = extractSseData(block);
+    // ✅ SSE
+    if (contentType.includes("text/event-stream")) {
+      const handleSseBlock = (block: string) => {
+        const eventName = extractSseEventName(block);
+        const data = extractSseData(block);
 
-      if (eventName === "ping") return { stop: false };
+        if (eventName === "ping") return { stop: false };
 
-      if (eventName === "sources") {
-        try {
-          const parsed = JSON.parse(data || "[]");
-          if (Array.isArray(parsed)) {
-            setSources((prev) => mergeSources(prev, parsed));
-            // ✅ 参照元が来たら自動で開きたいならON（好みで）
-            // setShowSources(true);
+        if (eventName === "sources") {
+          try {
+            const parsed = JSON.parse(data || "[]");
+            if (Array.isArray(parsed)) {
+              setSources((prev) => mergeSources(prev, parsed));
+              // setShowSources(true); // 必要ならON
+            }
+          } catch (e) {
+            console.warn("Failed to parse sources:", e, data);
           }
-        } catch (e) {
-          console.warn("Failed to parse sources:", e, data);
+          return { stop: false };
         }
+
+        if (eventName === "done" || data === "[DONE]") {
+          setAssistantDone();
+          return { stop: true };
+        }
+
+        if (eventName === "error") {
+          try {
+            const j = JSON.parse(data || "{}");
+            throw new Error(j.error || JSON.stringify(j));
+          } catch {
+            throw new Error(data || "unknown stream error");
+          }
+        }
+
+        if (data) appendToAssistant(data);
         return { stop: false };
-      }
+      };
 
-      if (eventName === "done" || data === "[DONE]") {
+      if (!res.body) {
+        const all = await res.text().catch(() => "");
+        const blocks = all.split("\n\n");
+        for (const b of blocks) {
+          const r = handleSseBlock(b);
+          if (r?.stop) return;
+        }
         setAssistantDone();
-        return { stop: true };
+        return;
       }
 
-      if (eventName === "error") {
-        try {
-          const j = JSON.parse(data || "{}");
-          throw new Error(j.error || JSON.stringify(j));
-        } catch {
-          throw new Error(data || "unknown stream error");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const r = handleSseBlock(part);
+          if (r?.stop) return;
         }
       }
 
-      if (data) appendToAssistant(data);
-      return { stop: false };
-    };
-
-    if (!res.body) {
-      const all = await res.text().catch(() => "");
-      const blocks = all.split("\n\n");
-      for (const b of blocks) {
-        const r = handleSseBlock(b);
-        if (r?.stop) return;
-      }
       setAssistantDone();
       return;
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    // ✅ SSEじゃない場合（JSON or text）
+    const text = await res.text().catch(() => "");
+    let answer = text;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      const j = JSON.parse(text);
 
-      buffer += decoder.decode(value, { stream: true });
+      if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
+      if (j?.error) throw new Error(j.error);
 
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() ?? "";
+      answer = String(j.text ?? j.answer ?? "");
 
-      for (const part of parts) {
-        const r = handleSseBlock(part);
-        if (r?.stop) return;
-      }
+      const incoming = Array.isArray(j.sources) ? j.sources : [];
+      setSources(incoming);
+      setShowSources(incoming.length > 0);
+    } catch {
+      setSources([]);
+      setShowSources(false);
     }
 
-    setAssistantDone();
-    return;
-  }
+    setMessages((prev) =>
+      prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
 
-  // ✅ SSEじゃない場合（JSON or text）
-  const text = await res.text().catch(() => "");
-  let answer = text;
-
-  try {
-    const j = JSON.parse(text);
-
-    if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
-    if (j?.error) throw new Error(j.error);
-
-    answer = String(j.text ?? j.answer ?? "");
-
-    const incoming = Array.isArray(j.sources) ? j.sources : [];
-    setSources(incoming);
-    setShowSources(incoming.length > 0);
-  } catch {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === newAssistantId
+          ? { ...m, content: `エラーが発生しました：${msg}`, loading: false }
+          : m
+      )
+    );
     setSources([]);
     setShowSources(false);
+  } finally {
+    window.clearTimeout(slowTimer);
+    setLoadingAI(false);
   }
-
-  setMessages((prev) =>
-    prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
-  );
-} catch (err: unknown) {
-  const msg = err instanceof Error ? err.message : String(err);
 }
-  setMessages((prev) =>
-    prev.map((m) =>
-      m.id === newAssistantId
-        ? { ...m, content: `エラーが発生しました：${msg}`, loading: false }
-        : m
-    )
-  );
-  setSources([]);
-  setShowSources(false);
-} finally {
-  window.clearTimeout(slowTimer);
-  setLoadingAI(false);
-}
-  }
 
   /* ========= データ ========= */
 
