@@ -54,20 +54,24 @@ const normalizeTags = (v: any): string[] => {
   return [];
 };
 
-const createEmptyNews = (initial: Partial<News> = {}): News => ({
-  newsId: generateNewNewsId(),
-  title: "",
-  body: "",
-  updatedAt: getTodayDate(),
-  startDate: "",
-  endDate: "",
-  tags: [],
-  url: "",
-  viewScope: "all",
-  ...initial,
-  viewScope: normalizeViewScope((initial as any)?.viewScope),
-  tags: normalizeTags((initial as any)?.tags),
-});
+const createEmptyNews = (initial: Partial<News> = {}): News => {
+  const merged = {
+    newsId: generateNewNewsId(),
+    title: "",
+    body: "",
+    updatedAt: getTodayDate(),
+    startDate: "",
+    endDate: "",
+    url: "",
+    ...initial,
+  } as any;
+
+  return {
+    ...merged,
+    viewScope: normalizeViewScope(merged.viewScope),
+    tags: normalizeTags(merged.tags),
+  } as News;
+};
 
 /* ========= ✅ 統一ローディング ========= */
 
