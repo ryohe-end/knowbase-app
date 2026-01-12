@@ -8,13 +8,35 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const TABLE_NAME = "yamauchi-Manuals";
+const TABLE_NAME = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
+
+/**
+ * ✅ env（きれい版）
+ * - KB_ADMIN_API_KEY: 管理画面が全件取得/更新するための鍵（あなたが手で決めた文字列でOK）
+ * - KB_DIRECT_GROUP_ID: 直営の groupId（例: g001）
+ * - KB_HQ_GROUP_ID: 本部の groupId（例: g003）
+ *
+ * ※ 既にあなたは KB_ADMIN_API_KEY をセット済み
+ * ※ KB_DIRECT_GROUP_ID が "G_DIRECT" など旧値でも壊れないように保険あり
+ */
+const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
+
+// 推奨: g001 / g003
+const DIRECT_GROUP_ID = (process.env.KB_DIRECT_GROUP_ID || "g001").trim();
+const HQ_GROUP_ID = (process.env.KB_HQ_GROUP_ID || "g003").trim();
+
+// 旧値/表記ゆれ保険（あなたの環境が G_DIRECT を使っていても落ちないように）
+const DIRECT_GROUP_ALIASES = Array.from(
+  new Set([DIRECT_GROUP_ID, "g001", "G_DIRECT"].filter(Boolean))
+);
+const HQ_GROUP_ALIASES = Array.from(new Set([HQ_GROUP_ID, "g003"].filter(Boolean)));
 
 // DynamoDBクライアントの初期化
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
 
 export type ManualType = "doc" | "video";
+export type ViewScope = "ALL" | "DIRECT";
 
 export type Manual = {
   manualId: string;
@@ -31,17 +53,18 @@ export type Manual = {
   tags?: string[];
 
   embedUrl?: string;
-  externalUrl?: string; // ★ 追加：外部サイトURL
+  externalUrl?: string;
   noDownload?: boolean;
   readCount?: number;
 
-  startDate?: string; // 公開開始 "YYYY-MM-DD"
-  endDate?: string; // 公開終了 "YYYY-MM-DD"
-  type?: ManualType; // "doc" | "video"
+  startDate?: string; // "YYYY-MM-DD"
+  endDate?: string; // "YYYY-MM-DD"
+  type?: ManualType;
 
-  publishStart?: string;
-  publishEnd?: string;
   isNew?: boolean;
+
+  // ✅ 追加：閲覧権限（すべて / 直営のみ）
+  viewScope?: ViewScope;
 };
 
 /** yyyy-mm-dd をざっくり検証（空はOK） */
@@ -56,6 +79,61 @@ function normalizeType(v: any): ManualType | undefined {
   const s = String(v || "").toLowerCase();
   if (s === "doc" || s === "video") return s as ManualType;
   return undefined;
+}
+
+function normalizeViewScope(v: any): ViewScope {
+  const s = String(v || "").toUpperCase().trim();
+  if (s === "DIRECT") return "DIRECT";
+  return "ALL";
+}
+
+/** header: x-kb-group-ids を "a,b,c" で受け取る */
+function parseGroupIds(req: Request): { primary?: string; all: string[] } {
+  const raw = (req.headers.get("x-kb-group-ids") || "").trim();
+  if (!raw) return { primary: undefined, all: [] };
+  const all = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const primary = all[0];
+  return { primary, all };
+}
+
+/** 管理者判定（管理画面はこれを必ず付ける運用にする） */
+function isAdminRequest(req: Request) {
+  if (!KB_ADMIN_API_KEY) return false;
+  const key = (req.headers.get("x-kb-admin-key") || "").trim();
+  return key && key === KB_ADMIN_API_KEY;
+}
+
+/** 公開期間内かどうか（onlyActive=1 で使う） */
+function isActiveByDate(m: Manual, nowYmd: string) {
+  const start = m.startDate || "";
+  const end = m.endDate || "";
+  if (start && start > nowYmd) return false;
+  if (end && end < nowYmd) return false;
+  return true;
+}
+
+/**
+ * ✅ viewScope の閲覧可否
+ * - ALL: 認証ユーザーならOK（= group header がある前提。無くても落とさず返すのは危険なので "許可" に寄せる or "拒否" に寄せるは運用次第）
+ * - DIRECT: primary が 直営 or 本部 のときだけOK（本部OK版）
+ */
+function canViewManualByScope(req: Request, manual: Manual): boolean {
+  const scope: ViewScope = manual.viewScope || "ALL";
+  if (scope === "ALL") return true;
+
+  // DIRECT の場合
+  const { primary } = parseGroupIds(req);
+  const p = (primary || "").trim();
+  if (!p) return false;
+
+  const isDirect = DIRECT_GROUP_ALIASES.includes(p);
+  const isHq = HQ_GROUP_ALIASES.includes(p);
+
+  return isDirect || isHq;
 }
 
 /** DynamoDB → Manual へのマッピング */
@@ -96,6 +174,9 @@ function mapItemToManual(item: any): Manual {
     endDate,
     type: normalizeType(item.type) ?? "doc",
     isNew: item.isNew === true,
+
+    // ✅ 追加
+    viewScope: normalizeViewScope(item.viewScope),
   };
 }
 
@@ -114,10 +195,11 @@ function buildDbItem(input: any): any {
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
-  // 【修正ポイント】
-  // 更新日を強制的に「実行時の今日の日付」に固定します。
-  // これにより、フロントから古い日付が送られてきても常に最新の更新日が保存されます。
+  // 更新日を「実行時の今日の日付」に固定
   const updatedAt = new Date().toISOString().slice(0, 10);
+
+  // ✅ viewScope（ALL / DIRECT）
+  const viewScope: ViewScope = normalizeViewScope(input.viewScope);
 
   return {
     manualId,
@@ -147,13 +229,24 @@ function buildDbItem(input: any): any {
     endDate,
     type,
 
-    updatedAt, // 整形した本日の日付を格納
+    updatedAt,
+
+    // ✅ 追加
+    viewScope,
   };
 }
 
-/** GET: /api/manuals */
-export async function GET() {
+/** GET: /api/manuals
+ * - 管理画面（x-kb-admin-key 正しい）: 全件
+ * - 一般画面: viewScope でフィルタ（DIRECTは直営/本部のみ）
+ * - optional: ?onlyActive=1 → 公開期間(start/end)内だけ返す
+ */
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const onlyActive = url.searchParams.get("onlyActive") === "1";
+    const nowYmd = new Date().toISOString().slice(0, 10);
+
     const result = await ddbDoc.send(
       new ScanCommand({
         TableName: TABLE_NAME,
@@ -161,9 +254,25 @@ export async function GET() {
     );
 
     const items = result.Items || [];
-    const manuals = items.map(mapItemToManual);
+    const allManuals = items.map(mapItemToManual);
 
-    return Response.json({ manuals });
+    // ✅ 管理者ならフィルタなし
+    if (isAdminRequest(req)) {
+      const manuals = onlyActive
+        ? allManuals.filter((m) => isActiveByDate(m, nowYmd))
+        : allManuals;
+
+      return Response.json({ manuals, admin: true });
+    }
+
+    // ✅ 一般ユーザー：viewScope フィルタ
+    let manuals = allManuals.filter((m) => canViewManualByScope(req, m));
+
+    if (onlyActive) {
+      manuals = manuals.filter((m) => isActiveByDate(m, nowYmd));
+    }
+
+    return Response.json({ manuals, admin: false });
   } catch (error: any) {
     console.error("GET /api/manuals error", error);
     return Response.json(
@@ -176,9 +285,18 @@ export async function GET() {
   }
 }
 
-/** POST: /api/manuals 新規登録 */
+/** POST: /api/manuals 新規登録（管理画面想定）
+ * - 原則：管理画面から x-kb-admin-key 付きで呼ぶ
+ */
 export async function POST(req: Request) {
   try {
+    if (!isAdminRequest(req)) {
+      return Response.json(
+        { error: "Forbidden: admin key required" },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     if (!body?.manualId || !body?.title) {
@@ -210,9 +328,16 @@ export async function POST(req: Request) {
   }
 }
 
-/** PUT: /api/manuals 更新 */
+/** PUT: /api/manuals 更新（管理画面想定） */
 export async function PUT(req: Request) {
   try {
+    if (!isAdminRequest(req)) {
+      return Response.json(
+        { error: "Forbidden: admin key required" },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json();
 
     if (!body?.manualId || !body?.title) {
@@ -244,9 +369,16 @@ export async function PUT(req: Request) {
   }
 }
 
-/** DELETE: /api/manuals?manualId=xxxx */
+/** DELETE: /api/manuals?manualId=xxxx（管理画面想定） */
 export async function DELETE(req: Request) {
   try {
+    if (!isAdminRequest(req)) {
+      return Response.json(
+        { error: "Forbidden: admin key required" },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(req.url);
     const manualId = searchParams.get("manualId");
 

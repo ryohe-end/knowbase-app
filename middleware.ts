@@ -5,7 +5,7 @@ export function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const path = req.nextUrl.pathname;
 
-  // ✅ API は middleware で触らない（307 /login の元凶を潰す）
+  // ✅ API は middleware で触らない
   if (path.startsWith("/api")) {
     return NextResponse.next();
   }
@@ -14,8 +14,8 @@ export function middleware(req: NextRequest) {
   const user = req.cookies.get("kb_user")?.value;
   const isAdmin = req.cookies.get("kb_admin")?.value === "1";
 
-  // ✅ ログイン不要ページ（APIは上で除外済み）
-  const publicPaths = ["/login"];
+  // ✅ 修正ポイント：ここを "/login/forgot-password" も許可するように書き換えます
+  const publicPaths = ["/login", "/login/forgot-password"];
 
   if (publicPaths.includes(path)) {
     return NextResponse.next();
