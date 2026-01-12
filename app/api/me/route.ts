@@ -15,7 +15,8 @@ const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 export async function GET() {
-  const cookieStore = cookies();
+  // ✅ Next.js 15 対応：cookies() は Promise 扱いになるので await
+  const cookieStore = await cookies();
   const email = (cookieStore.get("kb_user")?.value ?? "").trim();
 
   if (!email) {
@@ -44,7 +45,6 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ ok: false, error: "User not found" }, { status: 404 });
     }
-
     if (user.isActive === false) {
       return NextResponse.json({ ok: false, error: "Inactive user" }, { status: 403 });
     }
@@ -60,10 +60,7 @@ export async function GET() {
         deptIds: user.deptIds ?? [],
         groupIds: user.groupIds ?? [],
         isActive: user.isActive ?? true,
-
-        // ✅ 追加
         mustChangePassword: user.mustChangePassword === true,
-
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       },
