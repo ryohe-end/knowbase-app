@@ -48,14 +48,8 @@ const getTodayDate = () => {
 const generateNewManualId = () => `M200-${Date.now().toString().slice(-6)}`;
 
 const normalizeViewScope = (v: any): ManualViewScope => {
-  const s = String(v || "").trim().toLowerCase();
-  // APIが "DIRECT" を返す / 画面は "direct"
-  if (s === "direct") return "direct";
-  if (s === "all") return "all";
-  // "DIRECT"/"ALL" 対応
-  if (s === "direct".toUpperCase().toLowerCase()) return "direct";
-  if (String(v || "").toUpperCase() === "DIRECT") return "direct";
-  return "all";
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "direct" ? "direct" : "all";
 };
 
 const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
@@ -73,11 +67,9 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   endDate: "",
   type: "doc",
 
-  /** ✅ デフォルト：すべて */
-  viewScope: "all",
-
   ...initialData,
-  // ✅ ここで正規化（APIから来た "ALL"/"DIRECT" でも崩れない）
+
+  // ✅ ここで必ず "all/direct" に正規化（未指定なら all）
   viewScope: normalizeViewScope((initialData as any)?.viewScope),
 });
 
