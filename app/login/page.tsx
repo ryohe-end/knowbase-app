@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { GoogleAuthProvider, signInWithPopup } from "firebase/auth";
-import { auth as firebaseAuth } from "@/lib/firebaseClient"; //
+import { auth as firebaseAuth } from "@/lib/firebaseClient";
 import { useRouter } from 'next/navigation';
+import Link from "next/link"; // 追加
 
 const LoginPage = () => {
   const [email, setEmail] = useState("");
@@ -31,10 +32,8 @@ const LoginPage = () => {
 
   /**
    * クッキー設定ヘルパー
-   * maxAgeを指定しないことで、リロードやブラウザを閉じた際に破棄されやすい「セッションクッキー」になります。
    */
   const setAuthSession = (emailValue: string, isAdmin: boolean) => {
-    // 期限(max-age)を指定しない = セッションクッキー
     document.cookie = `kb_user=${emailValue}; path=/; samesite=lax; secure`;
     if (isAdmin) {
       document.cookie = `kb_admin=1; path=/; samesite=lax; secure`;
@@ -57,7 +56,7 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch("/api/login", { //
+      const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, pass }),
@@ -185,6 +184,23 @@ const LoginPage = () => {
           >
             {isLoading ? "認証中..." : "ログイン"}
           </button>
+
+          <div style={{ textAlign: 'center', marginTop: '16px' }}>
+            <Link 
+              href="/login/forgot-password" 
+              style={{ 
+                fontSize: '13px', 
+                color: '#3b82f6', 
+                textDecoration: 'none',
+                display: 'inline-block' // クリック範囲を安定させるため
+              }}
+              className="hover-underline-link" // CSSファイルがあるならそちらでhoverを制御するのが理想
+              onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+              onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+            >
+              パスワードをお忘れの方はこちら
+            </Link>
+          </div>
         </form>
         
         <div className="kb-login-divider">または</div>

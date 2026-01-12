@@ -16,4 +16,5 @@ export type Manual = {
   externalUrl?: string;
   downloadUrl?: string | null;
   noDownload?: boolean | null;
+  viewScope?: "all" | "direct";
 };

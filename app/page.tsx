@@ -1,9 +1,9 @@
 // app/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import ManualList from "@/components/ManualList";
 import ContactList from "@/components/ContactList";
 
@@ -25,6 +25,7 @@ type Manual = {
   readCount?: number;
   startDate?: string;
   endDate?: string;
+  viewScope?: "ALL" | "DIRECT";
 };
 
 type Brand = {
@@ -101,6 +102,22 @@ const ALL_BRAND_ID = "__ALL_BRAND__";
 const ALL_DEPT_ID = "__ALL_DEPT__";
 const INQUIRY_MAIL = "support@example.com";
 
+function buildGroupIdsHeader(groupId?: string) {
+  // ✅ ルール：本部(g003)は常に閲覧OKにしたいので常に含める
+  // - 直営(g001) → "g001,g003"
+  // - FC(g002)   → "g002,g003"
+  // - 本部(g003) → "g003"
+  const HQ = "g003";
+
+  const raw = [groupId, HQ].filter(Boolean) as string[];
+  const uniq = Array.from(new Set(raw));
+
+  // groupIdが本部なら g003 のみに寄せる
+  if (groupId === HQ) return HQ;
+
+  return uniq.join(",");
+}
+
 /* ========= ヘルパー関数: JST変換 ========= */
 
 function formatToJST(dateStr?: string) {
@@ -115,7 +132,7 @@ function formatToJST(dateStr?: string) {
       hour: "2-digit",
       minute: "2-digit",
     });
-  } catch (e) {
+  } catch {
     return dateStr;
   }
 }
@@ -125,21 +142,19 @@ function tokenizeJP(input: string) {
   const raw = (input || "").toLowerCase().trim();
   if (!raw) return [];
 
-  // 1) 記号を空白化（英数は分離しやすくする）
+  // 1) 記号を空白化
   const cleaned = raw.replace(
     /[、。,.!！?？:：;；()（）[\]【】{}「」『』<>・/\\|"'`~^＝=＋+＿_〜\-\n\r\t]/g,
     " "
   );
 
-  // 2) 英数字トークン（fit365 / canva / 123 など）
+  // 2) 英数字トークン
   const latin = cleaned.match(/[a-z0-9]+/g) ?? [];
 
-  // 3) 日本語かたまり（漢字/ひらがな/カタカナ）を抽出
-  //    例: "fit365の入館方法を教えて" → ["の入館方法を教えて"] になりやすいので後で分割する
+  // 3) 日本語かたまり
   const jpChunks = cleaned.match(/[一-龯々〆ヵヶぁ-んァ-ヴー]{2,}/g) ?? [];
 
-  // 4) 日本語かたまりを「助詞・よくある語」で分割して単語化
-  //    例: "入館方法を教えて" → "入館"
+  // 4) 分割
   const particleSplitter =
     /(の|を|は|が|に|へ|と|で|や|から|まで|です|ます|する|したい|教えて|について)/g;
   const suffixSplitter =
@@ -155,10 +170,29 @@ function tokenizeJP(input: string) {
     )
     .filter((t) => t.length >= 2);
 
-  // 5) ストップワード（最終ノイズ除去）
+  // 5) ストップワード
   const stopWords = new Set([
-    "の","を","は","が","に","へ","と","で","や","から","まで",
-    "です","ます","する","したい","教えて","方法","やり方","手順","について","流れ",
+    "の",
+    "を",
+    "は",
+    "が",
+    "に",
+    "へ",
+    "と",
+    "で",
+    "や",
+    "から",
+    "まで",
+    "です",
+    "ます",
+    "する",
+    "したい",
+    "教えて",
+    "方法",
+    "やり方",
+    "手順",
+    "について",
+    "流れ",
   ]);
 
   let tokens = [...latin, ...jpTokens]
@@ -166,10 +200,9 @@ function tokenizeJP(input: string) {
     .filter((t) => t.length >= 2)
     .filter((t) => !stopWords.has(t));
 
-  // 6) "fit 365" 対策：2語以上なら連結も追加
+  // 6) "fit 365" 対策：連結も追加
   if (tokens.length >= 2) tokens.push(tokens.join(""));
 
-  // 重複除去
   return Array.from(new Set(tokens));
 }
 
@@ -189,11 +222,7 @@ async function handleLogout() {
 
 function isBulletLine(line: string) {
   const t = line.trim();
-  return (
-    /^[-*•・]\s+/.test(t) ||
-    /^\d+[\.\)]\s+/.test(t) ||
-    /^\(\d+\)\s+/.test(t)
-  );
+  return /^[-*•・]\s+/.test(t) || /^\d+[\.\)]\s+/.test(t) || /^\(\d+\)\s+/.test(t);
 }
 
 function stripBullet(line: string) {
@@ -292,13 +321,14 @@ function renderRichText(body?: string) {
 
   return <div className="kb-news-rich">{blocks}</div>;
 }
-/* ===== SSE helpers（ここを追加） ===== */
+
+/* ===== SSE helpers ===== */
 function extractSseData(eventBlock: string) {
   const lines = eventBlock.split("\n");
   const dataLines = lines
     .filter((l) => l.startsWith("data:"))
     .map((l) => l.replace(/^data:\s?/, ""));
-  return dataLines.join("\n"); // ←おすすめ
+  return dataLines.join("\n");
 }
 
 function extractSseEventName(eventBlock: string) {
@@ -307,7 +337,6 @@ function extractSseEventName(eventBlock: string) {
 }
 /* ===== /SSE helpers ===== */
 
-// ✅ ここに「完成したSourcesPanel」を置く
 function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
   if (!sources || sources.length === 0) return null;
 
@@ -378,7 +407,6 @@ function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
               }}
             >
               <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                {/* number badge */}
                 <div
                   style={{
                     minWidth: 28,
@@ -461,279 +489,295 @@ function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
   );
 }
 
-function HighlightText({ text, keyword }: { text: string; keyword: string }) {
-  if (!keyword.trim()) return <>{text}</>;
-  const parts = text.split(new RegExp(`(${keyword})`, 'gi'));
-  return (
-    <>
-      {parts.map((part, i) => 
-        part.toLowerCase() === keyword.toLowerCase() 
-          ? <mark key={i} style={{ backgroundColor: '#ffef9c', color: 'inherit', padding: '0 2px', borderRadius: '2px' }}>{part}</mark> 
-          : part
-      )}
-    </>
-  );
-}
-
 /* ========= ページ ========= */
+
 export default function HomePage() {
-  /* ========= 1. ユーザー情報と権限の定義 ========= */
-  const [me, setMe] = useState<any>(null); 
-  const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
-  const router = useRouter(); // router を使うために追加
+  const router = useRouter();
 
-  // isAdmin の判定
+  /* ========= ユーザー情報 ========= */
+  const [me, setMe] = useState<any>(null);
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
+  const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
 
-  // ★ ここに追加：リロード時や初回読み込み時のチェック
-  useEffect(() => {
+  // ✅ authチェック（初回 / リロード）
+useEffect(() => {
+  let cancelled = false;
+
   const checkAuth = async () => {
     try {
-      // ページ読み込み（リロード）時に必ずサーバーへ確認
-      const res = await fetch("/api/me");
-      const data = await res.json();
-      
-      // サーバー側でセッションが切れている、あるいはユーザー情報がない場合
-      if (!res.ok || !data.user) {
-        router.push("/login");
+      const res = await fetch("/api/me", { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+
+      if (cancelled) return;
+
+      if (!res.ok || !data?.user) {
+        router.replace("/login");
         return;
       }
+
+      const isOnPasswordPage = window.location.pathname === "/account/password";
+
+      // ✅ 初回ログイン or 再発行後 → パスワード変更を強制
+      if (data.user.mustChangePassword === true && !isOnPasswordPage) {
+        const returnTo =
+          window.location.pathname + window.location.search;
+
+        router.replace(
+          `/account/password?returnTo=${encodeURIComponent(returnTo)}`
+        );
+        return;
+      }
+
       setMe(data.user);
-    } catch (e) {
-      router.push("/login");
+    } catch {
+      router.replace("/login");
     }
   };
 
   checkAuth();
+
+  return () => {
+    cancelled = true;
+  };
 }, [router]);
 
-  // 管理画面ボタンクリック時のハンドラ
+  // ✅ 管理画面ボタン
   const handleAdminClick = () => {
-    if (isAdmin) {
-      window.location.href = "/admin";
-    } else {
-      setIsAdminErrorModalOpen(true);
-    }
+    if (isAdmin) window.location.href = "/admin";
+    else setIsAdminErrorModalOpen(true);
   };
 
-  /* ========= Knowbie（Amazon Q） ========= */
+  /* ========= ユーザー名メニュー（名前クリック） ========= */
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
 
-const [prompt, setPrompt] = useState("");
-const [loadingAI, setLoadingAI] = useState(false);
-const [messages, setMessages] = useState<Message[]>([]);
-const [sources, setSources] = useState<SourceAttribution[]>([]);
-const [showSources, setShowSources] = useState(false);
-const chatEndRef = useRef<HTMLDivElement | null>(null);
-const manualListRef = useRef<HTMLDivElement | null>(null);
-const [keyword, setKeyword] = useState("");
+  const menuItemStyle: React.CSSProperties = {
+    width: "100%",
+    textAlign: "left",
+    padding: "12px 14px",
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    fontSize: 13,
+    color: "#0f172a",
+    display: "flex",
+    alignItems: "center",
+  };
+
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
+
+  /* ========= Knowbie（Amazon Q） ========= */
+  const [prompt, setPrompt] = useState("");
+  const [loadingAI, setLoadingAI] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sources, setSources] = useState<SourceAttribution[]>([]);
+  const [showSources, setShowSources] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const manualListRef = useRef<HTMLDivElement | null>(null);
+
+  const [keyword, setKeyword] = useState("");
   const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
   const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
   const [contactSearch, setContactSearch] = useState("");
 
-// ✅ 新しいメッセージ・参照元が来たら自動で一番下へ
-useEffect(() => {
-  chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-}, [messages, sources, showSources]);
+  // ✅ 新しいメッセージ・参照元が来たら自動で一番下へ
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, sources, showSources]);
 
-function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
-  const next = [...prev, ...incoming];
-
-  // url / documentId / title の優先順で重複排除（必要なら調整）
-  const seen = new Set<string>();
-  return next.filter((s) => {
-    const key = String(s.url || s.documentId || s.title || JSON.stringify(s));
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-async function handleAsk() {
-  if (!prompt.trim() || loadingAI) return;
-
-  const userPrompt = prompt.trim();
-  setKeyword(userPrompt);
-  setPrompt("");
-  setSources([]); // 質問ごとに参照元リセット
-  setShowSources(false);
-
-  const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
-  const newAssistantId = Date.now() + 1;
-
-  const newAssistantMessage: Message = {
-    id: newAssistantId,
-    role: "assistant",
-    content: "送信しました。検索しています…",
-    loading: true,
-  };
-
-  setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
-  setLoadingAI(true);
-
-  // 追記（assistantメッセージだけに append）
-  const appendToAssistant = (chunk: string) => {
-    if (!chunk) return;
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
-      )
-    );
-  };
-
-  const setAssistantDone = () => {
-    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
-  };
-
-  const slowTimer = window.setTimeout(() => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === newAssistantId && m.loading
-          ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
-          : m
-      )
-    );
-  }, 3000);
-
-  try {
-    const res = await fetch("/api/amazonq", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: userPrompt }),
+  function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
+    const next = [...prev, ...incoming];
+    const seen = new Set<string>();
+    return next.filter((s) => {
+      const key = String(s.url || s.documentId || s.title || JSON.stringify(s));
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
     });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      try {
-        const j = JSON.parse(text);
-        throw new Error(j.error || j.message || `Server error: ${res.status}`);
-      } catch {
-        throw new Error(text || `Server error: ${res.status}`);
-      }
-    }
-
-    const contentType = res.headers.get("content-type") || "";
-
-    // assistantを空にしてストリーム開始
-    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m)));
-
-    // ✅ SSE
-    if (contentType.includes("text/event-stream")) {
-      // イベント1個を処理する関数（SSE block = "event: ...\ndata: ...\n\n"）
-      const handleSseBlock = (block: string) => {
-        const eventName = extractSseEventName(block);
-        const data = extractSseData(block);
-
-        // ✅ 0) ping（keep-alive）は無視
-  if (eventName === "ping") {
-    return { stop: false };
   }
 
-        // ① sources（本文じゃないので最優先）
-        if (eventName === "sources") {
-          try {
-            const parsed = JSON.parse(data || "[]");
-            if (Array.isArray(parsed)) {
-              setSources((prev) => mergeSources(prev, parsed));
+  async function handleAsk() {
+    if (!prompt.trim() || loadingAI) return;
+
+    const userPrompt = prompt.trim();
+    setKeyword(userPrompt);
+    setPrompt("");
+    setSources([]);
+    setShowSources(false);
+
+    const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
+    const newAssistantId = Date.now() + 1;
+
+    const newAssistantMessage: Message = {
+      id: newAssistantId,
+      role: "assistant",
+      content: "送信しました。検索しています…",
+      loading: true,
+    };
+
+    setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
+    setLoadingAI(true);
+
+    const appendToAssistant = (chunk: string) => {
+      if (!chunk) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
+        )
+      );
+    };
+
+    const setAssistantDone = () => {
+      setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
+    };
+
+    const slowTimer = window.setTimeout(() => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === newAssistantId && m.loading
+            ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
+            : m
+        )
+      );
+    }, 3000);
+
+    try {
+      const res = await fetch("/api/amazonq", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: userPrompt }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        try {
+          const j = JSON.parse(text);
+          throw new Error(j.error || j.message || `Server error: ${res.status}`);
+        } catch {
+          throw new Error(text || `Server error: ${res.status}`);
+        }
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+
+      // assistantを空にしてストリーム開始
+      setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m)));
+
+      // ✅ SSE
+      if (contentType.includes("text/event-stream")) {
+        const handleSseBlock = (block: string) => {
+          const eventName = extractSseEventName(block);
+          const data = extractSseData(block);
+
+          if (eventName === "ping") return { stop: false };
+
+          if (eventName === "sources") {
+            try {
+              const parsed = JSON.parse(data || "[]");
+              if (Array.isArray(parsed)) {
+                setSources((prev) => mergeSources(prev, parsed));
+              }
+            } catch (e) {
+              console.warn("Failed to parse sources:", e, data);
             }
-          } catch (e) {
-            console.warn("Failed to parse sources:", e, data);
+            return { stop: false };
           }
+
+          if (eventName === "done" || data === "[DONE]") {
+            setAssistantDone();
+            return { stop: true };
+          }
+
+          if (eventName === "error") {
+            try {
+              const j = JSON.parse(data || "{}");
+              throw new Error(j.error || JSON.stringify(j));
+            } catch {
+              throw new Error(data || "unknown stream error");
+            }
+          }
+
+          if (data) appendToAssistant(data);
           return { stop: false };
-        }
+        };
 
-        // ② done
-        if (eventName === "done" || data === "[DONE]") {
+        if (!res.body) {
+          const all = await res.text().catch(() => "");
+          const blocks = all.split("\n\n");
+          for (const b of blocks) {
+            const r = handleSseBlock(b);
+            if (r?.stop) return;
+          }
           setAssistantDone();
-          return { stop: true };
+          return;
         }
 
-        // ③ error
-        if (eventName === "error") {
-          try {
-            const j = JSON.parse(data || "{}");
-            throw new Error(j.error || JSON.stringify(j));
-          } catch {
-            throw new Error(data || "unknown stream error");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+
+          for (const part of parts) {
+            const r = handleSseBlock(part);
+            if (r?.stop) return;
           }
         }
 
-        // ④ 本文
-        if (data) appendToAssistant(data);
-
-        return { stop: false };
-      };
-
-      // --- フォールバック（res.bodyが無い場合）にも sources 対応 ---
-      if (!res.body) {
-        const all = await res.text().catch(() => "");
-        const blocks = all.split("\n\n");
-        for (const b of blocks) {
-          const r = handleSseBlock(b);
-          if (r?.stop) return;
-        }
         setAssistantDone();
         return;
       }
 
-      // --- 通常ストリーム ---
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      // ✅ SSEじゃない場合（JSON or text）
+      const text = await res.text().catch(() => "");
+      let answer = text;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        const j = JSON.parse(text);
 
-        buffer += decoder.decode(value, { stream: true });
+        if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
+        if (j?.error) throw new Error(j.error);
 
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() ?? "";
+        answer = String(j.text ?? j.answer ?? "");
 
-        for (const part of parts) {
-          const r = handleSseBlock(part);
-          if (r?.stop) return;
-        }
+        const incoming = Array.isArray(j.sources) ? j.sources : [];
+        setSources(incoming);
+        setShowSources(incoming.length > 0);
+      } catch {
+        setSources([]);
+        setShowSources(false);
       }
 
-      // 念のため
-      setAssistantDone();
-      return;
+      setMessages((prev) =>
+        prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+      );
+    } finally {
+      window.clearTimeout(slowTimer);
+      setLoadingAI(false);
     }
-
-    // ✅ SSEじゃない場合（= JSONで { ok, text, sources } が返る想定）
-const text = await res.text().catch(() => "");
-let answer = text;
-
-try {
-  const j = JSON.parse(text);
-
-  // 1) エラー形式
-  if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
-  if (j?.error) throw new Error(j.error);
-
-  // 2) 本文（あなたのレスポンスは text）
-  answer = String(j.text ?? j.answer ?? "");
-
-  // 3) ✅ 参照元（ここが今回の本題）
-  const incoming = Array.isArray(j.sources) ? j.sources : [];
-  setSources(incoming); // 質問ごとに入れ替えるならこれでOK
-
-  // 表示トグル：参照元があるなら開く（不要なら消してOK）
-  setShowSources(incoming.length > 0);
-} catch {
-  // JSONじゃない時はテキストだけ表示
-  setSources([]);
-  setShowSources(false);
-}
-
-setMessages((prev) =>
-  prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
-);
-  } finally {
-    window.clearTimeout(slowTimer);
-    setLoadingAI(false);
   }
-}
 
   /* ========= データ ========= */
 
@@ -742,9 +786,9 @@ setMessages((prev) =>
   const [depts, setDepts] = useState<Dept[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newsList, setNewsList] = useState<News[]>([]);
-  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]); // [追加]
+  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]);
 
-  // ローディング状態の統合
+  // ローディング状態
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [loadingManuals, setLoadingManuals] = useState(true);
   const [loadingBrands, setLoadingBrands] = useState(true);
@@ -761,9 +805,7 @@ setMessages((prev) =>
   const NEWS_PAGE_SIZE = 3;
   const [newsPage, setNewsPage] = useState(1);
 
-  /**
-   * ★ お知らせ：最大3件アコーディオン
-   */
+  // ★ お知らせ：最大3件アコーディオン
   const [expandedNews, setExpandedNews] = useState<Record<string, boolean>>({});
   const [expandedOrder, setExpandedOrder] = useState<string[]>([]);
 
@@ -787,41 +829,46 @@ setMessages((prev) =>
     });
   };
 
+  // ✅ 初期データロード
   useEffect(() => {
-  const fetchData = async () => {
-    try {
-      // 1. 変数受け取り側に 「linksRes」 を追加（合計7つにする）
-      const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, meRes, linksRes] = await Promise.all([
-        fetch("/api/manuals").then((res) => res.json()),
-        fetch("/api/brands").then((res) => res.json()),
-        fetch("/api/depts").then((res) => res.json()),
-        fetch("/api/contacts").then((res) => res.json()),
-        fetch("/api/news?onlyActive=1").then((res) => res.json()),
-        fetch("/api/me").then((res) => res.json()),
-        fetch("/api/external-links").then((res) => res.json()), // [追加済]
-      ]);
+    const fetchData = async () => {
+      try {
+        // ✅ 1) me を取得（先）
+        const meRes = await fetch("/api/me", { cache: "no-store" });
+        const meJson = await meRes.json().catch(() => ({}));
+        const user = meJson.user || null;
+        setMe(user);
 
-      const brandsList: Brand[] = (brandsRes.brands || []).sort(
-        (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-      );
-      const deptsList: Dept[] = (deptsRes.depts || []).sort(
-        (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-      );
+        // ✅ 2) group header
+        const groupIds = buildGroupIdsHeader(user?.groupId);
+        const groupHeaders: HeadersInit = groupIds ? { "x-kb-group-ids": groupIds } : {};
 
-      setManuals(manualsRes.manuals || []);
-      setBrands(brandsList);
-      setDepts(deptsList);
-      setContacts(contactsRes.contacts || []);
-      setNewsList(newsRes.news || []);
-      setMe(meRes.user || null);
-      
-      // 2. これで linksRes が定義されているので動きます
-      setExternalLinks(linksRes.links || []); 
-      
-    } catch (e) {
-      console.error("Failed to fetch initial data:", e);
-    } finally {
-        // 全ての通信が終わったら初期ローディングを解除
+        // ✅ 3) まとめて取得
+        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes] = await Promise.all([
+          fetch("/api/manuals", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/brands", { cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/depts", { cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/contacts", { cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/news?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/external-links", { cache: "no-store" }).then((res) => res.json()),
+        ]);
+
+        const brandsList: Brand[] = (brandsRes.brands || []).sort(
+          (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+        );
+        const deptsList: Dept[] = (deptsRes.depts || []).sort(
+          (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+        );
+
+        setManuals(manualsRes.manuals || []);
+        setBrands(brandsList);
+        setDepts(deptsList);
+        setContacts(contactsRes.contacts || []);
+        setNewsList(newsRes.news || []);
+        setExternalLinks(linksRes.links || []);
+      } catch (e) {
+        console.error("Failed to fetch initial data:", e);
+      } finally {
         setIsInitialLoading(false);
         setLoadingManuals(false);
         setLoadingBrands(false);
@@ -830,6 +877,7 @@ setMessages((prev) =>
         setLoadingNews(false);
       }
     };
+
     fetchData();
   }, []);
 
@@ -851,8 +899,6 @@ setMessages((prev) =>
     [depts]
   );
 
-  
-
   const brandOptions: { id: string; label: string }[] = useMemo(() => {
     const arr: { id: string; label: string }[] = [{ id: ALL_BRAND_ID, label: "全て" }];
     brands.forEach((b) => arr.push({ id: b.brandId, label: b.name }));
@@ -866,36 +912,22 @@ setMessages((prev) =>
   }, [depts]);
 
   const filteredManuals = useMemo(() => {
-  const tokens = tokenizeJP(keyword);
-  const hasTokens = tokens.length > 0;
+    const tokens = tokenizeJP(keyword);
+    const hasTokens = tokens.length > 0;
 
-  return manuals.filter((m) => {
-    // --- ブランド・部署フィルタ（常に適用） ---
-    if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) {
-      return false;
-    }
-    if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) {
-      return false;
-    }
+    return manuals.filter((m) => {
+      if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
+      if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
 
-    // キーワードが無い場合はここでOK
-    if (!hasTokens) return true;
+      if (!hasTokens) return true;
 
-    // --- 検索対象テキストをまとめる ---
-    const haystack = [
-      m.title ?? "",
-      m.desc ?? "",
-      ...(m.tags ?? []),
-      m.brand ?? "",
-      m.biz ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
+      const haystack = [m.title ?? "", m.desc ?? "", ...(m.tags ?? []), m.brand ?? "", m.biz ?? ""]
+        .join(" ")
+        .toLowerCase();
 
-    // --- 単語 OR 検索（どれか1語でも含めばヒット） ---
-    return tokens.some((t) => haystack.includes(t));
-  });
-}, [manuals, keyword, selectedBrandId, selectedDeptId]);
+      return tokens.some((t) => haystack.includes(t));
+    });
+  }, [manuals, keyword, selectedBrandId, selectedDeptId]);
 
   useEffect(() => setManualPage(1), [keyword, selectedBrandId, selectedDeptId]);
 
@@ -915,72 +947,63 @@ setMessages((prev) =>
   }, [manuals]);
 
   const filteredContacts = useMemo(() => {
-  // メインの検索窓（keyword）と担当者専用の検索窓（contactSearch）の両方を見るように調整
-  const kw = (contactSearch || keyword).trim().toLowerCase(); 
+    const kw = (contactSearch || keyword).trim().toLowerCase();
 
-  return contacts
-    .map((c) => {
-      // ブランド・部署フィルタ
-      if (selectedBrandId !== ALL_BRAND_ID && selectedBrandId && !(c.brandId === "ALL" || c.brandId === selectedBrandId)) return null;
-      if (selectedDeptId !== ALL_DEPT_ID && selectedDeptId && c.deptId !== selectedDeptId) return null;
+    return contacts
+      .map((c) => {
+        if (
+          selectedBrandId !== ALL_BRAND_ID &&
+          selectedBrandId &&
+          !(c.brandId === "ALL" || c.brandId === selectedBrandId)
+        )
+          return null;
+        if (selectedDeptId !== ALL_DEPT_ID && selectedDeptId && c.deptId !== selectedDeptId) return null;
 
-      if (!kw) return { ...c, hitTags: [] as string[] };
+        if (!kw) return { ...c };
 
-      const deptLabel = deptMap[c.deptId]?.name ?? "";
-      const tags = c.tags ?? [];
-      
-      // 【強化ポイント】検索対象に role(担当業務) と tags を含める
-      const haystack = [
-  c.name, 
-  c.email, 
-  c.role ?? "",     // 担当業務（ここを残すことで「ヒット：〇〇」が表示されます）
-  deptLabel, 
-  // ...tags        // ← ここを削除（またはコメントアウト）
-].join(" ").toLowerCase();
+        const deptLabel = deptMap[c.deptId]?.name ?? "";
 
-if (!haystack.includes(kw)) return null;
+        const haystack = [c.name, c.email, c.role ?? "", deptLabel].join(" ").toLowerCase();
 
-// tagsに関連する処理（hitTagsなど）は削除し、シンプルにコンタクト情報を返します
-return { ...c };
-})
-.filter((v): v is Contact => v !== null); // 型定義もシンプルに修正
-}, [contacts, selectedBrandId, selectedDeptId, contactSearch, keyword, deptMap]);
+        if (!haystack.includes(kw)) return null;
 
-  const currentBrandLabel =
-    selectedBrandId === ALL_BRAND_ID ? "全社" : brandMap[selectedBrandId]?.name || "全社";
+        return { ...c };
+      })
+      .filter((v): v is Contact => v !== null);
+  }, [contacts, selectedBrandId, selectedDeptId, contactSearch, keyword, deptMap]);
 
-  const currentDeptTitleLabel = selectedDeptId === ALL_DEPT_ID ? "" : `（${deptMap[selectedDeptId]?.name}）`;
+  const currentDeptTitleLabel =
+    selectedDeptId === ALL_DEPT_ID ? "" : `（${deptMap[selectedDeptId]?.name}）`;
 
   const filteredNews = useMemo(() => {
-  const kw = keyword.trim().toLowerCase();
+    const kw = keyword.trim().toLowerCase();
 
-  return newsList.filter((n) => {
-    // 基本フィルタ（非表示・グループ権限・ブランド・部署）
-    if (n.isHidden) return false;
-    if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
-      if (!n.targetGroupIds.includes(me.groupId)) return false;
-    }
-    if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId) return false;
-    if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId) return false;
+    return newsList
+      .filter((n) => {
+        if (n.isHidden) return false;
 
-    // 【追加】キーワード検索ロジック
-    if (kw) {
-      const haystack = [
-        n.title,
-        n.body ?? "",      // お知らせ本文
-        ...(n.tags ?? [])  // お知らせのタグ
-      ].join(" ").toLowerCase();
-      
-      if (!haystack.includes(kw)) return false;
-    }
+        if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
+          if (!n.targetGroupIds.includes(me.groupId)) return false;
+        }
 
-    return true;
-  }).sort((a, b) => {
-    const ad = a.updatedAt || a.fromDate || "";
-    const bd = b.updatedAt || b.fromDate || "";
-    return (bd || "").localeCompare(ad || "");
-  });
-}, [newsList, selectedBrandId, selectedDeptId, me, keyword]);
+        if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId)
+          return false;
+        if (selectedDeptId !== ALL_DEPT_ID && n.deptId !== "ALL" && (n.deptId ?? "") !== selectedDeptId)
+          return false;
+
+        if (kw) {
+          const haystack = [n.title, n.body ?? "", ...(n.tags ?? [])].join(" ").toLowerCase();
+          if (!haystack.includes(kw)) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        const ad = a.updatedAt || a.fromDate || "";
+        const bd = b.updatedAt || b.fromDate || "";
+        return (bd || "").localeCompare(ad || "");
+      });
+  }, [newsList, selectedBrandId, selectedDeptId, me, keyword]);
 
   useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
 
@@ -1012,18 +1035,26 @@ return { ...c };
 
   const handleInquirySubmit = (email?: string) => {
     const target = email || INQUIRY_MAIL;
-    window.open(`https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(target)}&su=${encodeURIComponent("[Know Base] お問い合わせ")}`, "_blank");
+    window.open(
+      `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(target)}&su=${encodeURIComponent(
+        "[Know Base] お問い合わせ"
+      )}`,
+      "_blank"
+    );
     setIsInquiryModalOpen(false);
   };
 
   /* ========= UI ========= */
 
-  // 起動中のローディング画面
   if (isInitialLoading) {
     return (
       <div className="kb-loading-root">
         <div className="kb-loading-container">
-          <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" className="kb-loading-logo" />
+          <img
+            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+            alt="Logo"
+            className="kb-loading-logo"
+          />
           <div className="kb-loading-spinner"></div>
           <p className="kb-loading-text">KnowBase を起動中...</p>
         </div>
@@ -1042,11 +1073,13 @@ return { ...c };
 
   return (
     <div className="kb-root">
-     {/* ===== Top bar ===== */}
+      {/* ===== Top bar ===== */}
       <div className="kb-topbar">
-        {/* 修正箇所: ロゴ部分を Link で囲む */}
-        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: 'none' }}>
-          <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
+        <Link href="/" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
+          <div
+            className="kb-topbar-left"
+            style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}
+          >
             <img
               src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
               alt="KB Logo"
@@ -1062,39 +1095,131 @@ return { ...c };
 
         <div className="kb-topbar-center">
           <input
-  className="kb-search-input"
-  placeholder="キーワードで探す（例：Canva テロップ）"
-  value={keyword}
-  onChange={(e) => setKeyword(e.target.value)}
-  // ↓ ここを追加
-  onKeyDown={(e) => {
-    // エンターキー、かつ IMEの変換確定ではない場合
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-      // マニュアル一覧のカードまでスクロールさせる
-      manualListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }}
-/>
+            className="kb-search-input"
+            placeholder="キーワードで探す（例：Canva テロップ）"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                manualListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            }}
+          />
         </div>
 
         <div className="kb-topbar-right">
-          <span className="kb-user-email">{me?.name ? `${me.name} 様` : "ゲスト"}</span>
+         {/* ✅ ユーザー名クリックメニュー（Minimal / Modern） */}
+<div ref={userMenuRef} style={{ position: "relative" }}>
+  <button
+    type="button"
+    className={"kb-userpill" + (userMenuOpen ? " open" : "")}
+    onClick={() => setUserMenuOpen((v) => !v)}
+    aria-haspopup="menu"
+    aria-expanded={userMenuOpen}
+  >
+    <span className="kb-userpill-avatar" aria-hidden>
+      {(me?.name ?? "G").charAt(0)}
+    </span>
 
-          {/* 4. ボタンの表示条件とクリックイベントを修正 */}
-          {/* ログイン済みの場合のみボタンを表示し、権限チェックを行う */}
+    <span className="kb-userpill-text">
+      <span className="kb-userpill-name">{me?.name ? me.name : "ゲスト"}</span>
+      <span className="kb-userpill-suffix">様</span>
+    </span>
+
+    <span className="kb-userpill-chevron" aria-hidden>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    </span>
+  </button>
+
+  {userMenuOpen && (
+    <div role="menu" className="kb-userdropdown">
+      <div className="kb-userdropdown-head">
+        <div className="kb-userdropdown-head-left">
+          <div className="kb-userdropdown-avatar" aria-hidden>
+            {(me?.name ?? "G").charAt(0)}
+          </div>
+          <div className="kb-userdropdown-info">
+            <div className="kb-userdropdown-name">{me?.name ? `${me.name} 様` : "ゲスト"}</div>
+            {!!me?.email && <div className="kb-userdropdown-email">{me.email}</div>}
+          </div>
+        </div>
+      </div>
+
+      <div className="kb-userdropdown-list">
+        <button
+          type="button"
+          role="menuitem"
+          className="kb-userdropdown-item"
+          onClick={() => {
+            setUserMenuOpen(false);
+            router.push("/account/name"); // ←ここはあなたのページに合わせて変更
+          }}
+        >
+          <span className="kb-userdropdown-ico" aria-hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M12 20h9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4 11.5-11.5z"
+                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </span>
+          <span className="kb-userdropdown-label">名前の変更</span>
+        </button>
+
+        <button
+          type="button"
+          role="menuitem"
+          className="kb-userdropdown-item"
+          onClick={() => {
+            setUserMenuOpen(false);
+            router.push("/account/password"); // ←ここも変更OK
+          }}
+        >
+          <span className="kb-userdropdown-ico" aria-hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M7 11V8a5 5 0 0 1 10 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M6 11h12v10H6V11z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/>
+              <path d="M12 15v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </span>
+          <span className="kb-userdropdown-label">パスワードを変更</span>
+        </button>
+
+        <div className="kb-userdropdown-sep" />
+
+        <button
+          type="button"
+          role="menuitem"
+          className="kb-userdropdown-item danger"
+          onClick={() => {
+            setUserMenuOpen(false);
+            handleLogout();
+          }}
+        >
+          <span className="kb-userdropdown-ico" aria-hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M10 17l-1 0a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M15 12H3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M15 12l-3-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M15 12l-3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M21 4v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.35"/>
+            </svg>
+          </span>
+          <span className="kb-userdropdown-label">ログアウト</span>
+        </button>
+      </div>
+    </div>
+  )}
+</div>
+
+
+          {/* 管理画面 */}
           {me && (
-            <button 
-  className={`kb-tab ${isAdmin ? "kb-tab-active" : ""}`} 
-  style={{ cursor: 'pointer' }} 
-  onClick={handleAdminClick}
->
-  管理画面
-</button>
+            <button className={`kb-tab ${isAdmin ? "kb-tab-active" : ""}`} style={{ cursor: "pointer" }} onClick={handleAdminClick}>
+              管理画面
+            </button>
           )}
-
-          <button className="kb-logout-btn" onClick={handleLogout}>
-            ログアウト
-          </button>
         </div>
       </div>
 
@@ -1143,13 +1268,13 @@ return { ...c };
               {recentTags.length === 0 && <span className="kb-subnote">タグがまだ登録されていません。</span>}
             </div>
           </div>
-          
-          {/* ---- [追加] 外部リンクセクション ---- */}
+
+          {/* ---- 外部リンク ---- */}
           <div className="kb-panel-section" style={{ marginTop: "20px" }}>
             <div className="kb-panel-title">外部リンク</div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
               {externalLinks
-                .filter((l) => l.isActive) // 有効なものだけ表示
+                .filter((l) => l.isActive)
                 .map((link) => (
                   <a
                     key={link.linkId}
@@ -1165,7 +1290,7 @@ return { ...c };
                       border: "1px solid #e2e8f0",
                       textDecoration: "none",
                       transition: "transform 0.1s, box-shadow 0.1s",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.transform = "translateY(-1px)";
@@ -1176,7 +1301,16 @@ return { ...c };
                       e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)";
                     }}
                   >
-                    <div style={{ fontSize: "13px", fontWeight: "600", color: "#0f172a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        fontWeight: "600",
+                        color: "#0f172a",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
                       {link.title}
                       <span style={{ fontSize: "10px", color: "#94a3b8" }}>↗</span>
                     </div>
@@ -1187,13 +1321,12 @@ return { ...c };
                     )}
                   </a>
                 ))}
-              {externalLinks.filter(l => l.isActive).length === 0 && (
+              {externalLinks.filter((l) => l.isActive).length === 0 && (
                 <span className="kb-subnote">登録されたリンクはありません。</span>
               )}
             </div>
           </div>
         </aside>
-
 
         <main className="kb-center">
           <div className="kb-card">
@@ -1278,35 +1411,34 @@ return { ...c };
                     )}
                   </div>
                 ))}
+
                 {sources.length > 0 && (
-  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(148,163,184,0.35)" }}>
-    <button
-  type="button"
-  onClick={() => setShowSources((v) => !v)}
-  className="kb-sources-toggle"
-  aria-expanded={showSources}
->
-  <span className="kb-sources-toggle-left">
-    <span className="kb-sources-dot" />
-    <span className="kb-sources-label">参照元</span>
-    <span className="kb-sources-count">{sources.length}件</span>
-  </span>
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(148,163,184,0.35)" }}>
+                    <button
+                      type="button"
+                      onClick={() => setShowSources((v) => !v)}
+                      className="kb-sources-toggle"
+                      aria-expanded={showSources}
+                    >
+                      <span className="kb-sources-toggle-left">
+                        <span className="kb-sources-dot" />
+                        <span className="kb-sources-label">参照元</span>
+                        <span className="kb-sources-count">{sources.length}件</span>
+                      </span>
 
-  <span className={"kb-sources-caret" + (showSources ? " open" : "")}>▾</span>
-</button>
+                      <span className={"kb-sources-caret" + (showSources ? " open" : "")}>▾</span>
+                    </button>
 
-    {showSources && (
-      <div style={{ marginTop: 8 }}>
-        <SourcesPanel sources={sources} />
-      </div>
-    )}
-  </div>
-)}
+                    {showSources && (
+                      <div style={{ marginTop: 8 }}>
+                        <SourcesPanel sources={sources} />
+                      </div>
+                    )}
+                  </div>
+                )}
 
-<div ref={chatEndRef} />
+                <div ref={chatEndRef} />
               </div>
-
-              
 
               <div className="kb-chat-input-row">
                 <input
@@ -1327,6 +1459,7 @@ return { ...c };
             </div>
           </div>
 
+          {/* お知らせ */}
           <div className="kb-card kb-manual-card">
             <div className="kb-card-header">
               <div>
@@ -1351,7 +1484,6 @@ return { ...c };
 
             {!loadingNews &&
               pagedNews.map((n, idx) => {
-                // keyを確実にユニークにするため index を結合
                 const id = n.newsId ? String(n.newsId) : `temp-key-${idx}`;
                 const isExpanded = !!expandedNews[id];
 
@@ -1430,10 +1562,11 @@ return { ...c };
             )}
           </div>
 
-          <div className="kb-card kb-manual-card" ref={manualListRef}> {/* ← refを追加 */}
-  <div className="kb-card-header">
-    <div>
-      <div className="kb-card-title">マニュアル一覧</div>
+          {/* マニュアル */}
+          <div className="kb-card kb-manual-card" ref={manualListRef}>
+            <div className="kb-card-header">
+              <div>
+                <div className="kb-card-title">マニュアル一覧</div>
                 <div className="kb-card-meta">
                   {loadingManuals
                     ? "読み込み中..."
@@ -1455,11 +1588,13 @@ return { ...c };
 
             {!loadingManuals && filteredManuals.length > 0 && (
               <>
-                <ManualList manuals={pagedManuals.map(m => ({
-                  ...m,
-                  startDate: formatToJST(m.startDate),
-                  updatedAt: formatToJST(m.updatedAt)
-                }))} />
+                <ManualList
+                  manuals={pagedManuals.map((m) => ({
+                    ...m,
+                    startDate: formatToJST(m.startDate),
+                    updatedAt: formatToJST(m.updatedAt),
+                  }))}
+                />
 
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
@@ -1495,27 +1630,24 @@ return { ...c };
           </div>
 
           <div className="kb-contact-inquiry-wrap">
-            <button
-              type="button"
-              className="kb-contact-inquiry-btn"
-              onClick={() => setIsInquiryModalOpen(true)}
-            >
+            <button type="button" className="kb-contact-inquiry-btn" onClick={() => setIsInquiryModalOpen(true)}>
               問い合わせ
             </button>
           </div>
 
-          <div className="kb-contact-list-wrapper" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-            <ContactList 
-              contacts={filteredContacts} 
-              contactSearch={contactSearch} 
-              setContactSearch={setContactSearch} 
-              deptMap={deptMap} 
+          <div className="kb-contact-list-wrapper" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <ContactList
+              contacts={filteredContacts}
+              contactSearch={contactSearch}
+              setContactSearch={setContactSearch}
+              deptMap={deptMap}
               loading={loadingContacts}
             />
           </div>
         </aside>
       </div>
 
+      {/* 問い合わせモーダル */}
       {isInquiryModalOpen && (
         <div
           className="kb-modal-backdrop"
@@ -1593,6 +1725,7 @@ return { ...c };
         </div>
       )}
 
+      {/* マニュアルプレビュー（使っているなら残す） */}
       {previewManual && (
         <div
           className="kb-modal-backdrop"
@@ -1635,9 +1768,24 @@ return { ...c };
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 999, background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>📘</div>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 999,
+                    background: "rgba(15,23,42,0.6)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 18,
+                  }}
+                >
+                  📘
+                </div>
                 <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2, color: "#f9fafb" }}>{previewManual.title}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2, color: "#f9fafb" }}>
+                    {previewManual.title}
+                  </div>
                   <div style={{ fontSize: 12, opacity: 0.9 }}>
                     {previewManual.brandId && (brandMap[previewManual.brandId]?.name || previewManual.brand || "ブランド未設定")}
                     {previewManual.bizId && ` / ${deptMap[previewManual.bizId]?.name || previewManual.biz || "部署未設定"}`}
@@ -1647,22 +1795,86 @@ return { ...c };
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {previewManual.embedUrl && (
-                  <button className="kb-primary-btn" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 999, border: "none", background: "#f9fafb", color: "#0f172a", cursor: "pointer" }} onClick={() => window.open(previewManual.embedUrl!, "_blank")}>新しいタブで開く</button>
+                  <button
+                    className="kb-primary-btn"
+                    style={{
+                      fontSize: 12,
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "#f9fafb",
+                      color: "#0f172a",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => window.open(previewManual.embedUrl!, "_blank")}
+                  >
+                    新しいタブで開く
+                  </button>
                 )}
-                <button className="kb-secondary-btn" style={{ fontSize: 12, padding: "6px 10px", borderRadius: 999, border: "1px solid rgba(248,250,252,0.6)", background: "transparent", color: "#e5f4ff", cursor: "pointer" }} onClick={() => setPreviewManual(null)}>閉じる</button>
+                <button
+                  className="kb-secondary-btn"
+                  style={{
+                    fontSize: 12,
+                    padding: "6px 10px",
+                    borderRadius: 999,
+                    border: "1px solid rgba(248,250,252,0.6)",
+                    background: "transparent",
+                    color: "#e5f4ff",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => setPreviewManual(null)}
+                >
+                  閉じる
+                </button>
               </div>
             </div>
+
             <div style={{ display: "flex", flexDirection: "column", padding: 16, gap: 12, background: "#f9fafb", flex: 1, minHeight: 0 }}>
               {previewManual.desc && (
-                <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap", borderRadius: 12, background: "#ffffff", padding: 10, border: "1px solid #e5e7eb" }}>{previewManual.desc}</div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: "#374151",
+                    whiteSpace: "pre-wrap",
+                    borderRadius: 12,
+                    background: "#ffffff",
+                    padding: 10,
+                    border: "1px solid #e5e7eb",
+                  }}
+                >
+                  {previewManual.desc}
+                </div>
               )}
+
               {(() => {
                 const embedSrc = getEmbedSrc(previewManual.embedUrl);
-                if (!embedSrc) return <div style={{ fontSize: 13, color: "#6b7280", padding: 12, borderRadius: 10, background: "#e5e7eb" }}>プレビューURLがありません。</div>;
+                if (!embedSrc)
+                  return (
+                    <div style={{ fontSize: 13, color: "#6b7280", padding: 12, borderRadius: 10, background: "#e5e7eb" }}>
+                      プレビューURLがありません。
+                    </div>
+                  );
+
                 return (
                   <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center" }}>
-                    <div style={{ width: "100%", maxWidth: 960, aspectRatio: "16 / 9", borderRadius: 14, overflow: "hidden", border: "1px solid #d1d5db", background: "#020617", position: "relative" }}>
-                      <iframe src={embedSrc} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen loading="lazy" />
+                    <div
+                      style={{
+                        width: "100%",
+                        maxWidth: 960,
+                        aspectRatio: "16 / 9",
+                        borderRadius: 14,
+                        overflow: "hidden",
+                        border: "1px solid #d1d5db",
+                        background: "#020617",
+                        position: "relative",
+                      }}
+                    >
+                      <iframe
+                        src={embedSrc}
+                        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                        allowFullScreen
+                        loading="lazy"
+                      />
                     </div>
                   </div>
                 );
@@ -1671,7 +1883,8 @@ return { ...c };
           </div>
         </div>
       )}
-      
+
+      {/* 管理画面NGモーダル */}
       {isAdminErrorModalOpen && (
         <div
           className="kb-modal-backdrop"
@@ -1711,9 +1924,14 @@ return { ...c };
             </p>
             <button
               className="kb-primary-btn"
-              style={{ 
-                width: "100%", padding: "12px", borderRadius: "12px", 
-                background: "#0f172a", color: "#fff", border: "none", cursor: "pointer" 
+              style={{
+                width: "100%",
+                padding: "12px",
+                borderRadius: "12px",
+                background: "#0f172a",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
               }}
               onClick={() => setIsAdminErrorModalOpen(false)}
             >

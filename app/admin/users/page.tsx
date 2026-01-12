@@ -1,10 +1,10 @@
-// /app/admin/users/page.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
-// types/user, brand, dept のローカルコピーを更新
+/* ========= 型 ========= */
 export type KbUserRole = "admin" | "editor" | "viewer";
 export type KbUser = {
   userId: string;
@@ -36,10 +36,7 @@ const DEFAULT_USER_FORM: KbUser = {
   isActive: true,
 };
 
-// ヘルパー関数: 新規ユーザーの仮IDを生成
-const generateNewUserId = () => {
-  return `U900-${Date.now().toString().slice(-6)}`;
-};
+const generateNewUserId = () => `U900-${Date.now().toString().slice(-6)}`;
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<KbUser[]>([]);
@@ -53,16 +50,18 @@ export default function AdminUsersPage() {
 
   // フォーム状態
   const [form, setForm] = useState<KbUser>(DEFAULT_USER_FORM);
-  const [newPassword, setNewPassword] = useState("");
+
+  // ✅ メールに一時パスワード含める（新規/再発行時）
+  const [includePasswordInMail, setIncludePasswordInMail] = useState(true);
 
   // ✅ ローディング表示用
   const [busyText, setBusyText] = useState<string>("");
   const busy = loading || saving;
 
-  // ✅ 新規/既存判定は selectedUserId 基準（安全）
+  // ✅ 新規/既存判定
   const isNewCreationMode = !selectedUserId;
 
-  // ====== データロード関数 ======
+  // ====== データロード ======
   async function loadAllData() {
     setLoading(true);
     try {
@@ -94,7 +93,7 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ====== 新規作成時: userIdが空なら自動採番 ======
+  // ====== 新規作成時: userId 自動採番 ======
   useEffect(() => {
     if (isNewCreationMode && !form.userId) {
       setForm((prev) => ({ ...prev, userId: generateNewUserId() }));
@@ -102,7 +101,7 @@ export default function AdminUsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNewCreationMode, form.userId]);
 
-  // マップの作成
+  // マップ作成
   const brandMap = useMemo(
     () =>
       brands.reduce(
@@ -134,14 +133,7 @@ export default function AdminUsersPage() {
         .map((id) => groupMap[id]?.groupName || id)
         .join(" ");
 
-      const haystack = [
-        u.userId,
-        u.name,
-        u.email,
-        u.role,
-        brandNames,
-        groupNames,
-      ]
+      const haystack = [u.userId, u.name, u.email, u.role, brandNames, groupNames]
         .join(" ")
         .toLowerCase();
 
@@ -151,7 +143,7 @@ export default function AdminUsersPage() {
 
   // ====== 一覧行クリック → フォームへ反映 ======
   function handleSelectUser(u: KbUser) {
-    if (saving) return; // ✅ 処理中の誤操作防止
+    if (saving) return;
     setSelectedUserId(u.userId);
     setForm({
       userId: u.userId,
@@ -164,7 +156,7 @@ export default function AdminUsersPage() {
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
     });
-    setNewPassword("");
+    setIncludePasswordInMail(true);
   }
 
   // ====== 新規作成モード ======
@@ -174,10 +166,10 @@ export default function AdminUsersPage() {
       ...DEFAULT_USER_FORM,
       userId: generateNewUserId(),
     });
-    setNewPassword("");
+    setIncludePasswordInMail(true);
   }
 
-  // ✅ クリアボタン：新規作成モードに戻す（=フォーム初期化）
+  // ✅ クリア（新規作成モードに戻す）
   function handleClear() {
     if (saving) return;
     const ok = confirm("入力内容をクリアして、新規作成モードに戻しますか？");
@@ -185,7 +177,7 @@ export default function AdminUsersPage() {
     handleNewUser();
   }
 
-  // フォームの入力処理 (通常テキスト・セレクトボックス)
+  // フォーム入力
   const handleFormChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
@@ -202,13 +194,11 @@ export default function AdminUsersPage() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // ID配列のON/OFFを切り替えるハンドラー（単一選択）
+  // ID配列（単一選択）
   const handleIdToggle = (name: "brandIds" | "groupIds", id: string) => {
     setForm((prev) => {
       const currentIds = prev[name] || [];
-      if (currentIds.includes(id)) {
-        return { ...prev, [name]: [] };
-      }
+      if (currentIds.includes(id)) return { ...prev, [name]: [] };
       return { ...prev, [name]: [id] };
     });
   };
@@ -222,21 +212,17 @@ export default function AdminUsersPage() {
       return;
     }
 
-    // 新規作成モードで、パスワードが空の場合は警告
-    if (isNewCreationMode && !newPassword.trim()) {
-      if (
-        !confirm(
-          "新規ユーザーですが、パスワードが設定されていません。続行しますか？ (Googleログインのみで運用する場合に許可)"
-        )
-      ) {
-        return;
-      }
-    }
-
-    // パスワードが入力された場合、8文字以上チェック
-    if (newPassword.trim().length > 0 && newPassword.trim().length < 8) {
-      alert("パスワードは8文字以上である必要があります。");
-      return;
+    // 新規作成時は自動発行が走るので注意喚起
+    if (isNewCreationMode) {
+      const ok = confirm(
+        "新規ユーザーを作成します。\n\n" +
+          "・一時パスワードは自動発行されます\n" +
+          (includePasswordInMail
+            ? "・メールに一時パスワードを同封します\n"
+            : "・メールにはURLのみ送ります（パスワードは同封しません）\n") +
+          "\n続行しますか？"
+      );
+      if (!ok) return;
     }
 
     setBusyText(isNewCreationMode ? "新規作成しています..." : "更新しています...");
@@ -246,7 +232,9 @@ export default function AdminUsersPage() {
       const payload = {
         mode: isNewCreationMode ? "create" : "update",
         user: form,
-        newPassword: newPassword.trim() || undefined,
+        includePassword: includePasswordInMail,
+        // ✅ 通常 update はパスワード変更しない
+        resetPassword: false,
       };
 
       const res = await fetch("/api/users", {
@@ -267,8 +255,8 @@ export default function AdminUsersPage() {
       const saved: KbUser = json.user;
       setSelectedUserId(saved.userId);
       setForm(saved);
-      setNewPassword("");
-      alert("保存しました。");
+
+      alert(isNewCreationMode ? "保存しました（メール送信しました）。" : "更新しました。");
     } catch (err) {
       console.error(err);
       alert("保存時にエラーが発生しました。");
@@ -324,28 +312,119 @@ export default function AdminUsersPage() {
     }
   }
 
+  // ✅ 再送信（URLのみ）
+  async function handleResendUrlOnly() {
+    if (!selectedUserId) return;
+    const u = users.find((x) => x.userId === selectedUserId);
+    if (!u) return;
+
+    if (u.isActive === false) {
+      alert("無効ユーザーのため送信できません。先に有効化してください。");
+      return;
+    }
+
+    const ok = confirm(
+      `ログイン案内（URLのみ）を再送します。\n\nID: ${u.userId}\n氏名: ${u.name}\nメール: ${u.email}`
+    );
+    if (!ok) return;
+
+    setBusyText("再送信しています...");
+    setSaving(true);
+
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "resend",
+          user: { userId: u.userId },
+          resetPassword: false,
+          includePassword: false,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("Resend error:", json);
+        alert(`再送に失敗しました: ${json.error || "不明なエラー"}`);
+        return;
+      }
+
+      alert("再送しました。（URLのみ）");
+    } catch (err) {
+      console.error(err);
+      alert("再送時にエラーが発生しました。");
+    } finally {
+      setBusyText("");
+      setSaving(false);
+    }
+  }
+
+  // ✅ パスワード再発行して送信（自動生成）
+  async function handleReissuePasswordAndSend() {
+    if (!selectedUserId) return;
+    const u = users.find((x) => x.userId === selectedUserId);
+    if (!u) return;
+
+    if (u.isActive === false) {
+      alert("無効ユーザーのため送信できません。先に有効化してください。");
+      return;
+    }
+
+    const ok = confirm(
+      `パスワードを再発行してメール送信します。\n\n` +
+        `ID: ${u.userId}\n氏名: ${u.name}\nメール: ${u.email}\n\n` +
+        `※ 一時パスワードは自動生成されます。`
+    );
+    if (!ok) return;
+
+    setBusyText("パスワード再発行＆送信しています...");
+    setSaving(true);
+
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "resend",
+          user: { userId: u.userId },
+          resetPassword: true,
+          includePassword: includePasswordInMail,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("Reissue error:", json);
+        alert(`再発行に失敗しました: ${json.error || "不明なエラー"}`);
+        return;
+      }
+
+      await loadAllData();
+      alert(
+        includePasswordInMail
+          ? "送信しました。（一時パスワード同封）"
+          : "送信しました。（URLのみ）"
+      );
+    } catch (err) {
+      console.error(err);
+      alert("再発行時にエラーが発生しました。");
+    } finally {
+      setBusyText("");
+      setSaving(false);
+    }
+  }
+
   // ====== 画面 ======
   return (
     <div className="kb-root">
       {/* ✅ 全画面ローディング */}
-      {busy && (
-        <div className="kb-loading-overlay" role="alert" aria-busy="true">
-          <div className="kb-loading-card">
-            <div className="kb-loading-row">
-              <div className="kb-spinner" />
-              <div>
-                <div className="kb-loading-title">
-                  {busyText || (loading ? "読み込み中..." : "処理中...")}
-                </div>
-                <div className="kb-loading-sub">
-                  画面を閉じずにそのままお待ちください
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <AdminLoadingOverlay
+  visible={busy}
+  text={busyText || (loading ? "KnowBase 管理画面を読み込み中..." : "処理中...")}
+/>
 
+      {/* Topbar */}
       <div className="kb-topbar">
         <Link
           href="/admin"
@@ -394,9 +473,9 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* ===== メインコンテンツ: 2カラムグリッド ===== */}
+      {/* ===== 2カラム ===== */}
       <div className="kb-admin-grid-2col" style={{ marginTop: 16 }}>
-        {/* 左カラム: ユーザー一覧 */}
+        {/* 左: 一覧 */}
         <section className="kb-admin-card-large">
           <div className="kb-panel-header-row">
             <div className="kb-admin-head">
@@ -412,6 +491,7 @@ export default function AdminUsersPage() {
                 {loading ? "読み込み中..." : `${filteredUsers.length}件`}
               </span>
             </div>
+
             <button
               className="kb-primary-btn"
               onClick={handleNewUser}
@@ -432,113 +512,138 @@ export default function AdminUsersPage() {
               style={{ marginBottom: 12 }}
             />
 
-            <div 
-  className="kb-manual-list-admin" 
-  style={{
-    display: 'flex',
-    flexDirection: 'column',      // 縦並びに設定
-    overflowY: 'auto',            // 縦スクロールを許可
-    scrollSnapType: 'y mandatory', // 縦方向のスナップを有効化
-    height: '400px',              // 表示領域の高さを固定（適宜調整してください）
-    gap: '12px',                  // アイテム間の余白
-    padding: '4px',               // 選択時のボーダーが切れないよう調整
-    WebkitOverflowScrolling: 'touch',
-    scrollbarWidth: 'thin'
-  }}
->
-  {loading && <div style={{ padding: "10px" }}>データ読み込み中...</div>}
+            <div
+              className="kb-manual-list-admin"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                overflowY: "auto",
+                scrollSnapType: "y mandatory",
+                height: "400px",
+                gap: "12px",
+                padding: "4px",
+                WebkitOverflowScrolling: "touch",
+                scrollbarWidth: "thin",
+              }}
+            >
+              {loading && (
+                <div style={{ padding: "10px" }}>データ読み込み中...</div>
+              )}
 
-  {!loading && filteredUsers.length === 0 && (
-    <div
-      style={{
-        padding: "12px 10px",
-        fontSize: 12,
-        color: "#6b7280",
-      }}
-    >
-      {users.length === 0
-        ? "ユーザーが登録されていません。"
-        : "検索条件に一致するユーザーがいません。"}
-    </div>
-  )}
+              {!loading && filteredUsers.length === 0 && (
+                <div
+                  style={{
+                    padding: "12px 10px",
+                    fontSize: 12,
+                    color: "#6b7280",
+                  }}
+                >
+                  {users.length === 0
+                    ? "ユーザーが登録されていません。"
+                    : "検索条件に一致するユーザーがいません。"}
+                </div>
+              )}
 
-  {!loading &&
-    filteredUsers.map((u) => (
-      <div
-        key={u.userId}
-        onClick={() => handleSelectUser(u)}
-        className={`kb-user-item-admin ${
-          selectedUserId === u.userId ? "selected" : ""
-        }`}
-        style={{ 
-          cursor: saving ? "not-allowed" : "pointer",
-          flex: '0 0 auto',            // 高さが内容に応じて決まるように設定
-          scrollSnapAlign: 'start',    // スナップ位置を各アイテムの先頭に合わせる
-          margin: 0,
-          border: selectedUserId === u.userId ? '2px solid #3b82f6' : '1px solid #e5e7eb',
-          borderRadius: '12px',
-          padding: '16px',
-          backgroundColor: '#fff',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <div className="kb-user-title" style={{ fontWeight: 'bold' }}>
-            {u.name} ({u.userId})
-          </div>
-          <div
-            className="kb-user-role-badge"
-            style={{
-              backgroundColor:
-                u.role === "admin"
-                  ? "#fecaca"
-                  : u.role === "editor"
-                  ? "#ffedd5"
-                  : "#e0f2fe",
-              color:
-                u.role === "admin"
-                  ? "#b91c1c"
-                  : u.role === "editor"
-                  ? "#9a3412"
-                  : "#0369a1",
-              padding: '2px 8px',
-              borderRadius: '99px',
-              fontSize: '11px'
-            }}
-          >
-            {ROLE_OPTIONS.find((r) => r.value === u.role)?.label || u.role}
-          </div>
-        </div>
+              {!loading &&
+                filteredUsers.map((u) => (
+                  <div
+                    key={u.userId}
+                    onClick={() => handleSelectUser(u)}
+                    className={`kb-user-item-admin ${
+                      selectedUserId === u.userId ? "selected" : ""
+                    }`}
+                    style={{
+                      cursor: saving ? "not-allowed" : "pointer",
+                      flex: "0 0 auto",
+                      scrollSnapAlign: "start",
+                      margin: 0,
+                      border:
+                        selectedUserId === u.userId
+                          ? "2px solid #3b82f6"
+                          : "1px solid #e5e7eb",
+                      borderRadius: "12px",
+                      padding: "16px",
+                      backgroundColor: "#fff",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                      }}
+                    >
+                      <div className="kb-user-title" style={{ fontWeight: 700 }}>
+                        {u.name} ({u.userId})
+                      </div>
 
-        <div className="kb-user-email-meta" style={{ color: '#6b7280', fontSize: '13px', margin: '4px 0' }}>
-          {u.email}
-        </div>
+                      <div
+                        className="kb-user-role-badge"
+                        style={{
+                          backgroundColor:
+                            u.role === "admin"
+                              ? "#fecaca"
+                              : u.role === "editor"
+                              ? "#ffedd5"
+                              : "#e0f2fe",
+                          color:
+                            u.role === "admin"
+                              ? "#b91c1c"
+                              : u.role === "editor"
+                              ? "#9a3412"
+                              : "#0369a1",
+                          padding: "2px 8px",
+                          borderRadius: "99px",
+                          fontSize: "11px",
+                        }}
+                      >
+                        {ROLE_OPTIONS.find((r) => r.value === u.role)?.label ||
+                          u.role}
+                      </div>
+                    </div>
 
-        <div className="kb-user-meta-info" style={{ fontSize: '12px', marginTop: '8px', color: '#4b5563' }}>
-          {u.brandIds?.length
-            ? `ブランド: ${u.brandIds.map((id) => brandMap[id]?.name || id).join(", ")}`
-            : "ブランド: 全て"}
-          {" / "}
-          {(u.groupIds?.length ?? 0) > 0 && (
-            <span>
-              属性: {(u.groupIds ?? []).map((id) => groupMap[id]?.groupName || id).join(", ")}
-            </span>
-          )}
-          {u.isActive ? "" : " / [無効]"}
-        </div>
-      </div>
-    ))}
-</div>
+                    <div
+                      className="kb-user-email-meta"
+                      style={{
+                        color: "#6b7280",
+                        fontSize: "13px",
+                        margin: "4px 0",
+                      }}
+                    >
+                      {u.email}
+                    </div>
+
+                    <div
+                      className="kb-user-meta-info"
+                      style={{
+                        fontSize: "12px",
+                        marginTop: "8px",
+                        color: "#4b5563",
+                      }}
+                    >
+                      {u.brandIds?.length
+                        ? `ブランド: ${u.brandIds
+                            .map((id) => brandMap[id]?.name || id)
+                            .join(", ")}`
+                        : "ブランド: 全て"}
+                      {" / "}
+                      {(u.groupIds?.length ?? 0) > 0 && (
+                        <span>
+                          属性: {(u.groupIds ?? [])
+                            .map((id) => groupMap[id]?.groupName || id)
+                            .join(", ")}
+                        </span>
+                      )}
+                      {u.isActive ? "" : " / [無効]"}
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         </section>
 
-        {/* 右カラム: フォーム */}
+        {/* 右: フォーム */}
         <section className="kb-admin-card-large">
           <div className="kb-admin-head">
             {selectedUserId ? "ユーザー編集" : "ユーザー新規作成"}
@@ -559,7 +664,7 @@ export default function AdminUsersPage() {
                   name="userId"
                   value={form.userId}
                   onChange={handleFormChange}
-                  readOnly={true}
+                  readOnly
                   style={{ background: "#f3f4f8" }}
                   placeholder="自動採番"
                 />
@@ -595,23 +700,22 @@ export default function AdminUsersPage() {
                 />
               </div>
 
-              {/* パスワード設定欄 */}
+              {/* ✅ 一時パスワード同封 */}
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">パスワード設定/変更</label>
-                <input
-                  className="kb-admin-input full"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder={
-                    isNewCreationMode
-                      ? "新規パスワード (8文字以上推奨)"
-                      : "変更する場合のみ入力"
-                  }
-                  disabled={saving}
-                />
-                <div className="kb-subnote full">
-                  ※ 入力がない場合、パスワードは変更されません。(新規作成時は空のまま保存可能ですが、メール/パスワード認証はできません)
+                <div className="kb-checkbox-wrap">
+                  <input
+                    id="includePasswordInMail"
+                    type="checkbox"
+                    checked={includePasswordInMail}
+                    onChange={(e) => setIncludePasswordInMail(e.target.checked)}
+                    disabled={saving}
+                  />
+                  <label htmlFor="includePasswordInMail">
+                    メールに一時パスワードを含める（新規作成/再発行時）
+                  </label>
+                </div>
+                <div className="kb-subnote full" style={{ marginTop: 6 }}>
+                  ※ パスワードは手入力不要。サーバー側で自動生成します。
                 </div>
               </div>
 
@@ -632,7 +736,7 @@ export default function AdminUsersPage() {
                 </select>
               </div>
 
-              {/* 対象ブランドID (単一選択) */}
+              {/* ブランド */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">対象ブランド</label>
                 <div className="kb-chip-list full" style={{ marginBottom: 4 }}>
@@ -642,7 +746,9 @@ export default function AdminUsersPage() {
                       <button
                         key={b.brandId}
                         type="button"
-                        className={`kb-chip small ${isSelected ? "kb-chip-active" : ""}`}
+                        className={`kb-chip small ${
+                          isSelected ? "kb-chip-active" : ""
+                        }`}
                         onClick={() => handleIdToggle("brandIds", b.brandId)}
                         disabled={saving}
                       >
@@ -652,11 +758,12 @@ export default function AdminUsersPage() {
                   })}
                 </div>
                 <div className="kb-subnote full">
-                  ※ ユーザーがアクセスできるブランドを<strong>1つ</strong>制限します。
+                  ※ ユーザーがアクセスできるブランドを<strong>1つ</strong>
+                  制限します。
                 </div>
               </div>
 
-              {/* 対象属性グループ (単一選択) */}
+              {/* 属性 */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">対象属性グループ</label>
                 <div className="kb-chip-list full" style={{ marginBottom: 4 }}>
@@ -666,7 +773,9 @@ export default function AdminUsersPage() {
                       <button
                         key={g.groupId}
                         type="button"
-                        className={`kb-chip small ${isSelected ? "kb-chip-active" : ""}`}
+                        className={`kb-chip small ${
+                          isSelected ? "kb-chip-active" : ""
+                        }`}
                         onClick={() => handleIdToggle("groupIds", g.groupId)}
                         disabled={saving}
                       >
@@ -676,10 +785,12 @@ export default function AdminUsersPage() {
                   })}
                 </div>
                 <div className="kb-subnote full" style={{ marginTop: 4 }}>
-                  ※ ユーザーが所属する属性グループを<strong>1つ</strong>設定します。
+                  ※ ユーザーが所属する属性グループを<strong>1つ</strong>
+                  設定します。
                 </div>
               </div>
 
+              {/* 有効/無効 */}
               <div className="kb-admin-form-row">
                 <div className="kb-checkbox-wrap">
                   <input
@@ -694,7 +805,7 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
-              {/* フォームアクションボタン */}
+              {/* アクション */}
               <div
                 className="kb-form-actions"
                 style={{
@@ -703,21 +814,47 @@ export default function AdminUsersPage() {
                   display: "flex",
                   gap: "10px",
                   justifyContent: "flex-end",
+                  flexWrap: "wrap",
                 }}
               >
-                {/* ✅ クリア（いつでも出す） */}
+                {/* 既存ユーザーのみ */}
+                {!!selectedUserId && (
+                  <>
+                    <button
+                      type="button"
+                      className="kb-logout-btn"
+                      onClick={handleResendUrlOnly}
+                      disabled={saving}
+                      style={{ margin: 0 }}
+                      title="ログインURLのみ再送します"
+                    >
+                      再送信（URLのみ）
+                    </button>
+
+                    <button
+                      type="button"
+                      className="kb-primary-btn"
+                      onClick={handleReissuePasswordAndSend}
+                      disabled={saving}
+                      style={{ margin: 0 }}
+                      title="一時パスワードを自動生成して送信します"
+                    >
+                      パスワード再発行して送信
+                    </button>
+                  </>
+                )}
+
                 <button
                   type="button"
                   className="kb-logout-btn"
                   onClick={handleClear}
                   disabled={saving}
                   style={{ margin: 0 }}
-                  title="入力内容をリセットして新規作成モードに戻します"
+                  title="フォームを初期化して新規作成モードへ戻します"
                 >
                   クリア
                 </button>
 
-                {/* ✅ 既存ユーザー編集時のみ削除（おしゃれ赤） */}
                 {!!selectedUserId && (
                   <button
                     type="button"
@@ -730,7 +867,6 @@ export default function AdminUsersPage() {
                   </button>
                 )}
 
-                {/* 保存・更新ボタン */}
                 <button
                   className="kb-primary-btn"
                   type="submit"

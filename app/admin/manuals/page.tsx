@@ -1,12 +1,15 @@
 "use client";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/* ========= 型定義 (外部URL, 公開期間, ダウンロード禁止) ========= */
+/* ========= 型定義 ========= */
+
+type ManualType = "doc" | "video";
+type ManualViewScope = "all" | "direct";
 
 type Manual = {
   manualId: string;
@@ -17,11 +20,14 @@ type Manual = {
   updatedAt?: string;
   tags?: string[];
   embedUrl?: string;
-  externalUrl?: string; 
+  externalUrl?: string;
   noDownload?: boolean;
   startDate?: string;
   endDate?: string;
-  type?: "doc" | "video";
+  type?: ManualType;
+
+  /** ✅ 追加：閲覧権限 */
+  viewScope?: ManualViewScope; // "all" | "direct"
 };
 
 type Brand = { brandId: string; name: string };
@@ -29,7 +35,7 @@ type Dept = { deptId: string; name: string };
 
 const DRAFT_KEY = "kb_manual_draft_v1";
 
-/* ========= ヘルパー関数群 ========= */
+/* ========= ヘルパー ========= */
 
 const getTodayDate = () => {
   const date = new Date();
@@ -41,6 +47,17 @@ const getTodayDate = () => {
 
 const generateNewManualId = () => `M200-${Date.now().toString().slice(-6)}`;
 
+const normalizeViewScope = (v: any): ManualViewScope => {
+  const s = String(v || "").trim().toLowerCase();
+  // APIが "DIRECT" を返す / 画面は "direct"
+  if (s === "direct") return "direct";
+  if (s === "all") return "all";
+  // "DIRECT"/"ALL" 対応
+  if (s === "direct".toUpperCase().toLowerCase()) return "direct";
+  if (String(v || "").toUpperCase() === "DIRECT") return "direct";
+  return "all";
+};
+
 const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   manualId: generateNewManualId(),
   title: "",
@@ -50,18 +67,26 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   updatedAt: getTodayDate(),
   tags: [],
   embedUrl: "",
-  externalUrl: "", 
+  externalUrl: "",
   noDownload: false,
   startDate: "",
   endDate: "",
   type: "doc",
+
+  /** ✅ デフォルト：すべて */
+  viewScope: "all",
+
   ...initialData,
+  // ✅ ここで正規化（APIから来た "ALL"/"DIRECT" でも崩れない）
+  viewScope: normalizeViewScope((initialData as any)?.viewScope),
 });
 
 const getEmbedSrc = (url?: string) => {
   if (!url || typeof url !== "string" || url.trim() === "") return "";
   const u = url.trim();
-  const idMatch = u.match(/(?:id=|\/d\/)([\w-]+)(?:\/edit|\/view|\/preview|\/present|\/|$)/i);
+  const idMatch = u.match(
+    /(?:id=|\/d\/)([\w-]+)(?:\/edit|\/view|\/preview|\/present|\/|$)/i
+  );
   if (!idMatch) return u.length < 30 ? "" : u;
   const fileId = idMatch[1];
   if (u.includes("docs.google.com/presentation")) {
@@ -78,6 +103,106 @@ function safeSetDraft(draft: any) {
   }
 }
 
+/* ========= ✅ 統一ローディング（あなたの app/admin/loading.tsx と同型） ========= */
+
+function BusyOverlay({ text }: { text: string }) {
+  return (
+    <div
+      className="kb-loading-full-overlay"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "#ffffff",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 999999,
+        textAlign: "center",
+        minHeight: "100vh",
+      }}
+      role="alert"
+      aria-busy="true"
+    >
+      <div
+        className="kb-loading-main-box"
+        style={{ display: "flex", flexDirection: "column", alignItems: "center" }}
+      >
+        <div
+          className="kb-logo-spin-container"
+          style={{ position: "relative", width: 80, height: 80, marginBottom: 24 }}
+        >
+          <img
+            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+            alt="Loading Logo"
+            className="kb-spin-logo"
+            style={{
+              width: 40,
+              height: 40,
+              position: "absolute",
+              top: 20,
+              left: 20,
+              zIndex: 2,
+            }}
+          />
+          <div className="kb-outer-ring" />
+        </div>
+
+        <div
+          className="kb-loading-bar-container"
+          style={{
+            width: 160,
+            height: 4,
+            background: "#f1f5f9",
+            borderRadius: 10,
+            marginBottom: 12,
+            overflow: "hidden",
+          }}
+        >
+          <div className="kb-loading-bar-fill" />
+        </div>
+
+        <p
+          className="kb-loading-status"
+          style={{ fontSize: 13, color: "#64748b", fontWeight: 600, margin: 0 }}
+        >
+          {text}
+        </p>
+      </div>
+
+      <style jsx>{`
+        .kb-outer-ring {
+          width: 80px;
+          height: 80px;
+          border: 3px solid #f1f5f9;
+          border-top: 3px solid #3b82f6;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        .kb-loading-bar-fill {
+          width: 50%;
+          height: 100%;
+          background: #3b82f6;
+          border-radius: 10px;
+          animation: progress 1.5s ease-in-out infinite;
+        }
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        @keyframes progress {
+          from {
+            transform: translateX(-100%);
+          }
+          to {
+            transform: translateX(200%);
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 /* ========= メインコンポーネント ========= */
 
 export default function AdminManuals() {
@@ -90,7 +215,6 @@ export default function AdminManuals() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [isCopying, setIsCopying] = useState(false);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedManual, setSelectedManual] = useState<Manual | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -99,27 +223,71 @@ export default function AdminManuals() {
   const [manualForm, setManualForm] = useState<Manual>(createEmptyManual());
   const [tagInput, setTagInput] = useState("");
 
+  // ✅ 画面処理中（統一ローディング）
+  const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [busyText, setBusyText] = useState("");
+
+  const busy = loading || saving || copying;
+
+  /** ✅ 管理画面用：admin-key を毎回付ける */
+  const getAdminHeaders = useCallback((): HeadersInit => {
+    const adminKey = (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
+    return adminKey ? { "x-kb-admin-key": adminKey } : {};
+  }, []);
+
   const loadAllData = useCallback(async () => {
+    setLoading(true);
+    setBusyText("KnowBase 管理画面を読み込み中...");
+
     try {
+      const manualHeaders: HeadersInit = getAdminHeaders();
+
       const [mRes, bRes, dRes] = await Promise.all([
-        fetch("/api/manuals"),
-        fetch("/api/brands"),
-        fetch("/api/depts"),
+        fetch("/api/manuals", {
+          method: "GET",
+          headers: manualHeaders,
+          cache: "no-store",
+        }),
+        fetch("/api/brands", { cache: "no-store" }),
+        fetch("/api/depts", { cache: "no-store" }),
       ]);
+
       const [mJson, bJson, dJson] = await Promise.all([
-        mRes.json(),
-        bRes.json(),
-        dRes.json(),
+        mRes.json().catch(() => ({})),
+        bRes.json().catch(() => ({})),
+        dRes.json().catch(() => ({})),
       ]);
-      setManuals(mJson.manuals || []);
+
+      if (!mRes.ok) {
+        console.error("manuals fetch failed:", mJson);
+        throw new Error(mJson?.error || "Failed to fetch manuals");
+      }
+      if (!bRes.ok) {
+        console.error("brands fetch failed:", bJson);
+        throw new Error(bJson?.error || "Failed to fetch brands");
+      }
+      if (!dRes.ok) {
+        console.error("depts fetch failed:", dJson);
+        throw new Error(dJson?.error || "Failed to fetch depts");
+      }
+
+      // ✅ viewScope を必ず "all/direct" に正規化
+      const normalizedManuals: Manual[] = (mJson.manuals || []).map((m: any) => ({
+        ...m,
+        viewScope: normalizeViewScope(m?.viewScope),
+      }));
+
+      setManuals(normalizedManuals);
       setBrands(bJson.brands || []);
       setDepts(dJson.depts || []);
     } catch (e) {
       console.error("Fetch error:", e);
     } finally {
       setLoading(false);
+      setBusyText("");
     }
-  }, []);
+  }, [getAdminHeaders]);
 
   useEffect(() => {
     loadAllData();
@@ -131,16 +299,20 @@ export default function AdminManuals() {
     const found = manuals.find((m) => m.manualId === selectId);
     if (found) {
       setSelectedManual(found);
-      setManualForm({ ...found });
+      setManualForm(createEmptyManual(found)); // ✅ 正規化込み
       setTagInput((found.tags || []).join(", "));
       setIsEditing(false);
     }
   }, [loading, selectId, manuals]);
 
-  const brandMap = useMemo(() => 
-    brands.reduce((acc, b) => ({ ...acc, [b.brandId]: b }), {} as Record<string, Brand>), [brands]);
-  const deptMap = useMemo(() => 
-    depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>), [depts]);
+  const brandMap = useMemo(
+    () => brands.reduce((acc, b) => ({ ...acc, [b.brandId]: b }), {} as Record<string, Brand>),
+    [brands]
+  );
+  const deptMap = useMemo(
+    () => depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>),
+    [depts]
+  );
 
   const handleNewManual = () => {
     setManualForm(createEmptyManual());
@@ -159,9 +331,19 @@ export default function AdminManuals() {
 
   const handleExecuteCopy = async (templateType: "landscape" | "portrait") => {
     setShowTemplateModal(false);
-    setIsCopying(true);
-    const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
-    const draft = { ...manualForm, tags: finalTags };
+    setCopying(true);
+    setBusyText("テンプレートをコピーしています...");
+
+    const finalTags = tagInput
+      .split(/[,、\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const draft = {
+      ...manualForm,
+      tags: finalTags,
+      viewScope: normalizeViewScope(manualForm.viewScope),
+    };
     safeSetDraft(draft);
 
     try {
@@ -171,29 +353,43 @@ export default function AdminManuals() {
         body: JSON.stringify({ title: manualForm.title, templateType }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      router.push(`/admin/manuals/edit?fileId=${data.fileId}&editUrl=${encodeURIComponent(data.editUrl)}`);
+      if (!res.ok) throw new Error(data.error || "copy failed");
+      router.push(
+        `/admin/manuals/edit?fileId=${data.fileId}&editUrl=${encodeURIComponent(data.editUrl)}`
+      );
     } catch (e: any) {
       alert(`コピー失敗: ${e.message}`);
-      setIsCopying(false);
+      setCopying(false);
+      setBusyText("");
     }
   };
 
   const handleEditManual = (manual: Manual) => {
-    setManualForm({ ...manual });
+    setManualForm(createEmptyManual(manual)); // ✅ 正規化込み
     setTagInput((manual.tags || []).join(", "));
     setSelectedManual(manual);
     setIsEditing(true);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
     const { name, value, type } = e.target;
+
     if (name === "tags") {
       setTagInput(value);
       return;
     }
+
     const val = type === "checkbox" ? (e.target as HTMLInputElement).checked : value;
-    setManualForm(prev => ({ ...prev, [name]: val }));
+
+    // ✅ viewScope は all/direct を担保
+    if (name === "viewScope") {
+      setManualForm((prev) => ({ ...prev, viewScope: normalizeViewScope(val) }));
+      return;
+    }
+
+    setManualForm((prev) => ({ ...prev, [name]: val }));
   };
 
   const handleSave = async () => {
@@ -201,190 +397,446 @@ export default function AdminManuals() {
       alert("タイトル必須");
       return;
     }
-    const finalTags = tagInput.split(/[,、\s]+/).map(s => s.trim()).filter(Boolean);
-    const payload = { ...manualForm, tags: finalTags, updatedAt: getTodayDate() };
+
+    const finalTags = tagInput
+      .split(/[,、\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const payload: Manual = {
+      ...manualForm,
+      tags: finalTags,
+      updatedAt: getTodayDate(),
+      viewScope: normalizeViewScope(manualForm.viewScope),
+    };
+
+    setSaving(true);
+    setBusyText(selectedManual === null ? "新規作成しています..." : "保存しています...");
+
     try {
       const isNew = selectedManual === null;
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+        ...getAdminHeaders(), // ✅ ここ重要（POST/PUTもadmin-key付与）
+      };
+
       const res = await fetch("/api/manuals", {
         method: isNew ? "POST" : "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error();
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "save failed");
+
       await loadAllData();
       setIsEditing(false);
       alert("保存しました");
-    } catch (e) {
-      alert("保存エラー");
+    } catch (e: any) {
+      alert(`保存エラー: ${e?.message || "不明なエラー"}`);
+    } finally {
+      setSaving(false);
+      setBusyText("");
     }
   };
 
   const handleCancel = () => {
     setIsEditing(false);
     const original = selectedManual || createEmptyManual();
-    setManualForm(original);
-    setTagInput((original.tags || []).join(", "));
+    setManualForm(createEmptyManual(original));
+    setTagInput(((original.tags as string[]) || []).join(", "));
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm("本当にこのマニュアルを削除しますか？")) return;
+
+    setSaving(true);
+    setBusyText("削除しています...");
+
     try {
-      const res = await fetch(`/api/manuals?manualId=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error();
+      const res = await fetch(`/api/manuals?manualId=${id}`, {
+        method: "DELETE",
+        headers: {
+          ...getAdminHeaders(), // ✅ ここ重要（DELETEもadmin-key付与）
+        },
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "delete failed");
+
       await loadAllData();
       setSelectedManual(null);
       setIsEditing(false);
       alert("削除しました");
-    } catch (e) {
-      alert("削除に失敗しました");
+    } catch (e: any) {
+      alert(`削除に失敗しました: ${e?.message || ""}`);
+    } finally {
+      setSaving(false);
+      setBusyText("");
     }
   };
 
   const filteredManuals = useMemo(() => {
     const kw = filterText.trim().toLowerCase();
-    return manuals.filter(m => m.title.toLowerCase().includes(kw) || m.tags?.some(t => t.toLowerCase().includes(kw)));
+    return manuals.filter((m) => {
+      const titleHit = (m.title || "").toLowerCase().includes(kw);
+      const idHit = (m.manualId || "").toLowerCase().includes(kw);
+      const tagHit = (m.tags || []).some((t) => (t || "").toLowerCase().includes(kw));
+      return !kw || titleHit || idHit || tagHit;
+    });
   }, [manuals, filterText]);
 
   return (
     <div className="kb-root">
-      {isCopying && (
-        <div className="kb-loading-overlay">
-          <div className="kb-spinner"></div>
-          <p>テンプレートをコピーしています...<br/>しばらくお待ちください</p>
-        </div>
-      )}
+      {/* ✅ 初回ロード / 保存 / コピー 全部同じ見た目 */}
+      {busy && <BusyOverlay text={busyText || "処理中..."} />}
 
       {showTemplateModal && (
         <div className="kb-modal-overlay">
           <div className="kb-modal-content">
             <div className="kb-modal-header">テンプレートの向きを選択</div>
-            <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '24px' }}>作成するマニュアルの形式を選んでください。</p>
-            
+            <p style={{ fontSize: 13, color: "#64748b", marginBottom: 24 }}>
+              作成するマニュアルの形式を選んでください。
+            </p>
+
             <div className="kb-template-options">
-              <button className="kb-template-card" onClick={() => handleExecuteCopy('landscape')}>
+              <button
+                className="kb-template-card"
+                onClick={() => handleExecuteCopy("landscape")}
+                disabled={busy}
+              >
                 <div className="kb-template-icon-wrapper">
-                  <div className="kb-template-icon landscape"></div>
+                  <div className="kb-template-icon landscape" />
                 </div>
                 <span>横Ver</span>
               </button>
-              
-              <button className="kb-template-card" onClick={() => handleExecuteCopy('portrait')}>
+
+              <button
+                className="kb-template-card"
+                onClick={() => handleExecuteCopy("portrait")}
+                disabled={busy}
+              >
                 <div className="kb-template-icon-wrapper">
-                  <div className="kb-template-icon portrait"></div>
+                  <div className="kb-template-icon portrait" />
                 </div>
                 <span>縦Ver</span>
               </button>
             </div>
-            
-            <button className="kb-secondary-btn" onClick={() => setShowTemplateModal(false)} style={{ marginTop: '32px', width: '100%' }}>キャンセル</button>
+
+            <button
+              className="kb-secondary-btn"
+              onClick={() => setShowTemplateModal(false)}
+              style={{ marginTop: 32, width: "100%" }}
+              disabled={busy}
+            >
+              キャンセル
+            </button>
           </div>
         </div>
       )}
 
       <div className="kb-topbar">
-        <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
-          <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
+        <Link
+          href="/admin"
+          style={{ display: "flex", alignItems: "center", gap: 20, textDecoration: "none" }}
+        >
+          <div
+            className="kb-topbar-left"
+            style={{ display: "flex", alignItems: "center", gap: 20, cursor: "pointer" }}
+          >
+            <img
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+              alt="Logo"
+              style={{ width: 48, height: 48, objectFit: "contain" }}
+            />
+            <img
+              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
+              alt="LogoText"
+              style={{ height: 22, objectFit: "contain" }}
+            />
           </div>
         </Link>
-        <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>マニュアル管理</div>
+
+        <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>
+          マニュアル管理
+        </div>
+
         <div className="kb-topbar-right">
-          <Link href="/admin"><button className="kb-logout-btn">管理メニューへ戻る</button></Link>
+          <Link href="/admin">
+            <button className="kb-logout-btn" disabled={busy}>
+              管理メニューへ戻る
+            </button>
+          </Link>
         </div>
       </div>
 
       <div className="kb-admin-grid-2col">
+        {/* 左：一覧 */}
         <div className="kb-admin-card-large">
           <div className="kb-panel-header-row">
-            <div className="kb-admin-head">マニュアル一覧（{loading ? '...' : manuals.length}件）</div>
-            <button className="kb-primary-btn" onClick={handleNewManual} style={{ fontSize: 13, padding: "8px 14px", borderRadius: 999 }}>＋ 新規作成</button>
+            <div className="kb-admin-head">マニュアル一覧（{loading ? "..." : manuals.length}件）</div>
+            <button
+              className="kb-primary-btn"
+              onClick={handleNewManual}
+              style={{ fontSize: 13, padding: "8px 14px", borderRadius: 999 }}
+              disabled={busy}
+            >
+              ＋ 新規作成
+            </button>
           </div>
-          <input type="text" className="kb-admin-input" placeholder="タイトル、ID、タグで検索..." value={filterText} onChange={e => setFilterText(e.target.value)} style={{ marginBottom: 12 }} />
+
+          <input
+            type="text"
+            className="kb-admin-input"
+            placeholder="タイトル、ID、タグで検索..."
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            style={{ marginBottom: 12 }}
+            disabled={busy}
+          />
+
           <div className="kb-manual-list-admin">
-            {!loading && filteredManuals.map(m => (
-              <div key={m.manualId} className={`kb-manual-item-admin ${selectedManual?.manualId === m.manualId ? "selected" : ""}`} onClick={() => handleEditManual(m)}>
-                <div className="kb-manual-title-admin">{m.type === "video" ? "🎬 " : "📄 "}{m.title}</div>
-                <div className="kb-manual-meta-admin">{brandMap[m.brandId || ""]?.name || "全社"} / {deptMap[m.bizId || ""]?.name || "未設定"} / 更新日: {m.updatedAt || '未設定'}</div>
-              </div>
-            ))}
+            {!loading &&
+              filteredManuals.map((m) => {
+                const selected = selectedManual?.manualId === m.manualId;
+                const scope = normalizeViewScope(m.viewScope);
+
+                return (
+                  <div
+                    key={m.manualId}
+                    className={`kb-manual-item-admin ${selected ? "selected" : ""}`}
+                    onClick={() => !busy && handleEditManual(m)}
+                    style={{ opacity: busy ? 0.6 : 1, pointerEvents: busy ? "none" : "auto" }}
+                  >
+                    <div className="kb-manual-title-admin">
+                      {m.type === "video" ? "🎬 " : "📄 "}
+                      {m.title}
+                      {scope === "direct" && <span className="kb-scope-badge">直営のみ</span>}
+                    </div>
+                    <div className="kb-manual-meta-admin">
+                      {brandMap[m.brandId || ""]?.name || "全社"} / {deptMap[m.bizId || ""]?.name || "未設定"} /
+                      更新日: {m.updatedAt || "未設定"}
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         </div>
 
+        {/* 右：詳細/編集 */}
         <div className="kb-admin-card-large">
-          <div className="kb-admin-head">{isEditing ? (selectedManual === null ? "新規マニュアル作成" : "マニュアル編集") : selectedManual ? "マニュアル詳細" : "マニュアル未選択"}</div>
-          {!selectedManual && !isEditing && !loading && <div style={{ color: '#6b7280', paddingTop: 30, textAlign: 'center' }}>編集したいマニュアルを選択するか、「＋ 新規作成」ボタンを押してください。</div>}
+          <div className="kb-admin-head">
+            {isEditing
+              ? selectedManual === null
+                ? "新規マニュアル作成"
+                : "マニュアル編集"
+              : selectedManual
+              ? "マニュアル詳細"
+              : "マニュアル未選択"}
+          </div>
+
+          {!selectedManual && !isEditing && !loading && (
+            <div style={{ color: "#6b7280", paddingTop: 30, textAlign: "center" }}>
+              編集したいマニュアルを選択するか、「＋ 新規作成」ボタンを押してください。
+            </div>
+          )}
+
           {(isEditing || selectedManual) && (
             <div className="kb-manual-form">
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">マニュアルID</label>
-                <input type="text" className="kb-admin-input full" value={manualForm.manualId} readOnly style={{ background: "#f3f4f8" }} />
+                <input
+                  type="text"
+                  className="kb-admin-input full"
+                  value={manualForm.manualId}
+                  readOnly
+                  style={{ background: "#f3f4f8" }}
+                />
               </div>
+
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">タイトル（必須）</label>
-                <input type="text" name="title" className="kb-admin-input full" value={manualForm.title || ""} onChange={handleInputChange} readOnly={!isEditing} />
+                <input
+                  type="text"
+                  name="title"
+                  className="kb-admin-input full"
+                  value={manualForm.title || ""}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                />
               </div>
-              
+
               <div className="kb-admin-form-row two-col">
                 <div>
                   <label className="kb-admin-label">タイプ</label>
-                  <select name="type" className="kb-admin-select full" value={manualForm.type || "doc"} onChange={handleInputChange} disabled={!isEditing}>
+                  <select
+                    name="type"
+                    className="kb-admin-select full"
+                    value={manualForm.type || "doc"}
+                    onChange={handleInputChange}
+                    disabled={!isEditing || busy}
+                  >
                     <option value="doc">資料（📄）</option>
                     <option value="video">動画（🎬）</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="kb-admin-label">ブランド</label>
-                  <select name="brandId" className="kb-admin-select full" value={manualForm.brandId || ""} onChange={handleInputChange} disabled={!isEditing}>
+                  <select
+                    name="brandId"
+                    className="kb-admin-select full"
+                    value={manualForm.brandId || ""}
+                    onChange={handleInputChange}
+                    disabled={!isEditing || busy}
+                  >
                     <option value="">- 全社 -</option>
-                    {brands.map(b => <option key={b.brandId} value={b.brandId}>{b.name}</option>)}
+                    {brands.map((b) => (
+                      <option key={b.brandId} value={b.brandId}>
+                        {b.name}
+                      </option>
+                    ))}
                   </select>
+                </div>
+              </div>
+
+              {/* ✅ 追加：閲覧権限 */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">閲覧権限</label>
+                <select
+                  name="viewScope"
+                  className="kb-admin-select full"
+                  value={normalizeViewScope(manualForm.viewScope)}
+                  onChange={handleInputChange}
+                  disabled={!isEditing || busy}
+                >
+                  <option value="all">すべて（直営 / FC / 本部）</option>
+                  <option value="direct">直営のみ（直営 / 本部）</option>
+                </select>
+                <div className="kb-subnote full" style={{ marginTop: 6 }}>
+                  ※「直営のみ」は <b>直営店舗</b> と <b>本部</b> のみ表示されます（FCは非表示）
                 </div>
               </div>
 
               <div className="kb-admin-form-row two-col">
                 <div>
                   <label className="kb-admin-label">公開開始日</label>
-                  <input type="date" name="startDate" className="kb-admin-input full" value={manualForm.startDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
+                  <input
+                    type="date"
+                    name="startDate"
+                    className="kb-admin-input full"
+                    value={manualForm.startDate || ""}
+                    onChange={handleInputChange}
+                    readOnly={!isEditing}
+                    disabled={busy}
+                  />
                 </div>
+
                 <div>
                   <label className="kb-admin-label">公開終了日</label>
-                  <input type="date" name="endDate" className="kb-admin-input full" value={manualForm.endDate || ""} onChange={handleInputChange} readOnly={!isEditing} />
+                  <input
+                    type="date"
+                    name="endDate"
+                    className="kb-admin-input full"
+                    value={manualForm.endDate || ""}
+                    onChange={handleInputChange}
+                    readOnly={!isEditing}
+                    disabled={busy}
+                  />
                 </div>
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信部署</label>
-                <select name="bizId" className="kb-admin-select full" value={manualForm.bizId || ""} onChange={handleInputChange} disabled={!isEditing}>
+                <select
+                  name="bizId"
+                  className="kb-admin-select full"
+                  value={manualForm.bizId || ""}
+                  onChange={handleInputChange}
+                  disabled={!isEditing || busy}
+                >
                   <option value="">- 選択しない -</option>
-                  {depts.map(d => <option key={d.deptId} value={d.deptId}>{d.name}</option>)}
+                  {depts.map((d) => (
+                    <option key={d.deptId} value={d.deptId}>
+                      {d.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">説明</label>
-                <textarea name="desc" className="kb-admin-textarea full" value={manualForm.desc || ""} onChange={handleInputChange} readOnly={!isEditing} rows={3} />
+                <textarea
+                  name="desc"
+                  className="kb-admin-textarea full"
+                  value={manualForm.desc || ""}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  rows={3}
+                  disabled={busy}
+                />
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">タグ（カンマ区切り）</label>
-                <input type="text" name="tags" className="kb-admin-input full" value={tagInput} onChange={handleInputChange} readOnly={!isEditing} placeholder="例: 経理, 請求, PDF" />
+                <input
+                  type="text"
+                  name="tags"
+                  className="kb-admin-input full"
+                  value={tagInput}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                  placeholder="例: 経理, 請求, PDF"
+                />
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">埋め込みURL（Google Drive/Slides）</label>
-                <input type="url" name="embedUrl" className="kb-admin-input full" value={manualForm.embedUrl || ""} onChange={handleInputChange} readOnly={!isEditing} placeholder="https://drive.google.com/..." />
+                <input
+                  type="url"
+                  name="embedUrl"
+                  className="kb-admin-input full"
+                  value={manualForm.embedUrl || ""}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                  placeholder="https://drive.google.com/..."
+                />
               </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">外部URL（参考リンクなど）</label>
-                <input type="url" name="externalUrl" className="kb-admin-input full" value={manualForm.externalUrl || ""} onChange={handleInputChange} readOnly={!isEditing} placeholder="https://example.com" />
-                <div className="kb-subnote full" style={{ marginTop: 4 }}>※埋め込みではなく、別タブで開くリンクとして利用されます。</div>
+                <input
+                  type="url"
+                  name="externalUrl"
+                  className="kb-admin-input full"
+                  value={manualForm.externalUrl || ""}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                  placeholder="https://example.com"
+                />
+                <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                  ※埋め込みではなく、別タブで開くリンクとして利用されます。
+                </div>
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input type="checkbox" name="noDownload" checked={!!manualForm.noDownload} onChange={handleInputChange} disabled={!isEditing} style={{ width: 18, height: 18 }} />
+                <label
+                  className="kb-admin-label"
+                  style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
+                >
+                  <input
+                    type="checkbox"
+                    name="noDownload"
+                    checked={!!manualForm.noDownload}
+                    onChange={handleInputChange}
+                    disabled={!isEditing || busy}
+                    style={{ width: 18, height: 18 }}
+                  />
                   <span>ダウンロードを禁止する（閲覧のみ）</span>
                 </label>
               </div>
@@ -392,26 +844,79 @@ export default function AdminManuals() {
               {getEmbedSrc(manualForm.embedUrl) && (
                 <div className="kb-admin-form-row full" style={{ marginTop: 20 }}>
                   <label className="kb-admin-label full">ライブプレビュー</label>
-                  <div style={{ width: "100%", paddingTop: "56.25%", position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid #e5e7eb", background: "#020617" }}>
-                    <iframe src={getEmbedSrc(manualForm.embedUrl)} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen loading="lazy" />
+                  <div
+                    style={{
+                      width: "100%",
+                      paddingTop: "56.25%",
+                      position: "relative",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      border: "1px solid #e5e7eb",
+                      background: "#020617",
+                    }}
+                  >
+                    <iframe
+                      src={getEmbedSrc(manualForm.embedUrl)}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        height: "100%",
+                        border: "none",
+                      }}
+                      allowFullScreen
+                      loading="lazy"
+                    />
                   </div>
                 </div>
               )}
 
-              <div className="kb-form-actions" style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <div
+                className="kb-form-actions"
+                style={{ display: "flex", gap: 12, justifyContent: "flex-end", marginTop: 20 }}
+              >
                 {selectedManual && (
-                  <button className="kb-delete-btn" onClick={() => handleDelete(selectedManual.manualId)} type="button" style={{ marginRight: 'auto' }}>削除</button>
+                  <button
+                    className="kb-delete-btn"
+                    onClick={() => handleDelete(selectedManual.manualId)}
+                    type="button"
+                    style={{ marginRight: "auto" }}
+                    disabled={busy}
+                  >
+                    削除
+                  </button>
                 )}
+
                 {isEditing && selectedManual === null && (
-                  <button className="kb-secondary-btn" onClick={handleOpenTemplateModal} disabled={isCopying} type="button">{isCopying ? "コピー中..." : "テンプレートから作成"}</button>
+                  <button
+                    className="kb-secondary-btn"
+                    onClick={handleOpenTemplateModal}
+                    type="button"
+                    disabled={busy}
+                  >
+                    テンプレートから作成
+                  </button>
                 )}
+
                 {isEditing ? (
                   <>
-                    <button className="kb-secondary-btn" onClick={handleCancel} type="button">中止</button>
-                    <button className="kb-primary-btn" onClick={handleSave} disabled={!manualForm.title} type="button">{selectedManual === null ? "新規作成" : "保存"}</button>
+                    <button className="kb-secondary-btn" onClick={handleCancel} type="button" disabled={busy}>
+                      中止
+                    </button>
+                    <button
+                      className="kb-primary-btn"
+                      onClick={handleSave}
+                      disabled={busy || !manualForm.title}
+                      type="button"
+                    >
+                      {selectedManual === null ? "新規作成" : "保存"}
+                    </button>
                   </>
                 ) : (
-                  <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button">編集</button>
+                  <button className="kb-primary-btn" onClick={() => setIsEditing(true)} type="button" disabled={busy}>
+                    編集
+                  </button>
                 )}
               </div>
             </div>
@@ -420,93 +925,315 @@ export default function AdminManuals() {
       </div>
 
       <style jsx>{`
-        .kb-root { background: #f8fafc; min-height: 100vh; font-family: 'Inter', -apple-system, sans-serif; }
-        .kb-topbar { background: #fff; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 100; }
-        .kb-logout-btn { background: #f1f5f9; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; color: #475569; cursor: pointer; transition: 0.2s; }
-        .kb-logout-btn:hover { background: #e2e8f0; }
-        .kb-admin-grid-2col { display: grid; grid-template-columns: 2fr 3fr; gap: 20px; padding: 20px; max-width: 1600px; margin: 0 auto; }
-        .kb-admin-card-large { background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid #e2e8f0; height: calc(100vh - 100px); display: flex; flex-direction: column; }
-        .kb-panel-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .kb-admin-head { font-size: 1.25rem; font-weight: 800; color: #1e293b; }
-        .kb-admin-input { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; transition: 0.2s; }
-        .kb-admin-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-        .kb-manual-list-admin { flex: 1; overflow-y: auto; padding-right: 4px; }
-        .kb-manual-item-admin { padding: 16px; border-radius: 12px; background: #f8fafc; cursor: pointer; margin-bottom: 12px; border: 1px solid #f1f5f9; transition: 0.2s; }
-        .kb-manual-item-admin:hover { background: #f1f5f9; transform: translateY(-1px); }
-        .kb-manual-item-admin.selected { background: #eff6ff; border-color: #3b82f6; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08); }
-        .kb-manual-title-admin { font-size: 14px; font-weight: 700; color: #1e293b; }
-        .kb-manual-meta-admin { font-size: 12px; color: #64748b; margin-top: 6px; }
-        .kb-manual-form { flex: 1; overflow-y: auto; padding-right: 4px; }
-        .kb-admin-form-row { margin-bottom: 20px; }
-        .kb-admin-form-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .kb-admin-label { font-size: 13px; font-weight: 700; color: #475569; margin-bottom: 8px; display: block; }
-        .kb-admin-select, .kb-admin-textarea { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; background: #fff; }
-        .kb-admin-textarea { resize: vertical; min-height: 80px; }
-        .kb-subnote { font-size: 12px; color: #94a3b8; }
-        .kb-form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px dashed #e2e8f0; }
-        .kb-primary-btn { background: #3b82f6; color: #fff; padding: 10px 24px; border-radius: 999px; border: none; font-weight: 700; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2); }
-        .kb-primary-btn:hover { background: #2563eb; transform: translateY(-1px); }
-        .kb-primary-btn:disabled { background: #94a3b8; cursor: not-allowed; transform: none; box-shadow: none; }
-        .kb-secondary-btn { background: #fff; border: 1px solid #cbd5e1; color: #475569; padding: 10px 24px; border-radius: 999px; font-weight: 700; cursor: pointer; transition: 0.2s; }
-        .kb-secondary-btn:hover { background: #f8fafc; border-color: #94a3b8; }
-        .kb-delete-btn { background: #fff1f2; color: #e11d48; padding: 10px 24px; border-radius: 999px; border: 1px solid #fecaca; font-weight: 700; cursor: pointer; transition: 0.2s; }
-        .kb-delete-btn:hover { background: #ffe4e6; border-color: #fb7185; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .kb-root {
+          background: #f8fafc;
+          min-height: 100vh;
+          font-family: "Inter", -apple-system, sans-serif;
+        }
+        .kb-topbar {
+          background: #fff;
+          padding: 12px 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 1px solid #e2e8f0;
+          position: sticky;
+          top: 0;
+          z-index: 100;
+        }
+        .kb-logout-btn {
+          background: #f1f5f9;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-weight: 600;
+          color: #475569;
+          cursor: pointer;
+          transition: 0.2s;
+        }
+        .kb-logout-btn:hover {
+          background: #e2e8f0;
+        }
 
-        /* ✅ モーダル用：画像を完全中央に、文字の高さを左右で一致させる */
-        .kb-modal-overlay { 
-          position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; 
-          background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px);
-          display: flex; align-items: center; justify-content: center; z-index: 10000; 
+        .kb-admin-grid-2col {
+          display: grid;
+          grid-template-columns: 2fr 3fr;
+          gap: 20px;
+          padding: 20px;
+          max-width: 1600px;
+          margin: 0 auto;
         }
-        .kb-modal-content { 
-          background: #fff; padding: 32px; border-radius: 24px; 
-          width: 440px; max-width: 90%; text-align: center; 
-          box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); border: 1px solid #f1f5f9;
+        .kb-admin-card-large {
+          background: #fff;
+          border-radius: 16px;
+          padding: 24px;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+          border: 1px solid #e2e8f0;
+          height: calc(100vh - 100px);
+          display: flex;
+          flex-direction: column;
         }
-        .kb-modal-header { font-size: 20px; font-weight: 800; margin-bottom: 8px; color: #1e293b; }
-        .kb-template-options { 
-          display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 32px; 
-          align-items: stretch; /* 左右のカードの高さを揃える */
+        .kb-panel-header-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
         }
-        .kb-template-card { 
-          border: 2px solid #e2e8f0; background: #f8fafc; border-radius: 16px; 
-          padding: 24px 16px; cursor: pointer; transition: all 0.2s ease;
-          display: flex; flex-direction: column; align-items: center; 
-          justify-content: space-between; /* 上(アイコン)と下(文字)を離して配置 */
+        .kb-admin-head {
+          font-size: 1.25rem;
+          font-weight: 800;
+          color: #1e293b;
         }
-        .kb-template-card:hover { border-color: #3b82f6; background: #eff6ff; transform: translateY(-4px); }
-        
-        /* アイコンを常に中央配置するためのラッパー */
+        .kb-admin-input {
+          width: 100%;
+          padding: 10px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          font-size: 14px;
+          transition: 0.2s;
+        }
+        .kb-admin-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .kb-manual-list-admin {
+          flex: 1;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+        .kb-manual-item-admin {
+          padding: 16px;
+          border-radius: 12px;
+          background: #f8fafc;
+          cursor: pointer;
+          margin-bottom: 12px;
+          border: 1px solid #f1f5f9;
+          transition: 0.2s;
+        }
+        .kb-manual-item-admin:hover {
+          background: #f1f5f9;
+          transform: translateY(-1px);
+        }
+        .kb-manual-item-admin.selected {
+          background: #eff6ff;
+          border-color: #3b82f6;
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
+        }
+        .kb-manual-title-admin {
+          font-size: 14px;
+          font-weight: 700;
+          color: #1e293b;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .kb-scope-badge {
+          font-size: 11px;
+          font-weight: 800;
+          padding: 3px 10px;
+          border-radius: 999px;
+          border: 1px solid #fecaca;
+          background: #fff1f2;
+          color: #e11d48;
+        }
+        .kb-manual-meta-admin {
+          font-size: 12px;
+          color: #64748b;
+          margin-top: 6px;
+        }
+        .kb-manual-form {
+          flex: 1;
+          overflow-y: auto;
+          padding-right: 4px;
+        }
+        .kb-admin-form-row {
+          margin-bottom: 20px;
+        }
+        .kb-admin-form-row.two-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+        .kb-admin-label {
+          font-size: 13px;
+          font-weight: 700;
+          color: #475569;
+          margin-bottom: 8px;
+          display: block;
+        }
+        .kb-admin-select,
+        .kb-admin-textarea {
+          width: 100%;
+          padding: 10px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          font-size: 14px;
+          background: #fff;
+        }
+        .kb-admin-textarea {
+          resize: vertical;
+          min-height: 80px;
+        }
+        .kb-subnote {
+          font-size: 12px;
+          color: #94a3b8;
+        }
+        .kb-form-actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+          margin-top: 30px;
+          padding-top: 20px;
+          border-top: 1px dashed #e2e8f0;
+        }
+        .kb-primary-btn {
+          background: #3b82f6;
+          color: #fff;
+          padding: 10px 24px;
+          border-radius: 999px;
+          border: none;
+          font-weight: 700;
+          cursor: pointer;
+          transition: 0.2s;
+          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+        }
+        .kb-primary-btn:hover {
+          background: #2563eb;
+          transform: translateY(-1px);
+        }
+        .kb-primary-btn:disabled {
+          background: #94a3b8;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
+        }
+        .kb-secondary-btn {
+          background: #fff;
+          border: 1px solid #cbd5e1;
+          color: #475569;
+          padding: 10px 24px;
+          border-radius: 999px;
+          font-weight: 700;
+          cursor: pointer;
+          transition: 0.2s;
+        }
+        .kb-secondary-btn:hover {
+          background: #f8fafc;
+          border-color: #94a3b8;
+        }
+        .kb-delete-btn {
+          background: #fff1f2;
+          color: #e11d48;
+          padding: 10px 24px;
+          border-radius: 999px;
+          border: 1px solid #fecaca;
+          font-weight: 700;
+          cursor: pointer;
+          transition: 0.2s;
+        }
+        .kb-delete-btn:hover {
+          background: #ffe4e6;
+          border-color: #fb7185;
+        }
+
+        ::-webkit-scrollbar {
+          width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+
+        /* モーダル */
+        .kb-modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          background: rgba(15, 23, 42, 0.6);
+          backdrop-filter: blur(4px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 10000;
+        }
+        .kb-modal-content {
+          background: #fff;
+          padding: 32px;
+          border-radius: 24px;
+          width: 440px;
+          max-width: 90%;
+          text-align: center;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          border: 1px solid #f1f5f9;
+        }
+        .kb-modal-header {
+          font-size: 20px;
+          font-weight: 800;
+          margin-bottom: 8px;
+          color: #1e293b;
+        }
+        .kb-template-options {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-top: 32px;
+          align-items: stretch;
+        }
+        .kb-template-card {
+          border: 2px solid #e2e8f0;
+          background: #f8fafc;
+          border-radius: 16px;
+          padding: 24px 16px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .kb-template-card:hover {
+          border-color: #3b82f6;
+          background: #eff6ff;
+          transform: translateY(-4px);
+        }
         .kb-template-icon-wrapper {
-          flex: 1; 
-          display: flex; align-items: center; justify-content: center;
-          margin-bottom: 16px; min-height: 60px; /* アイコンの高さに合わせた最小値 */
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin-bottom: 16px;
+          min-height: 60px;
         }
-        .kb-template-icon { background: #cbd5e1; border-radius: 4px; border: 2px solid #94a3b8; }
-        .kb-template-icon.landscape { width: 56px; height: 36px; }
-        .kb-template-icon.portrait { width: 36px; height: 56px; }
-        
-        .kb-template-card span { 
-          font-size: 14px; font-weight: 700; color: #1e293b; 
-          display: block; width: 100%; text-align: center;
+        .kb-template-icon {
+          background: #cbd5e1;
+          border-radius: 4px;
+          border: 2px solid #94a3b8;
         }
-
-        .kb-loading-overlay {
-          position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-          background: rgba(255, 255, 255, 0.85); display: flex; flex-direction: column;
-          align-items: center; justify-content: center; z-index: 9999;
+        .kb-template-icon.landscape {
+          width: 56px;
+          height: 36px;
         }
-        .kb-spinner {
-          width: 50px; height: 50px; border: 5px solid #e2e8f0;
-          border-top: 5px solid #3b82f6; border-radius: 50%;
-          animation: spin 1s linear infinite; margin-bottom: 16px;
+        .kb-template-icon.portrait {
+          width: 36px;
+          height: 56px;
         }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .kb-loading-overlay p { font-weight: 700; color: #1e293b; text-align: center; line-height: 1.6; }
+        .kb-template-card span {
+          font-size: 14px;
+          font-weight: 700;
+          color: #1e293b;
+          display: block;
+          width: 100%;
+          text-align: center;
+        }
       `}</style>
     </div>
   );

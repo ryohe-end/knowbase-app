@@ -1,7 +1,16 @@
 "use client";
 
-import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
-export default function Loading() {
+type Props = {
+  text?: string;
+  visible?: boolean;
+};
+
+export default function AdminLoadingOverlay({
+  text = "KnowBase 管理画面を読み込み中...",
+  visible = true,
+}: Props) {
+  if (!visible) return null;
+
   return (
     <div
       className="kb-loading-full-overlay"
@@ -16,6 +25,9 @@ export default function Loading() {
         textAlign: "center",
         minHeight: "100vh",
       }}
+      role="alert"
+      aria-busy="true"
+      aria-live="polite"
     >
       <div
         className="kb-loading-main-box"
@@ -59,7 +71,7 @@ export default function Loading() {
           className="kb-loading-status"
           style={{ fontSize: 13, color: "#64748b", fontWeight: 600, margin: 0 }}
         >
-          KnowBase 管理画面を読み込み中...
+          {text}
         </p>
       </div>
 
@@ -92,9 +104,10 @@ export default function Loading() {
             transform: translateX(200%);
           }
         }
-          .kb-loading-full-overlay {
-  pointer-events: none;
-}
+        /* ✅ saving中は操作させないのが安全 */
+        .kb-loading-full-overlay {
+          pointer-events: all;
+        }
       `}</style>
     </div>
   );
