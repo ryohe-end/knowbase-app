@@ -25,7 +25,7 @@ type Manual = {
   readCount?: number;
   startDate?: string;
   endDate?: string;
-  viewScope?: "ALL" | "DIRECT";
+  viewScope?: "all" | "direct";
 };
 
 type Brand = {
@@ -84,7 +84,7 @@ type SourceAttribution = {
   documentId?: string;
 
   // たまに来る可能性があるので保険で許可
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 type ExternalLink = {
@@ -103,19 +103,18 @@ const ALL_DEPT_ID = "__ALL_DEPT__";
 const INQUIRY_MAIL = "support@example.com";
 
 function buildGroupIdsHeader(groupId?: string) {
-  // ✅ ルール：本部(g003)は常に閲覧OKにしたいので常に含める
-  // - 直営(g001) → "g001,g003"
-  // - FC(g002)   → "g002,g003"
-  // - 本部(g003) → "g003"
   const HQ = "g003";
+  const FRANCHISE = "g002";
+  if (!groupId) return "";
 
-  const raw = [groupId, HQ].filter(Boolean) as string[];
-  const uniq = Array.from(new Set(raw));
-
-  // groupIdが本部なら g003 のみに寄せる
   if (groupId === HQ) return HQ;
 
-  return uniq.join(",");
+  // ✅ フランチャイズは自分のグループだけ
+  if (groupId === FRANCHISE) return FRANCHISE;
+
+  // ✅ それ以外は「自分 + 本部」
+  const raw = [groupId, HQ].filter(Boolean) as string[];
+  return Array.from(new Set(raw)).join(",");
 }
 
 /* ========= ヘルパー関数: JST変換 ========= */
@@ -136,6 +135,14 @@ function formatToJST(dateStr?: string) {
     return dateStr;
   }
 }
+
+type ManualViewScope = "all" | "direct";
+
+const normalizeManualViewScope = (v: any): ManualViewScope => {
+  const s = String(v ?? "").trim();
+  if (s === "DIRECT" || s === "direct") return "direct";
+  return "all"; // ALL/undefined/その他は all
+};
 
 /* ========= キーワード分解（単語検索用） ========= */
 function tokenizeJP(input: string) {
@@ -495,7 +502,9 @@ export default function HomePage() {
   const router = useRouter();
 
   /* ========= ユーザー情報 ========= */
-  const [me, setMe] = useState<any>(null);
+  type Me = { name?: string; email?: string; role?: string; groupId?: string; mustChangePassword?: boolean };
+
+const [me, setMe] = useState<Me | null>(null);
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
   const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
 
@@ -657,126 +666,142 @@ useEffect(() => {
     }, 3000);
 
     try {
-      const res = await fetch("/api/amazonq", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userPrompt }),
-      });
+  const res = await fetch("/api/amazonq", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: userPrompt }),
+  });
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        try {
-          const j = JSON.parse(text);
-          throw new Error(j.error || j.message || `Server error: ${res.status}`);
-        } catch {
-          throw new Error(text || `Server error: ${res.status}`);
-        }
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-
-      // assistantを空にしてストリーム開始
-      setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m)));
-
-      // ✅ SSE
-      if (contentType.includes("text/event-stream")) {
-        const handleSseBlock = (block: string) => {
-          const eventName = extractSseEventName(block);
-          const data = extractSseData(block);
-
-          if (eventName === "ping") return { stop: false };
-
-          if (eventName === "sources") {
-            try {
-              const parsed = JSON.parse(data || "[]");
-              if (Array.isArray(parsed)) {
-                setSources((prev) => mergeSources(prev, parsed));
-              }
-            } catch (e) {
-              console.warn("Failed to parse sources:", e, data);
-            }
-            return { stop: false };
-          }
-
-          if (eventName === "done" || data === "[DONE]") {
-            setAssistantDone();
-            return { stop: true };
-          }
-
-          if (eventName === "error") {
-            try {
-              const j = JSON.parse(data || "{}");
-              throw new Error(j.error || JSON.stringify(j));
-            } catch {
-              throw new Error(data || "unknown stream error");
-            }
-          }
-
-          if (data) appendToAssistant(data);
-          return { stop: false };
-        };
-
-        if (!res.body) {
-          const all = await res.text().catch(() => "");
-          const blocks = all.split("\n\n");
-          for (const b of blocks) {
-            const r = handleSseBlock(b);
-            if (r?.stop) return;
-          }
-          setAssistantDone();
-          return;
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop() ?? "";
-
-          for (const part of parts) {
-            const r = handleSseBlock(part);
-            if (r?.stop) return;
-          }
-        }
-
-        setAssistantDone();
-        return;
-      }
-
-      // ✅ SSEじゃない場合（JSON or text）
-      const text = await res.text().catch(() => "");
-      let answer = text;
-
-      try {
-        const j = JSON.parse(text);
-
-        if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
-        if (j?.error) throw new Error(j.error);
-
-        answer = String(j.text ?? j.answer ?? "");
-
-        const incoming = Array.isArray(j.sources) ? j.sources : [];
-        setSources(incoming);
-        setShowSources(incoming.length > 0);
-      } catch {
-        setSources([]);
-        setShowSources(false);
-      }
-
-      setMessages((prev) =>
-        prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
-      );
-    } finally {
-      window.clearTimeout(slowTimer);
-      setLoadingAI(false);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    try {
+      const j = JSON.parse(text);
+      throw new Error(j.error || j.message || `Server error: ${res.status}`);
+    } catch {
+      throw new Error(text || `Server error: ${res.status}`);
     }
+  }
+
+  const contentType = res.headers.get("content-type") || "";
+
+  // assistantを空にしてストリーム開始
+  setMessages((prev) =>
+    prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m))
+  );
+
+  // ✅ SSE
+  if (contentType.includes("text/event-stream")) {
+    const handleSseBlock = (block: string) => {
+      const eventName = extractSseEventName(block);
+      const data = extractSseData(block);
+
+      if (eventName === "ping") return { stop: false };
+
+      if (eventName === "sources") {
+        try {
+          const parsed = JSON.parse(data || "[]");
+          if (Array.isArray(parsed)) {
+            setSources((prev) => mergeSources(prev, parsed));
+            // ✅ 参照元が来たら自動で開きたいならON（好みで）
+            // setShowSources(true);
+          }
+        } catch (e) {
+          console.warn("Failed to parse sources:", e, data);
+        }
+        return { stop: false };
+      }
+
+      if (eventName === "done" || data === "[DONE]") {
+        setAssistantDone();
+        return { stop: true };
+      }
+
+      if (eventName === "error") {
+        try {
+          const j = JSON.parse(data || "{}");
+          throw new Error(j.error || JSON.stringify(j));
+        } catch {
+          throw new Error(data || "unknown stream error");
+        }
+      }
+
+      if (data) appendToAssistant(data);
+      return { stop: false };
+    };
+
+    if (!res.body) {
+      const all = await res.text().catch(() => "");
+      const blocks = all.split("\n\n");
+      for (const b of blocks) {
+        const r = handleSseBlock(b);
+        if (r?.stop) return;
+      }
+      setAssistantDone();
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const part of parts) {
+        const r = handleSseBlock(part);
+        if (r?.stop) return;
+      }
+    }
+
+    setAssistantDone();
+    return;
+  }
+
+  // ✅ SSEじゃない場合（JSON or text）
+  const text = await res.text().catch(() => "");
+  let answer = text;
+
+  try {
+    const j = JSON.parse(text);
+
+    if (j?.ok === false) throw new Error(j.error || j.message || "Unknown error");
+    if (j?.error) throw new Error(j.error);
+
+    answer = String(j.text ?? j.answer ?? "");
+
+    const incoming = Array.isArray(j.sources) ? j.sources : [];
+    setSources(incoming);
+    setShowSources(incoming.length > 0);
+  } catch {
+    setSources([]);
+    setShowSources(false);
+  }
+
+  setMessages((prev) =>
+    prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+  );
+} catch (err: unknown) {
+  const msg = err instanceof Error ? err.message : String(err);
+}
+  setMessages((prev) =>
+    prev.map((m) =>
+      m.id === newAssistantId
+        ? { ...m, content: `エラーが発生しました：${msg}`, loading: false }
+        : m
+    )
+  );
+  setSources([]);
+  setShowSources(false);
+} finally {
+  window.clearTimeout(slowTimer);
+  setLoadingAI(false);
+}
   }
 
   /* ========= データ ========= */
@@ -829,57 +854,71 @@ useEffect(() => {
     });
   };
 
-  // ✅ 初期データロード
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // ✅ 1) me を取得（先）
-        const meRes = await fetch("/api/me", { cache: "no-store" });
-        const meJson = await meRes.json().catch(() => ({}));
-        const user = meJson.user || null;
-        setMe(user);
+  // ✅ 初期データロード（me確定後）
+useEffect(() => {
+  // me がまだ無い（認証中/未ログイン）なら何もしない
+  if (!me) return;
 
-        // ✅ 2) group header
-        const groupIds = buildGroupIdsHeader(user?.groupId);
-        const groupHeaders: HeadersInit = groupIds ? { "x-kb-group-ids": groupIds } : {};
+  let cancelled = false;
 
-        // ✅ 3) まとめて取得
-        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes] = await Promise.all([
-          fetch("/api/manuals", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
-          fetch("/api/brands", { cache: "no-store" }).then((res) => res.json()),
-          fetch("/api/depts", { cache: "no-store" }).then((res) => res.json()),
-          fetch("/api/contacts", { cache: "no-store" }).then((res) => res.json()),
-          fetch("/api/news?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
-          fetch("/api/external-links", { cache: "no-store" }).then((res) => res.json()),
-        ]);
+  const fetchData = async () => {
+    try {
+      // ✅ group header（me.groupId がある時だけ付与）
+      const groupIds = me?.groupId ? buildGroupIdsHeader(me.groupId) : "";
+const groupHeaders: HeadersInit = groupIds
+  ? { "x-kb-group-ids": groupIds }
+  : {};
 
-        const brandsList: Brand[] = (brandsRes.brands || []).sort(
-          (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-        );
-        const deptsList: Dept[] = (deptsRes.depts || []).sort(
-          (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
-        );
 
-        setManuals(manualsRes.manuals || []);
-        setBrands(brandsList);
-        setDepts(deptsList);
-        setContacts(contactsRes.contacts || []);
-        setNewsList(newsRes.news || []);
-        setExternalLinks(linksRes.links || []);
-      } catch (e) {
-        console.error("Failed to fetch initial data:", e);
-      } finally {
-        setIsInitialLoading(false);
-        setLoadingManuals(false);
-        setLoadingBrands(false);
-        setLoadingDepts(false);
-        setLoadingContacts(false);
-        setLoadingNews(false);
-      }
-    };
+      // ✅ まとめて取得
+      const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes] = await Promise.all([
+        fetch("/api/manuals", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/brands", { cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/depts", { cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/contacts", { cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/news?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/external-links", { cache: "no-store" }).then((res) => res.json()),
+      ]);
 
-    fetchData();
-  }, []);
+      if (cancelled) return;
+
+      const brandsList: Brand[] = (brandsRes.brands || []).sort(
+        (a: Brand, b: Brand) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      );
+      const deptsList: Dept[] = (deptsRes.depts || []).sort(
+        (a: Dept, b: Dept) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      );
+
+      setManuals(
+        (manualsRes.manuals || []).map((m: any) => ({
+          ...m,
+          viewScope: normalizeManualViewScope(m.viewScope),
+        }))
+      );
+      setBrands(brandsList);
+      setDepts(deptsList);
+      setContacts(contactsRes.contacts || []);
+      setNewsList(newsRes.news || []);
+      setExternalLinks(linksRes.links || []);
+    } catch (e) {
+      console.error("Failed to fetch initial data:", e);
+    } finally {
+      if (cancelled) return;
+      setIsInitialLoading(false);
+      setLoadingManuals(false);
+      setLoadingBrands(false);
+      setLoadingDepts(false);
+      setLoadingContacts(false);
+      setLoadingNews(false);
+    }
+  };
+
+  fetchData();
+
+  return () => {
+    cancelled = true;
+  };
+}, [me]);
 
   const brandMap = useMemo(
     () =>
@@ -912,22 +951,27 @@ useEffect(() => {
   }, [depts]);
 
   const filteredManuals = useMemo(() => {
-    const tokens = tokenizeJP(keyword);
-    const hasTokens = tokens.length > 0;
+  const tokens = tokenizeJP(keyword);
+  const hasTokens = tokens.length > 0;
 
-    return manuals.filter((m) => {
-      if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
-      if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
+  const isFranchise = me?.groupId === "g002";
 
-      if (!hasTokens) return true;
+  return manuals.filter((m) => {
+    // ✅ フランチャイズは direct のみ表示
+    if (isFranchise && normalizeManualViewScope((m as any).viewScope) !== "direct") return false;
 
-      const haystack = [m.title ?? "", m.desc ?? "", ...(m.tags ?? []), m.brand ?? "", m.biz ?? ""]
-        .join(" ")
-        .toLowerCase();
+    if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
+    if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
 
-      return tokens.some((t) => haystack.includes(t));
-    });
-  }, [manuals, keyword, selectedBrandId, selectedDeptId]);
+    if (!hasTokens) return true;
+
+    const haystack = [m.title ?? "", m.desc ?? "", ...(m.tags ?? []), m.brand ?? "", m.biz ?? ""]
+      .join(" ")
+      .toLowerCase();
+
+    return tokens.some((t) => haystack.includes(t));
+  });
+}, [manuals, keyword, selectedBrandId, selectedDeptId, me]);
 
   useEffect(() => setManualPage(1), [keyword, selectedBrandId, selectedDeptId]);
 
@@ -982,9 +1026,10 @@ useEffect(() => {
       .filter((n) => {
         if (n.isHidden) return false;
 
-        if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
-          if (!n.targetGroupIds.includes(me.groupId)) return false;
-        }
+        // ✅ API側でグループ制御している前提なら、ここは削除してOK
+// if (me && n.targetGroupIds && n.targetGroupIds.length > 0) {
+//   if (!n.targetGroupIds.includes(me.groupId)) return false;
+// }
 
         if (selectedBrandId !== ALL_BRAND_ID && n.brandId !== "ALL" && (n.brandId ?? "") !== selectedBrandId)
           return false;
@@ -1589,12 +1634,13 @@ useEffect(() => {
             {!loadingManuals && filteredManuals.length > 0 && (
               <>
                 <ManualList
-                  manuals={pagedManuals.map((m) => ({
-                    ...m,
-                    startDate: formatToJST(m.startDate),
-                    updatedAt: formatToJST(m.updatedAt),
-                  }))}
-                />
+  manuals={pagedManuals.map((m) => ({
+    ...m,
+    startDate: formatToJST(m.startDate),
+    updatedAt: formatToJST(m.updatedAt),
+    viewScope: normalizeManualViewScope((m as any).viewScope),
+  }))}
+/>
 
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
