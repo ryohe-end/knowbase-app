@@ -7,8 +7,8 @@ type Props = { manuals: (Manual & { externalUrl?: string })[] };
 
 function safeOpen(url: string) {
   if (!url) return;
-  const w = window.open(url, "_blank", "noopener,noreferrer");
-  if (!w) window.location.href = url;
+  // ✅ 外部リンクを常に別タブで開く
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /**
@@ -18,22 +18,17 @@ function toEmbeddableUrl(url: string, isVideo: boolean) {
   const u = (url ?? "").trim();
   if (!u) return "";
 
-  // 1. YouTube 対策 (最優先)
-  // watch?v=ID, youtu.be/ID, embed/ID, shorts/ID すべてからID(11文字)を正確に抽出
   const ytMatch = u.match(
     /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
   );
 
   if (ytMatch?.[1]) {
-    // ⚠️ 接続拒否を防ぐため www.youtube-nocookie.com (プライバシー強化モード) を使用
     return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0&enablejsapi=1`;
   }
 
-  // 2. Google Drive
   const driveMatch = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
   if (driveMatch?.[1]) return `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
 
-  // 3. Google Slides / Docs / Sheets
   const docsMatch = u.match(
     /docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([^/]+)/
   );
@@ -77,9 +72,7 @@ export default function ManualList({ manuals }: Props) {
   const [modalUrl, setModalUrl] = useState("");
   const [rawUrl, setRawUrl] = useState("");
 
-  // ✅ react-hooks/purity 対策：Date.now() を render(map) 中で呼ばない
-  //   （マウント時に 1回だけ固定の now を確保）
-    const [now, setNow] = useState<number>(0);
+  const [now, setNow] = useState<number>(0);
   useEffect(() => {
     setNow(Date.now());
   }, []);
@@ -126,7 +119,6 @@ export default function ManualList({ manuals }: Props) {
 
       <div className="kbm-list">
         {sorted.map((m) => {
-          // DBの値を優先。なければURL判定
           const type: "video" | "doc" =
             m.type ||
             ((m.embedUrl ?? "").includes("youtube") || (m.embedUrl ?? "").includes("youtu.be")
@@ -139,7 +131,6 @@ export default function ManualList({ manuals }: Props) {
           const embeddable = hasPreview ? toEmbeddableUrl(previewRaw, isVideo) : "";
 
           const dlDisabled = !!m.noDownload || !m.embedUrl;
-          const dlReason = dlDisabled ? "このマニュアルはダウンロード不可です" : "";
           const downloadUrl = dlDisabled ? undefined : toDownloadUrl(previewRaw, isVideo);
 
           const updated = parseTime(m.updatedAt);
@@ -176,12 +167,10 @@ export default function ManualList({ manuals }: Props) {
                   </div>
 
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
-
-                  {/* もし使うなら tooltip 等に dlReason を使える（今は保持だけ） */}
-                  {dlDisabled && dlReason ? null : null}
                 </div>
 
-                <div className="kbm-right" style={{ zIndex: 10 }}>
+                {/* ✅ ボタン配置の修正：プレビュー、DL、外部リンク */}
+                <div className="kbm-right" style={{ zIndex: 10, display: 'flex', gap: '8px' }}>
                   <button
                     className="kbm-btn kbm-btn-primary"
                     type="button"
@@ -212,6 +201,21 @@ export default function ManualList({ manuals }: Props) {
                   >
                     DL
                   </a>
+
+                  {/* ✅ 外部リンクボタン（存在する時のみ） */}
+                  {m.externalUrl && (
+                    <button
+                      className="kbm-btn"
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        safeOpen(m.externalUrl!);
+                      }}
+                    >
+                      外部リンク
+                    </button>
+                  )}
                 </div>
               </div>
             </article>
