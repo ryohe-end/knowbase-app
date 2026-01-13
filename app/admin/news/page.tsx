@@ -326,6 +326,24 @@ export default function AdminNewsPage() {
 
       // ✅ 保存後に通知（失敗しても保存は成功扱い）
       try {
+      const isNew = !selected;
+
+      const res = await fetch("/api/news", {
+        method: isNew ? "POST" : "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...getAdminHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = json?.detail ? `${json.error}: ${json.detail}` : json?.error || "save failed";
+        throw new Error(msg);
+      }
+
+      try {
         await fetch("/api/news/notify", {
           method: "POST",
           headers: {
@@ -337,17 +355,10 @@ export default function AdminNewsPage() {
       } catch (e) {
         console.warn("notify failed:", e);
       }
-      
-
-      await fetch("/api/news/notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
-        body: JSON.stringify({ newsId: payload.newsId }),
-      }).catch(console.warn);
 
       await loadNews();
       setIsEditing(false);
-      alert("保存しました（通知処理も実行しました）");
+      alert("保存しました"); 
     } catch (e: any) {
       alert(`保存エラー: ${e?.message || ""}`);
     } finally {
