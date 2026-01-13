@@ -21,6 +21,7 @@ type News = {
   viewScope?: ViewScope;
 
   // API互換（来てもOK）
+  publishAt?: string | null;
   createdAt?: string;
   isHidden?: boolean;
 };
@@ -63,6 +64,7 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     startDate: "",
     endDate: "",
     url: "",
+    publishAt: "",
     ...initial,
   } as any;
 
@@ -210,6 +212,7 @@ export default function AdminNewsPage() {
         updatedAt: n.updatedAt || "",
         startDate: n.startDate || "",
         endDate: n.endDate || "",
+        publishAt: n.publishAt || "",
         tags: normalizeTags(n.tags),
         viewScope: normalizeViewScope(n.viewScope),
         createdAt: n.createdAt || "",
@@ -296,6 +299,7 @@ export default function AdminNewsPage() {
       ...form,
       tags: finalTags,
       updatedAt: getTodayDate(),
+      publishAt: form.publishAt || null,
       viewScope: normalizeViewScope(form.viewScope),
     };
 
@@ -333,6 +337,13 @@ export default function AdminNewsPage() {
       } catch (e) {
         console.warn("notify failed:", e);
       }
+      
+
+      await fetch("/api/news/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAdminHeaders() },
+        body: JSON.stringify({ newsId: payload.newsId }),
+      }).catch(console.warn);
 
       await loadNews();
       setIsEditing(false);
@@ -531,6 +542,22 @@ export default function AdminNewsPage() {
                   />
                 </div>
               </div>
+              
+
+              {/* ✅ 配信予約日時フィールドの追加 */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label">配信予約日時（タイマー設定）</label>
+                <input
+                  type="datetime-local"
+                  name="publishAt"
+                  className="kb-admin-input full"
+                  value={form.publishAt || ""}
+                  onChange={handleChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                />
+                <div className="kb-subnote">※指定した日時になるまでユーザー画面には表示されません（空欄で即時配信）。</div>
+              </div> 
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">本文</label>

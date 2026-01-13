@@ -1,7 +1,7 @@
 // app/api/news/notify/route.ts
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 
 /** ========= 設定 ========= */
@@ -80,160 +80,158 @@ function uniq(arr: string[]) {
   return Array.from(new Set(arr));
 }
 
+/**
+ * 特定のお知らせ1件を配信し、フラグを更新する共通関数
+ */
+async function processNotification(news: any, allUsers: any[]) {
+  const { from } = initSendGrid();
+  const viewScope = normalizeViewScope(news.viewScope);
+
+  const activeUsers = allUsers.filter((u) => u?.isActive !== false && isValidEmail(u?.email));
+
+  const targetUsers = activeUsers.filter((user) => {
+    const brandId = String(news.brandId ?? "ALL");
+    const deptId = String(news.deptId ?? "ALL");
+    const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds : [];
+
+    const matchBrand = brandId === "ALL" || !brandId || user.brandId === brandId;
+    const matchDept = deptId === "ALL" || !deptId || user.deptId === deptId;
+    const matchGroup = targetGroupIds.length === 0 || targetGroupIds.includes(user.groupId);
+
+    return matchBrand && matchDept && matchGroup;
+  });
+
+  const franchiseTargets = targetUsers.filter((u) => isFranchiseUser(u));
+  const nonFranchiseTargets = targetUsers.filter((u) => !isFranchiseUser(u));
+
+  const toNonFranchise = uniq(nonFranchiseTargets.map((u) => String(u.email).trim()).filter(Boolean));
+  const sendFranchiseRouting =
+    viewScope === "all" && franchiseTargets.length > 0 && isValidEmail(FRANCHISE_ROUTING_EMAIL);
+
+  if (toNonFranchise.length === 0 && !sendFranchiseRouting) return 0;
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const subject = `【KnowBase】お知らせ：${news.title || ""}`;
+  const text = `${news.body || ""}\n\n詳細はKnowBaseにログインして確認してください。\n${appUrl}`;
+  const safeBody = String(news.body || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const html = `
+    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+      <div style="background-color: #0ea5e9; padding: 20px; color: white; text-align: center;">
+        <h1 style="margin: 0; font-size: 20px;">KnowBase お知らせ通知</h1>
+      </div>
+      <div style="padding: 24px; color: #1e293b;">
+        <h2 style="margin-top: 0; color: #0f172a;">${news.title || ""}</h2>
+        <div style="white-space: pre-wrap; line-height: 1.6; color: #475569;">${safeBody}</div>
+        <div style="margin-top: 32px; text-align: center;">
+          <a href="${appUrl}"
+             style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600;">
+            KnowBaseで詳細を見る
+          </a>
+        </div>
+      </div>
+      <div style="background-color: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
+        ※このメールは送信専用です。
+      </div>
+    </div>
+  `;
+
+  if (toNonFranchise.length > 0) {
+    await sgMail.sendMultiple({
+      to: toNonFranchise,
+      from: { email: from, name: "KnowBase運営事務局" },
+      subject,
+      text,
+      html,
+    });
+  }
+
+  if (sendFranchiseRouting) {
+    await sgMail.send({
+      to: FRANCHISE_ROUTING_EMAIL,
+      from: { email: from, name: "KnowBase運営事務局" },
+      subject,
+      text: `${text}\n\n（フランチャイズ向け通知）`,
+      html: html + `<div style="text-align:center;font-size:12px;color:#94a3b8;">（フランチャイズ向け通知）</div>`,
+    });
+  }
+
+  // ✅ 送信完了後にフラグを更新
+  // テーブル定義に合わせて PK (newsId / news_id) を適宜調整してください
+  await doc.send(new UpdateCommand({
+    TableName: NEWS_TABLE,
+    Key: { newsId: news.newsId },
+    UpdateExpression: "SET isNotified = :val",
+    ExpressionAttributeValues: { ":val": true }
+  }));
+
+  return toNonFranchise.length + (sendFranchiseRouting ? 1 : 0);
+}
+
+/**
+ * GET: 定期実行（Cron等）用
+ * 予約時間を過ぎているが、まだ通知していないお知らせをスキャンして配信
+ */
+export async function GET(req: Request) {
+  const auth = requireAdmin(req);
+  if (!auth.ok) return auth.res;
+
+  try {
+    const now = new Date().toISOString();
+
+    const newsRes = await doc.send(new ScanCommand({ TableName: NEWS_TABLE }));
+    const allNews = (newsRes.Items || []) as any[];
+
+    const usersRes = await doc.send(new ScanCommand({ TableName: USERS_TABLE }));
+    const allUsers = (usersRes.Items || []) as any[];
+
+    // 公開予約時刻を過ぎている、かつ通知未済、かつ非表示でない
+    const targets = allNews.filter(n => {
+      const isHidden = !!n.isHidden || !!n.is_hidden;
+      const isNotified = !!n.isNotified;
+      const publishAt = n.publishAt || null;
+      // publishAtがない（即時）または過ぎている
+      return !isHidden && !isNotified && (!publishAt || publishAt <= now);
+    });
+
+    let count = 0;
+    for (const news of targets) {
+      count += await processNotification(news, allUsers);
+    }
+
+    return NextResponse.json({ ok: true, processedNews: targets.length, totalEmails: count });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * POST: 即時実行用（管理画面の保存ボタン後の通知などで使用）
+ */
 export async function POST(req: Request) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.res;
 
   try {
     const { newsId } = await req.json();
-    if (!newsId) {
-      return NextResponse.json({ error: "newsIdが指定されていません" }, { status: 400 });
+    if (!newsId) return NextResponse.json({ error: "newsId required" }, { status: 400 });
+
+    const newsRes = await doc.send(new GetCommand({ TableName: NEWS_TABLE, Key: { newsId } }));
+    const news = newsRes.Item;
+    if (!news) return NextResponse.json({ error: "NotFound" }, { status: 404 });
+
+    // 予約日時が設定されている場合、POSTでも未来のものは送らない（ガード）
+    const now = new Date().toISOString();
+    if (news.publishAt && news.publishAt > now) {
+      return NextResponse.json({ ok: true, message: "予約時刻前のため通知をスキップしました" });
     }
 
-    /** 1) news（PK: newsId） */
-    const newsRes = await doc.send(
-      new GetCommand({
-        TableName: NEWS_TABLE,
-        Key: { newsId },
-      })
-    );
-    const news = newsRes.Item as any;
-    if (!news) {
-      return NextResponse.json({ error: "お知らせが見つかりませんでした" }, { status: 404 });
-    }
-
-    const viewScope = normalizeViewScope(news.viewScope);
-
-    /** 2) users */
     const usersRes = await doc.send(new ScanCommand({ TableName: USERS_TABLE }));
-    const allUsers = (usersRes.Items || []) as any[];
+    const count = await processNotification(news, usersRes.Items || []);
 
-    /** 3) まず active + email だけ残す */
-    const activeUsers = allUsers.filter((u) => u?.isActive !== false && isValidEmail(u?.email));
-
-    /**
-     * 4) 「閲覧権限に属するユーザー」絞り込み（あなたの元のロジックを“残す”）
-     *    - news.brandId があれば brandId を見る（無い or "ALL" なら全対象）
-     *    - news.deptId  があれば deptId  を見る（無い or "ALL" なら全対象）
-     *    - news.targetGroupIds があれば groupId を見る（空なら全対象）
-     *
-     * ※ Users 側は user.groupId を想定（元コード踏襲）
-     */
-    const targetUsers = activeUsers.filter((user) => {
-      const brandId = String(news.brandId ?? "ALL");
-      const deptId = String(news.deptId ?? "ALL");
-      const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds : [];
-
-      const matchBrand = brandId === "ALL" || !brandId || user.brandId === brandId;
-      const matchDept = deptId === "ALL" || !deptId || user.deptId === deptId;
-
-      const matchGroup =
-        !targetGroupIds ||
-        targetGroupIds.length === 0 ||
-        targetGroupIds.includes(user.groupId);
-
-      return matchBrand && matchDept && matchGroup;
-    });
-
-    /** 5) FC/非FCに分ける（FCは groupIds に g002 がある人） */
-    const franchiseTargets = targetUsers.filter((u) => isFranchiseUser(u));
-    const nonFranchiseTargets = targetUsers.filter((u) => !isFranchiseUser(u));
-
-    /**
-     * 6) viewScope 反映
-     *    - direct: FCは通知対象外
-     *    - all: 非FCは個別送信 / FCは代表へ1通だけ
-     */
-    const toNonFranchise = uniq(nonFranchiseTargets.map((u) => String(u.email).trim()).filter(Boolean));
-    const sendFranchiseRouting =
-      viewScope === "all" && franchiseTargets.length > 0 && isValidEmail(FRANCHISE_ROUTING_EMAIL);
-
-    if (toNonFranchise.length === 0 && !sendFranchiseRouting) {
-      return NextResponse.json({
-        ok: true,
-        viewScope,
-        count: 0,
-        message: "対象ユーザーがいません",
-        detail: {
-          targetUsers: targetUsers.length,
-          nonFranchise: 0,
-          franchiseTargets: franchiseTargets.length,
-          franchiseRouting: 0,
-        },
-      });
-    }
-
-    /** 7) SendGrid */
-    const { from } = initSendGrid();
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    const subject = `【KnowBase】お知らせ：${news.title || ""}`;
-    const text = `${news.body || ""}\n\n詳細はKnowBaseにログインして確認してください。\n${appUrl}`;
-    const safeBody = String(news.body || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-    const html = `
-      <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
-        <div style="background-color: #0ea5e9; padding: 20px; color: white; text-align: center;">
-          <h1 style="margin: 0; font-size: 20px;">KnowBase お知らせ通知</h1>
-        </div>
-        <div style="padding: 24px; color: #1e293b;">
-          <h2 style="margin-top: 0; color: #0f172a;">${news.title || ""}</h2>
-          <div style="white-space: pre-wrap; line-height: 1.6; color: #475569;">${safeBody}</div>
-          <div style="margin-top: 32px; text-align: center;">
-            <a href="${appUrl}"
-               style="background-color: #0f172a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600;">
-              KnowBaseで詳細を見る
-            </a>
-          </div>
-        </div>
-        <div style="background-color: #f8fafc; padding: 16px; text-align: center; font-size: 12px; color: #94a3b8;">
-          ※このメールは送信専用です。心当たりがない場合は破棄してください。
-        </div>
-      </div>
-    `;
-
-    /** 8) 非FCへ送信（direct/all共通） */
-    let sentNonFranchise = 0;
-    if (toNonFranchise.length > 0) {
-      await sgMail.sendMultiple({
-        to: toNonFranchise,
-        from: { email: from, name: "KnowBase運営事務局" },
-        subject,
-        text,
-        html,
-      });
-      sentNonFranchise = toNonFranchise.length;
-    }
-
-    /** 9) FCは代表へ1通だけ（allのときのみ） */
-    let sentFranchiseRouting = 0;
-    if (sendFranchiseRouting) {
-      await sgMail.send({
-        to: FRANCHISE_ROUTING_EMAIL,
-        from: { email: from, name: "KnowBase運営事務局" },
-        subject,
-        text: `${text}\n\n（フランチャイズ向け通知は代表アドレスに集約されています）`,
-        html:
-          html +
-          `<div style="margin-top:10px; font-size:12px; color:#94a3b8; text-align:center;">（フランチャイズ向け通知は代表アドレスに集約されています）</div>`,
-      });
-      sentFranchiseRouting = 1;
-    }
-
-    return NextResponse.json({
-      ok: true,
-      viewScope,
-      count: sentNonFranchise + sentFranchiseRouting,
-      message: `配信しました（非FC: ${sentNonFranchise} / FC代表: ${sentFranchiseRouting}）`,
-      detail: {
-        targetUsers: targetUsers.length,
-        nonFranchise: sentNonFranchise,
-        franchiseTargets: franchiseTargets.length,
-        franchiseRouting: sentFranchiseRouting,
-      },
-    });
+    return NextResponse.json({ ok: true, count });
   } catch (error: any) {
-    console.error("[NOTIFY_ERROR]", error);
-    return NextResponse.json({ error: error.message || "notify failed" }, { status: 500 });
+    console.error("[NOTIFY_POST_ERROR]", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
