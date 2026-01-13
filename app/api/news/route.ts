@@ -139,40 +139,30 @@ function isFranchiseViewer(viewer: any | null): boolean {
 
 /**
  * DB(Item) → API(News)
+ * すべてをキャメルケース(newsIdなど)に統一して読み込み
  */
 function toApiNews(item: any) {
   if (!item) return null;
 
-  const newsId = item.newsId || item.news_id || "";
-  const createdAt = item.createdAt || item.created_at || "";
-  const updatedAt = item.updatedAt || item.updated_at || "";
-
-  const startDate = item.startDate || item.start || "";
-  const endDate = item.endDate || item.end || "";
-  
-  // ✅ 予約投稿日時
-  const publishAt = item.publishAt || item.publish_at || null;
-
-  const viewScope = normalizeViewScope(item.viewScope ?? item.view_scope ?? item.scope);
-
   return {
-    newsId,
+    newsId: item.newsId || item.news_id || "",
     title: item.title || "",
     body: item.body ?? "",
     url: item.url ?? item.externalUrl ?? "",
     tags: normalizeTags(item.tags),
-    viewScope,
-    startDate,
-    endDate,
-    publishAt,
-    createdAt,
-    updatedAt,
-    isHidden: item.is_hidden ?? item.isHidden ?? false,
+    viewScope: normalizeViewScope(item.viewScope ?? item.view_scope ?? item.scope),
+    startDate: item.startDate || item.start || "",
+    endDate: item.endDate || item.end || "",
+    publishAt: item.publishAt || item.publish_at || null,
+    createdAt: item.createdAt || item.created_at || "",
+    updatedAt: item.updatedAt || item.updated_at || "",
+    isHidden: item.isHidden ?? item.is_hidden ?? false,
   };
 }
 
 /**
  * API(Payload) → DB(Item)
+ * パーティションキー名を newsId に固定して保存
  */
 function toDbNews(payload: any, mode: "create" | "update") {
   const newsId = String(payload?.newsId || payload?.news_id || "").trim();
@@ -189,25 +179,24 @@ function toDbNews(payload: any, mode: "create" | "update") {
 
   const startDate = String(payload?.startDate || payload?.start || "").trim();
   const endDate = String(payload?.endDate || payload?.end || "").trim();
-
-  // ✅ 予約投稿日時
   const publishAt = payload?.publishAt || null;
 
   const viewScope = normalizeViewScope(payload?.viewScope ?? payload?.view_scope ?? payload?.scope);
 
   return {
-    news_id: newsId,
+    // ✅ パーティションキー名を newsId に統一
+    newsId: newsId,
     title: String(payload?.title || "").trim(),
     body: payload?.body ?? "",
     url: String(payload?.url || payload?.externalUrl || "").trim(),
     tags: normalizeTags(payload?.tags),
-    viewScope,
-    start: startDate,
-    end: endDate,
-    publishAt,
-    created_at: createdAt || now,
-    updated_at: updatedAt,
-    is_hidden: !!payload?.isHidden || !!payload?.is_hidden,
+    viewScope: viewScope,
+    startDate: startDate,
+    endDate: endDate,
+    publishAt: publishAt,
+    createdAt: createdAt || now,
+    updatedAt: updatedAt,
+    isHidden: !!payload?.isHidden || !!payload?.is_hidden,
   };
 }
 
@@ -226,8 +215,7 @@ function filterOnlyActive(apiNews: any[]) {
     if (s && s > today) return false;
     if (e && e < today) return false;
 
-    // 2. ✅ タイマー配信フィルタ（日時ベース）
-    // 指定した日時を過ぎていない場合は非表示
+    // 2. タイマー配信フィルタ（日時ベース）
     if (n.publishAt && n.publishAt > now) return false;
 
     return true;
@@ -293,11 +281,8 @@ export async function POST(req: NextRequest) {
 
   try {
     const payload = await req.json();
-    if (!payload?.title) {
-      return NextResponse.json({ error: "title is required" }, { status: 400 });
-    }
-    if (!payload?.newsId) {
-      return NextResponse.json({ error: "newsId is required" }, { status: 400 });
+    if (!payload?.title || !payload?.newsId) {
+      return NextResponse.json({ error: "title and newsId are required" }, { status: 400 });
     }
 
     const dbItem = toDbNews(payload, "create");
@@ -328,27 +313,25 @@ export async function PUT(req: NextRequest) {
 
   try {
     const payload = await req.json();
-    // PayloadからIDを取得（フロントからはキャメルで来る想定）
-    const newsIdFromPayload = String(payload?.newsId || payload?.news_id || "").trim();
+    const id = String(payload?.newsId || payload?.news_id || "").trim();
 
-    if (!newsIdFromPayload) {
-      return NextResponse.json({ error: "newsId is required" }, { status: 400 });
+    if (!id || !payload?.title) {
+      return NextResponse.json({ error: "newsId and title are required" }, { status: 400 });
     }
 
-    // ✅ 修正：DynamoDBのキー名「news_id」で検索する
+    // ✅ PK を newsId として検索
     const existingRes = await doc.send(
       new GetCommand({
         TableName: TABLE_NAME,
-        Key: { news_id: newsIdFromPayload }, // newsId ではなく news_id に変更
+        Key: { newsId: id },
       })
     );
     const existing = existingRes.Item;
 
     const merged = {
       ...payload,
-      newsId: newsIdFromPayload, // 念のため揃える
-      createdAt: existing?.created_at || payload?.createdAt || payload?.created_at,
-      viewScope: payload?.viewScope ?? existing?.viewScope ?? existing?.view_scope ?? existing?.scope,
+      newsId: id,
+      createdAt: existing?.createdAt || existing?.created_at || payload?.createdAt,
     };
 
     const dbItem = toDbNews(merged, "update");
@@ -379,16 +362,16 @@ export async function DELETE(req: NextRequest) {
 
   try {
     const url = new URL(req.url);
-    const newsId = String(url.searchParams.get("newsId") || "").trim();
-    if (!newsId) {
+    const id = String(url.searchParams.get("newsId") || "").trim();
+    if (!id) {
       return NextResponse.json({ error: "newsId is required" }, { status: 400 });
     }
 
-    // ✅ 修正：DynamoDBのキー名「news_id」で削除する
+    // ✅ PK を newsId として指定
     await doc.send(
       new DeleteCommand({
         TableName: TABLE_NAME,
-        Key: { news_id: newsId }, // newsId ではなく news_id に変更
+        Key: { newsId: id },
       })
     );
 
