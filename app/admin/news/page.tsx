@@ -299,7 +299,7 @@ export default function AdminNewsPage() {
       ...form,
       tags: finalTags,
       updatedAt: getTodayDate(),
-      publishAt: form.publishAt || null,
+      publishAt: form.publishAt ? form.publishAt : null,
       viewScope: normalizeViewScope(form.viewScope),
     };
 
@@ -309,6 +309,7 @@ export default function AdminNewsPage() {
     try {
       const isNew = !selected;
 
+      // ✅ 保存（1回だけ）
       const res = await fetch("/api/news", {
         method: isNew ? "POST" : "PUT",
         headers: {
@@ -326,24 +327,6 @@ export default function AdminNewsPage() {
 
       // ✅ 保存後に通知（失敗しても保存は成功扱い）
       try {
-      const isNew = !selected;
-
-      const res = await fetch("/api/news", {
-        method: isNew ? "POST" : "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...getAdminHeaders(),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = json?.detail ? `${json.error}: ${json.detail}` : json?.error || "save failed";
-        throw new Error(msg);
-      }
-
-      try {
         await fetch("/api/news/notify", {
           method: "POST",
           headers: {
@@ -358,7 +341,7 @@ export default function AdminNewsPage() {
 
       await loadNews();
       setIsEditing(false);
-      alert("保存しました"); 
+      alert("保存しました");
     } catch (e: any) {
       alert(`保存エラー: ${e?.message || ""}`);
     } finally {
@@ -553,22 +536,21 @@ export default function AdminNewsPage() {
                   />
                 </div>
               </div>
-              
 
-              {/* ✅ 配信予約日時フィールドの追加 */}
+              {/* ✅ 配信予約日時 */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label">配信予約日時（タイマー設定）</label>
                 <input
                   type="datetime-local"
                   name="publishAt"
                   className="kb-admin-input full"
-                  value={form.publishAt || ""}
+                  value={(form.publishAt as any) || ""}
                   onChange={handleChange}
                   readOnly={!isEditing}
                   disabled={busy}
                 />
                 <div className="kb-subnote">※指定した日時になるまでユーザー画面には表示されません（空欄で即時配信）。</div>
-              </div> 
+              </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">本文</label>
@@ -627,7 +609,12 @@ export default function AdminNewsPage() {
                     <button className="kb-secondary-btn" onClick={handleCancel} type="button" disabled={busy}>
                       中止
                     </button>
-                    <button className="kb-primary-btn" onClick={handleSave} disabled={busy || !form.title.trim()} type="button">
+                    <button
+                      className="kb-primary-btn"
+                      onClick={handleSave}
+                      disabled={busy || !form.title.trim()}
+                      type="button"
+                    >
                       {selected ? "保存" : "新規作成"}
                     </button>
                   </>
@@ -875,4 +862,5 @@ export default function AdminNewsPage() {
     </div>
   );
 }
+
 
