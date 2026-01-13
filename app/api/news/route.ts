@@ -328,27 +328,26 @@ export async function PUT(req: NextRequest) {
 
   try {
     const payload = await req.json();
-    const newsId = String(payload?.newsId || "").trim();
+    // PayloadからIDを取得（フロントからはキャメルで来る想定）
+    const newsIdFromPayload = String(payload?.newsId || payload?.news_id || "").trim();
 
-    if (!newsId) {
+    if (!newsIdFromPayload) {
       return NextResponse.json({ error: "newsId is required" }, { status: 400 });
     }
-    if (!payload?.title) {
-      return NextResponse.json({ error: "title is required" }, { status: 400 });
-    }
 
-    // 既存の created_at を保持するために一度取得
+    // ✅ 修正：DynamoDBのキー名「news_id」で検索する
     const existingRes = await doc.send(
       new GetCommand({
         TableName: TABLE_NAME,
-        Key: { news_id: newsId },
+        Key: { news_id: newsIdFromPayload }, // newsId ではなく news_id に変更
       })
     );
     const existing = existingRes.Item;
 
     const merged = {
       ...payload,
-      createdAt: existing?.created_at || payload?.createdAt,
+      newsId: newsIdFromPayload, // 念のため揃える
+      createdAt: existing?.created_at || payload?.createdAt || payload?.created_at,
       viewScope: payload?.viewScope ?? existing?.viewScope ?? existing?.view_scope ?? existing?.scope,
     };
 
@@ -385,10 +384,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "newsId is required" }, { status: 400 });
     }
 
+    // ✅ 修正：DynamoDBのキー名「news_id」で削除する
     await doc.send(
       new DeleteCommand({
         TableName: TABLE_NAME,
-        Key: { news_id: newsId },
+        Key: { news_id: newsId }, // newsId ではなく news_id に変更
       })
     );
 
