@@ -1,3 +1,4 @@
+// app/api/news/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -16,9 +17,8 @@ const USERS_TABLE = process.env.KB_USERS_TABLE_NAME || "yamauchi-Users";
 const region = process.env.AWS_REGION || "us-east-1";
 
 /**
- * 権限定義
- * g003: 本部・直営 (Direct) -> すべて閲覧可能
- * g002: フランチャイズ (Franchise) -> viewScopeが"direct"のものは閲覧不可
+ * g003: 本部・直営 -> 制限なし
+ * g002: フランチャイズ -> direct を見せない
  */
 const HQ_DIRECT_GROUP_ID = "g003";
 const FRANCHISE_GROUP_ID = "g002";
@@ -27,25 +27,25 @@ const ddb = new DynamoDBClient({ region });
 const doc = DynamoDBDocumentClient.from(ddb);
 
 /** =========================
- * Admin-Key Guard
+ * Admin-Key Guard (for write / admin read)
  * ========================= */
-function requireAdmin(req: NextRequest) {
+function isAdminRequest(req: NextRequest): boolean {
   const expected = (process.env.KB_ADMIN_API_KEY || "").trim();
-
-  // expected が未設定なら「ガードなし」（開発用）
-  if (!expected) return null;
-
+  if (!expected) return true; // 開発用：未設定なら admin 扱い（ガードなし）
   const got = (req.headers.get("x-kb-admin-key") || "").trim();
-  if (!got || got !== expected) {
-    return NextResponse.json(
-      {
-        error: "Forbidden",
-        detail: "x-kb-admin-key が不正、または KB_ADMIN_API_KEY が未設定/不一致です",
-      },
-      { status: 403 }
-    );
-  }
-  return null;
+  return !!got && got === expected;
+}
+
+function requireAdmin(req: NextRequest) {
+  if (isAdminRequest(req)) return null;
+  return NextResponse.json(
+    {
+      error: "Forbidden",
+      detail:
+        "x-kb-admin-key が不正、または KB_ADMIN_API_KEY が未設定/不一致です",
+    },
+    { status: 403 }
+  );
 }
 
 /** =========================
@@ -70,12 +70,38 @@ function normalizeTags(v: any): string[] {
   return [];
 }
 
+function normalizeBool(v: any): boolean {
+  if (v === true || v === false) return v;
+  if (typeof v === "number") return v === 1;
+  const s = String(v ?? "").trim().toLowerCase();
+  if (s === "true" || s === "1" || s === "yes") return true;
+  if (s === "false" || s === "0" || s === "no" || s === "") return false;
+  return Boolean(v);
+}
+
 function todayYMD() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
 function nowISO() {
   return new Date().toISOString();
+}
+
+function parseTimeMs(v: any): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const d = new Date(String(v));
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function parseYmdMs(ymd: any): number | null {
+  const s = String(ymd || "").trim();
+  if (!s) return null;
+  // YYYY-MM-DD を日付として扱う（比較用）
+  const d = new Date(s + "T00:00:00");
+  const ms = d.getTime();
+  return Number.isFinite(ms) ? ms : null;
 }
 
 function toArray(v: any): string[] {
@@ -86,7 +112,7 @@ function toArray(v: any): string[] {
 }
 
 /** =========================
- * Viewer (general user) detection
+ * Viewer detection
  * ========================= */
 async function getViewer(req: NextRequest): Promise<any | null> {
   const userId = (req.headers.get("x-kb-user-id") || "").trim();
@@ -94,35 +120,35 @@ async function getViewer(req: NextRequest): Promise<any | null> {
 
   if (!userId && !email) return null;
 
+  // userId で Get（userId がPKの設計なら当たる）
   try {
     if (userId) {
       const r = await doc.send(
-        new GetCommand({
-          TableName: USERS_TABLE,
-          Key: { userId },
-        })
+        new GetCommand({ TableName: USERS_TABLE, Key: { userId } })
       );
       if (r.Item) return r.Item;
     }
   } catch {}
 
+  // email がPKの設計なら当たる
   try {
     if (email) {
       const r = await doc.send(
-        new GetCommand({
-          TableName: USERS_TABLE,
-          Key: { email },
-        })
+        new GetCommand({ TableName: USERS_TABLE, Key: { email } })
       );
       if (r.Item) return r.Item;
     }
   } catch {}
 
+  // 最終手段：Scan（重い）
   try {
     const s = await doc.send(new ScanCommand({ TableName: USERS_TABLE }));
     const users = (s.Items || []) as any[];
+
     if (userId) {
-      const hit = users.find((u) => String(u.userId || u.user_id || "") === userId);
+      const hit = users.find(
+        (u) => String(u.userId || u.user_id || "") === userId
+      );
       if (hit) return hit;
     }
     if (email) {
@@ -135,23 +161,19 @@ async function getViewer(req: NextRequest): Promise<any | null> {
 }
 
 /**
- * 閲覧者が「制限される側(FC)」かどうかを判定
- * 本部・直営(g003)を持っていれば、たとえg002を持っていても「制限なし(false)」とみなす
+ * 本部・直営(g003)を持っていれば制限なし。
+ * viewer 不明は安全側で制限あり。
  */
 function isRestrictedViewer(viewer: any | null): boolean {
-  if (!viewer) return true; // ユーザー情報が不明な場合は安全のため「制限あり」
+  if (!viewer) return true;
   const groupIds = toArray(viewer.groupIds ?? viewer.group_ids);
-  
-  // g003 (直営・本部) を持っているかチェック
   const isHQorDirect = groupIds.includes(HQ_DIRECT_GROUP_ID);
-  
-  // 直営・本部なら制限なし(false)、そうでなければ制限あり(true)
   return !isHQorDirect;
 }
 
-/**
- * DB(Item) → API(News)
- */
+/** =========================
+ * Mapping
+ * ========================= */
 function toApiNews(item: any) {
   if (!item) return null;
 
@@ -161,10 +183,11 @@ function toApiNews(item: any) {
 
   const startDate = item.startDate || item.start || "";
   const endDate = item.endDate || item.end || "";
-  
   const publishAt = item.publishAt || item.publish_at || null;
 
-  const viewScope = normalizeViewScope(item.viewScope ?? item.view_scope ?? item.scope);
+  const viewScope = normalizeViewScope(
+    item.viewScope ?? item.view_scope ?? item.scope
+  );
 
   return {
     newsId,
@@ -178,13 +201,10 @@ function toApiNews(item: any) {
     publishAt,
     createdAt,
     updatedAt,
-    isHidden: item.isHidden ?? item.is_hidden ?? false,
+    isHidden: normalizeBool(item.isHidden ?? item.is_hidden),
   };
 }
 
-/**
- * API(Payload) → DB(Item)
- */
 function toDbNews(payload: any, mode: "create" | "update") {
   const newsId = String(payload?.newsId || payload?.news_id || "").trim();
   if (!newsId) throw new Error("newsId is required");
@@ -200,13 +220,14 @@ function toDbNews(payload: any, mode: "create" | "update") {
 
   const startDate = String(payload?.startDate || payload?.start || "").trim();
   const endDate = String(payload?.endDate || payload?.end || "").trim();
+  const publishAt = payload?.publishAt ?? payload?.publish_at ?? null;
 
-  const publishAt = payload?.publishAt || null;
-
-  const viewScope = normalizeViewScope(payload?.viewScope ?? payload?.view_scope ?? payload?.scope);
+  const viewScope = normalizeViewScope(
+    payload?.viewScope ?? payload?.view_scope ?? payload?.scope
+  );
 
   return {
-    newsId: newsId, // パーティションキー
+    newsId,
     title: String(payload?.title || "").trim(),
     body: payload?.body ?? "",
     url: String(payload?.url || payload?.externalUrl || "").trim(),
@@ -217,42 +238,46 @@ function toDbNews(payload: any, mode: "create" | "update") {
     publishAt,
     createdAt: createdAt || now,
     updatedAt,
-    isHidden: !!payload?.isHidden || !!payload?.is_hidden,
+    isHidden: normalizeBool(payload?.isHidden ?? payload?.is_hidden),
   };
 }
 
-/** onlyActive=true 用フィルタ */
+/** =========================
+ * Filters
+ * ========================= */
 function filterOnlyActive(apiNews: any[]) {
-  const today = todayYMD();
-  const now = nowISO();
+  const nowMs = Date.now();
+  const todayMs = parseYmdMs(todayYMD())!;
 
   return apiNews.filter((n) => {
-    const hidden = !!n.isHidden;
-    if (hidden) return false;
+    if (normalizeBool(n.isHidden)) return false;
 
-    // 1. 公開期間（日付ベース）
-    const s = String(n.startDate || "").trim();
-    const e = String(n.endDate || "").trim();
-    if (s && s > today) return false;
-    if (e && e < today) return false;
+    const sMs = parseYmdMs(n.startDate);
+    const eMs = parseYmdMs(n.endDate);
+    if (sMs != null && sMs > todayMs) return false;
+    if (eMs != null && eMs < todayMs) return false;
 
-    // 2. タイマー配信フィルタ（日時ベース）
-    if (n.publishAt && n.publishAt > now) return false;
+    const pMs = parseTimeMs(n.publishAt);
+    if (pMs != null && pMs > nowMs) return false;
 
     return true;
   });
 }
 
-/** 権限フィルタ：制限ユーザー(FC)には "direct" を見せない */
-function filterByViewerScope(apiNews: any[], isRestricted: boolean) {
-  if (!isRestricted) return apiNews; // 本部・直営なら制限なし
+function filterByViewerScope(apiNews: any[], restricted: boolean) {
+  if (!restricted) return apiNews;
   return apiNews.filter((n) => normalizeViewScope(n.viewScope) !== "direct");
 }
 
-/** ソート（予約日時、開始日、作成日の降順） */
 function sortNewsDesc(apiNews: any[]) {
-  const key = (n: any) => String(n.publishAt || n.startDate || n.createdAt || n.updatedAt || "");
-  return apiNews.sort((a, b) => (key(b) > key(a) ? 1 : -1));
+  const keyMs = (n: any) =>
+    parseTimeMs(n.publishAt) ??
+    parseYmdMs(n.startDate) ??
+    parseTimeMs(n.createdAt) ??
+    parseTimeMs(n.updatedAt) ??
+    0;
+
+  return apiNews.sort((a, b) => keyMs(b) - keyMs(a));
 }
 
 /** =========================
@@ -261,30 +286,70 @@ function sortNewsDesc(apiNews: any[]) {
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-    const onlyActive = url.searchParams.get("onlyActive") === "true";
 
+    // ✅ 重要：一般画面が onlyActive を付け忘れても「adminじゃなければ一般扱い」に落とす
+    const qsOnlyActive = url.searchParams.get("onlyActive") === "true";
+    const admin = isAdminRequest(req);
+    const onlyActive = qsOnlyActive || !admin;
+
+    const debug = url.searchParams.get("debug") === "true";
+
+    // admin で onlyActive=false のときのみ admin guard
     if (!onlyActive) {
       const forbidden = requireAdmin(req);
       if (forbidden) return forbidden;
     }
 
-    let isRestricted = true; // デフォルトは制限あり
+    let viewer: any | null = null;
+    let restricted = true;
+
     if (onlyActive) {
-      const viewer = await getViewer(req);
-      isRestricted = isRestrictedViewer(viewer);
+      viewer = await getViewer(req);
+      restricted = isRestrictedViewer(viewer);
     }
 
     const res = await doc.send(new ScanCommand({ TableName: TABLE_NAME }));
-    const items = (res.Items || []).map((x) => toApiNews(x)).filter(Boolean) as any[];
+    const rawItems = res.Items || [];
+    const items = rawItems.map((x) => toApiNews(x)).filter(Boolean) as any[];
 
     let out = items;
 
+    const counts: any = {
+      scanItems: rawItems.length,
+      mappedItems: items.length,
+      afterOnlyActive: null as number | null,
+      afterScope: null as number | null,
+    };
+
     if (onlyActive) {
       out = filterOnlyActive(out);
-      out = filterByViewerScope(out, isRestricted);
+      counts.afterOnlyActive = out.length;
+
+      out = filterByViewerScope(out, restricted);
+      counts.afterScope = out.length;
     }
 
     out = sortNewsDesc(out);
+
+    if (debug) {
+      return NextResponse.json(
+        {
+          mode: { admin, onlyActive, qsOnlyActive },
+          counts,
+          viewer: viewer
+            ? {
+                userId: viewer.userId ?? viewer.user_id ?? null,
+                email: viewer.email ?? null,
+                groupIds: toArray(viewer.groupIds ?? viewer.group_ids),
+                note: `g003=${HQ_DIRECT_GROUP_ID}, g002=${FRANCHISE_GROUP_ID}`,
+              }
+            : null,
+          sample: out.slice(0, 5),
+          news: out,
+        },
+        { status: 200 }
+      );
+    }
 
     return NextResponse.json({ news: out }, { status: 200 });
   } catch (err) {
@@ -346,12 +411,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "title is required" }, { status: 400 });
     }
 
-    // 既存の created_at を保持するために一度取得
+    // createdAt を保持
     const existingRes = await doc.send(
-      new GetCommand({
-        TableName: TABLE_NAME,
-        Key: { newsId: id },
-      })
+      new GetCommand({ TableName: TABLE_NAME, Key: { newsId: id } })
     );
     const existing = existingRes.Item;
 
@@ -359,7 +421,11 @@ export async function PUT(req: NextRequest) {
       ...payload,
       newsId: id,
       createdAt: existing?.createdAt || existing?.created_at || payload?.createdAt,
-      viewScope: payload?.viewScope ?? existing?.viewScope ?? existing?.view_scope ?? existing?.scope,
+      viewScope:
+        payload?.viewScope ??
+        existing?.viewScope ??
+        existing?.view_scope ??
+        existing?.scope,
     };
 
     const dbItem = toDbNews(merged, "update");
