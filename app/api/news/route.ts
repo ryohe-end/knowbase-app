@@ -1,4 +1,3 @@
-// app/api/news/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -16,7 +15,12 @@ const TABLE_NAME = process.env.NEWS_TABLE_NAME || "yamauchi-News";
 const USERS_TABLE = process.env.KB_USERS_TABLE_NAME || "yamauchi-Users";
 const region = process.env.AWS_REGION || "us-east-1";
 
-// Franchise group id
+/**
+ * 権限定義
+ * g003: 本部・直営 (Direct) -> すべて閲覧可能
+ * g002: フランチャイズ (Franchise) -> viewScopeが"direct"のものは閲覧不可
+ */
+const HQ_DIRECT_GROUP_ID = "g003";
 const FRANCHISE_GROUP_ID = "g002";
 
 const ddb = new DynamoDBClient({ region });
@@ -47,7 +51,6 @@ function requireAdmin(req: NextRequest) {
 /** =========================
  * Helpers / Normalizers
  * ========================= */
-
 type NewsScope = "all" | "direct";
 
 function normalizeViewScope(v: any): NewsScope {
@@ -131,38 +134,56 @@ async function getViewer(req: NextRequest): Promise<any | null> {
   return null;
 }
 
-function isFranchiseViewer(viewer: any | null): boolean {
-  if (!viewer) return true;
+/**
+ * 閲覧者が「制限される側(FC)」かどうかを判定
+ * 本部・直営(g003)を持っていれば、たとえg002を持っていても「制限なし(false)」とみなす
+ */
+function isRestrictedViewer(viewer: any | null): boolean {
+  if (!viewer) return true; // ユーザー情報が不明な場合は安全のため「制限あり」
   const groupIds = toArray(viewer.groupIds ?? viewer.group_ids);
-  return groupIds.includes(FRANCHISE_GROUP_ID);
+  
+  // g003 (直営・本部) を持っているかチェック
+  const isHQorDirect = groupIds.includes(HQ_DIRECT_GROUP_ID);
+  
+  // 直営・本部なら制限なし(false)、そうでなければ制限あり(true)
+  return !isHQorDirect;
 }
 
 /**
  * DB(Item) → API(News)
- * すべてをキャメルケース(newsIdなど)に統一して読み込み
  */
 function toApiNews(item: any) {
   if (!item) return null;
 
+  const newsId = item.newsId || item.news_id || "";
+  const createdAt = item.createdAt || item.created_at || "";
+  const updatedAt = item.updatedAt || item.updated_at || "";
+
+  const startDate = item.startDate || item.start || "";
+  const endDate = item.endDate || item.end || "";
+  
+  const publishAt = item.publishAt || item.publish_at || null;
+
+  const viewScope = normalizeViewScope(item.viewScope ?? item.view_scope ?? item.scope);
+
   return {
-    newsId: item.newsId || item.news_id || "",
+    newsId,
     title: item.title || "",
     body: item.body ?? "",
     url: item.url ?? item.externalUrl ?? "",
     tags: normalizeTags(item.tags),
-    viewScope: normalizeViewScope(item.viewScope ?? item.view_scope ?? item.scope),
-    startDate: item.startDate || item.start || "",
-    endDate: item.endDate || item.end || "",
-    publishAt: item.publishAt || item.publish_at || null,
-    createdAt: item.createdAt || item.created_at || "",
-    updatedAt: item.updatedAt || item.updated_at || "",
+    viewScope,
+    startDate,
+    endDate,
+    publishAt,
+    createdAt,
+    updatedAt,
     isHidden: item.isHidden ?? item.is_hidden ?? false,
   };
 }
 
 /**
  * API(Payload) → DB(Item)
- * パーティションキー名を newsId に固定して保存
  */
 function toDbNews(payload: any, mode: "create" | "update") {
   const newsId = String(payload?.newsId || payload?.news_id || "").trim();
@@ -179,28 +200,28 @@ function toDbNews(payload: any, mode: "create" | "update") {
 
   const startDate = String(payload?.startDate || payload?.start || "").trim();
   const endDate = String(payload?.endDate || payload?.end || "").trim();
+
   const publishAt = payload?.publishAt || null;
 
   const viewScope = normalizeViewScope(payload?.viewScope ?? payload?.view_scope ?? payload?.scope);
 
   return {
-    // ✅ パーティションキー名を newsId に統一
-    newsId: newsId,
+    newsId: newsId, // パーティションキー
     title: String(payload?.title || "").trim(),
     body: payload?.body ?? "",
     url: String(payload?.url || payload?.externalUrl || "").trim(),
     tags: normalizeTags(payload?.tags),
-    viewScope: viewScope,
-    startDate: startDate,
-    endDate: endDate,
-    publishAt: publishAt,
+    viewScope,
+    startDate,
+    endDate,
+    publishAt,
     createdAt: createdAt || now,
-    updatedAt: updatedAt,
+    updatedAt,
     isHidden: !!payload?.isHidden || !!payload?.is_hidden,
   };
 }
 
-/** onlyActive=true 用フィルタ（予約投稿対応） */
+/** onlyActive=true 用フィルタ */
 function filterOnlyActive(apiNews: any[]) {
   const today = todayYMD();
   const now = nowISO();
@@ -222,9 +243,9 @@ function filterOnlyActive(apiNews: any[]) {
   });
 }
 
-/** viewScope フィルタ */
-function filterByViewerScope(apiNews: any[], viewerIsFC: boolean) {
-  if (!viewerIsFC) return apiNews;
+/** 権限フィルタ：制限ユーザー(FC)には "direct" を見せない */
+function filterByViewerScope(apiNews: any[], isRestricted: boolean) {
+  if (!isRestricted) return apiNews; // 本部・直営なら制限なし
   return apiNews.filter((n) => normalizeViewScope(n.viewScope) !== "direct");
 }
 
@@ -247,10 +268,10 @@ export async function GET(req: NextRequest) {
       if (forbidden) return forbidden;
     }
 
-    let viewerIsFC = false;
+    let isRestricted = true; // デフォルトは制限あり
     if (onlyActive) {
       const viewer = await getViewer(req);
-      viewerIsFC = isFranchiseViewer(viewer);
+      isRestricted = isRestrictedViewer(viewer);
     }
 
     const res = await doc.send(new ScanCommand({ TableName: TABLE_NAME }));
@@ -260,7 +281,7 @@ export async function GET(req: NextRequest) {
 
     if (onlyActive) {
       out = filterOnlyActive(out);
-      out = filterByViewerScope(out, viewerIsFC);
+      out = filterByViewerScope(out, isRestricted);
     }
 
     out = sortNewsDesc(out);
@@ -281,8 +302,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const payload = await req.json();
-    if (!payload?.title || !payload?.newsId) {
-      return NextResponse.json({ error: "title and newsId are required" }, { status: 400 });
+    if (!payload?.title) {
+      return NextResponse.json({ error: "title is required" }, { status: 400 });
+    }
+    if (!payload?.newsId) {
+      return NextResponse.json({ error: "newsId is required" }, { status: 400 });
     }
 
     const dbItem = toDbNews(payload, "create");
@@ -315,11 +339,14 @@ export async function PUT(req: NextRequest) {
     const payload = await req.json();
     const id = String(payload?.newsId || payload?.news_id || "").trim();
 
-    if (!id || !payload?.title) {
-      return NextResponse.json({ error: "newsId and title are required" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "newsId is required" }, { status: 400 });
+    }
+    if (!payload?.title) {
+      return NextResponse.json({ error: "title is required" }, { status: 400 });
     }
 
-    // ✅ PK を newsId として検索
+    // 既存の created_at を保持するために一度取得
     const existingRes = await doc.send(
       new GetCommand({
         TableName: TABLE_NAME,
@@ -332,6 +359,7 @@ export async function PUT(req: NextRequest) {
       ...payload,
       newsId: id,
       createdAt: existing?.createdAt || existing?.created_at || payload?.createdAt,
+      viewScope: payload?.viewScope ?? existing?.viewScope ?? existing?.view_scope ?? existing?.scope,
     };
 
     const dbItem = toDbNews(merged, "update");
@@ -367,7 +395,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "newsId is required" }, { status: 400 });
     }
 
-    // ✅ PK を newsId として指定
     await doc.send(
       new DeleteCommand({
         TableName: TABLE_NAME,
