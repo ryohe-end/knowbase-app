@@ -1,9 +1,9 @@
 // app/admin/manuals/edit/page.tsx
 "use client";
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type ManualDraft = {
@@ -60,14 +60,21 @@ export default function ManualEditLanding() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const fileId = sp.get("fileId");
+  const fileId = sp.get("fileId"); // ← これが「コピーされたファイルID」の想定
   const editUrlParam = sp.get("editUrl");
 
-  const editUrl = useMemo(() => buildEditUrl(fileId, editUrlParam), [fileId, editUrlParam]);
-  const embedUrl = useMemo(() => buildEmbedUrl(fileId, editUrlParam), [fileId, editUrlParam]);
+  const editUrl = useMemo(
+    () => buildEditUrl(fileId, editUrlParam),
+    [fileId, editUrlParam]
+  );
+  const embedUrl = useMemo(
+    () => buildEmbedUrl(fileId, editUrlParam),
+    [fileId, editUrlParam]
+  );
 
   const [draft, setDraft] = useState<ManualDraft | null>(null);
   const [saving, setSaving] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
 
   useEffect(() => {
     setDraft(safeGetDraft());
@@ -77,7 +84,9 @@ export default function ManualEditLanding() {
 
   const saveAndBack = async () => {
     if (!draft) {
-      alert("下書き（draft）が見つかりません。/admin/manuals に戻ってやり直してください。");
+      alert(
+        "下書き（draft）が見つかりません。/admin/manuals に戻ってやり直してください。"
+      );
       return;
     }
     if (!editUrl) {
@@ -90,13 +99,11 @@ export default function ManualEditLanding() {
     try {
       const payload: ManualDraft = {
         ...draft,
-        // ✅ ここが肝：編集URLを embedUrl として保存
+        // ✅ ここが肝：編集URLを embedUrl として保存（既存仕様に合わせる）
         embedUrl: editUrl,
         tags: draft.tags || [],
       };
 
-      // ✅ 新規としてPOST（manualIdはサーバ側が採番する想定）
-      // 既存仕様が「M200-」判定なら manualId をそのまま送ってもOK
       const res = await fetch("/api/manuals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -109,12 +116,9 @@ export default function ManualEditLanding() {
         return;
       }
 
-      // サーバが採番したIDが返る想定
       const newManualId = json.manualId || payload.manualId;
 
       safeClearDraft();
-
-      // ✅ 管理画面へ戻って自動選択
       router.push(`/admin/manuals?select=${encodeURIComponent(newManualId)}`);
     } catch (e) {
       console.error(e);
@@ -124,12 +128,66 @@ export default function ManualEditLanding() {
     }
   };
 
+  // ✅ 追加：破棄時に Drive 側のコピーをゴミ箱へ
+  const discardAndBack = async () => {
+    const ok = confirm(
+      "下書きを破棄します。\n※作成したGoogleスライド（コピー）もゴミ箱に移動します。\nよろしいですか？"
+    );
+    if (!ok) return;
+
+    setDiscarding(true);
+
+    try {
+      // 1) 先に Drive 側を消す（ゴミ箱へ）
+      if (fileId) {
+        const res = await fetch("/api/drive/trash", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileId }),
+        });
+
+        const json = await res.json().catch(() => ({} as any));
+        if (!res.ok) {
+          // 失敗しても「下書き破棄」は進めたいので警告だけ出す
+          alert(
+            `下書きは破棄しますが、ファイルの削除（ゴミ箱移動）に失敗しました。\n${json.error || res.statusText}\n\n手動でDriveのファイルを削除してください。`
+          );
+        }
+      }
+
+      // 2) 下書き破棄
+      safeClearDraft();
+      router.push("/admin/manuals");
+    } catch (e) {
+      console.error(e);
+      alert("破棄処理中にエラーが発生しました。");
+    } finally {
+      setDiscarding(false);
+    }
+  };
+
   return (
     <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-        <div style={{ fontSize: 18, fontWeight: 800 }}>テンプレート作成完了：編集 → 登録</div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ fontSize: 18, fontWeight: 800 }}>
+          テンプレート作成完了：編集 → 登録
+        </div>
 
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div
+          style={{
+            marginLeft: "auto",
+            display: "flex",
+            gap: 10,
+            flexWrap: "wrap",
+          }}
+        >
           <Link href="/admin/manuals">
             <button style={btnSecondary}>← 管理画面へ戻る</button>
           </Link>
@@ -159,48 +217,73 @@ export default function ManualEditLanding() {
       {draft && (
         <>
           <div style={card}>
-            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>登録内容（下書き）</div>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>
+              登録内容（下書き）
+            </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, fontSize: 13 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "160px 1fr",
+                gap: 8,
+                fontSize: 13,
+              }}
+            >
               <div style={{ color: "#6b7280" }}>タイトル</div>
               <div style={{ fontWeight: 700 }}>{draft.title}</div>
 
               <div style={{ color: "#6b7280" }}>manualId</div>
               <div>{draft.manualId}</div>
 
+              <div style={{ color: "#6b7280" }}>fileId（コピー）</div>
+              <div style={{ wordBreak: "break-all" }}>
+                {fileId || "(なし)"}
+              </div>
+
               <div style={{ color: "#6b7280" }}>embedUrl（保存するURL）</div>
-              <div style={{ wordBreak: "break-all" }}>{editUrl || "(取得できません)"}</div>
+              <div style={{ wordBreak: "break-all" }}>
+                {editUrl || "(取得できません)"}
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
               <button
-                style={{ ...btnPrimary, opacity: canSave && !saving ? 1 : 0.5, cursor: canSave && !saving ? "pointer" : "not-allowed" }}
+                style={{
+                  ...btnPrimary,
+                  opacity: canSave && !saving ? 1 : 0.5,
+                  cursor: canSave && !saving ? "pointer" : "not-allowed",
+                }}
                 onClick={saveAndBack}
                 disabled={!canSave || saving}
               >
                 {saving ? "保存中..." : "この編集URLでマニュアル登録して戻る"}
               </button>
 
+              {/* ✅ ここを変更：破棄時にDriveファイルも消す */}
               <button
-                style={btnSecondary}
-                onClick={() => {
-                  safeClearDraft();
-                  alert("下書きを破棄しました。/admin/manuals に戻ります。");
-                  router.push("/admin/manuals");
+                style={{
+                  ...btnSecondary,
+                  opacity: discarding ? 0.6 : 1,
+                  cursor: discarding ? "not-allowed" : "pointer",
                 }}
+                onClick={discardAndBack}
+                disabled={discarding}
               >
-                下書きを破棄して戻る
+                {discarding ? "破棄中..." : "下書きを破棄して戻る（コピーも削除）"}
               </button>
             </div>
 
             <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
-              ※「登録して戻る」を押すまで、DB（DynamoDB）には保存されません。
+              ※「登録して戻る」を押すまで、DB（DynamoDB）には保存されません。<br />
+              ※破棄は、下書き削除 + Googleスライド（コピー）をゴミ箱へ移動します。
             </div>
           </div>
 
           {embedUrl && (
             <div style={{ ...card, marginTop: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>プレビュー（閲覧用）</div>
+              <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>
+                プレビュー（閲覧用）
+              </div>
 
               <div
                 style={{
@@ -215,7 +298,13 @@ export default function ManualEditLanding() {
               >
                 <iframe
                   src={embedUrl}
-                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    border: "none",
+                  }}
                   allowFullScreen
                   loading="lazy"
                 />
