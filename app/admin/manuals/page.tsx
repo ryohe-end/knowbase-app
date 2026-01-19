@@ -76,15 +76,39 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
 const getEmbedSrc = (url?: string) => {
   if (!url || typeof url !== "string" || url.trim() === "") return "";
   const u = url.trim();
-  const idMatch = u.match(
-    /(?:id=|\/d\/)([\w-]+)(?:\/edit|\/view|\/preview|\/present|\/|$)/i
-  );
-  if (!idMatch) return u.length < 30 ? "" : u;
-  const fileId = idMatch[1];
-  if (u.includes("docs.google.com/presentation")) {
-    return `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&delayms=3000`;
+
+  // ✅ Canva 対策
+  if (u.includes("canva.com/design/")) {
+    const canvaMatch = u.match(/design\/([A-Za-z0-9_-]+)/);
+    if (canvaMatch?.[1]) {
+      return `https://www.canva.com/design/${canvaMatch[1]}/watch?embed`;
+    }
   }
-  return `https://drive.google.com/file/d/${fileId}/preview`;
+
+  // ✅ YouTube 対策
+  const ytMatch = u.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  if (ytMatch?.[1]) {
+    return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0`;
+  }
+
+  // ✅ Google Drive / Docs 対策 (既存ロジックの改善版)
+  const idMatch = u.match(/(?:id=|\/d\/)([\w-]+)(?:\/edit|\/view|\/preview|\/present|\/|$)/i);
+  if (idMatch) {
+    const fileId = idMatch[1];
+    if (u.includes("docs.google.com/presentation")) {
+      return `https://docs.google.com/presentation/d/${fileId}/embed?start=false&loop=false&delayms=3000`;
+    }
+    if (u.includes("docs.google.com/document")) {
+      return `https://docs.google.com/document/d/${fileId}/preview`;
+    }
+    if (u.includes("docs.google.com/spreadsheets")) {
+      return `https://docs.google.com/spreadsheets/d/${fileId}/preview`;
+    }
+    return `https://drive.google.com/file/d/${fileId}/preview`;
+  }
+
+  // それ以外（既にembed形式のURLなど）はそのまま返す
+  return u;
 };
 
 function safeSetDraft(draft: any) {
