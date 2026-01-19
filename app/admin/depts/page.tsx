@@ -22,10 +22,20 @@ export default function AdminDeptsPage() {
 
   const loadDepts = async () => {
     setLoading(true);
-    const res = await fetch("/api/depts");
-    const json = await res.json();
-    setDepts(json.depts || []);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/depts", {
+        headers: {
+          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
+        },
+        credentials: "include"
+      });
+      const json = await res.json();
+      setDepts(json.depts || []);
+    } catch (err) {
+      console.error("Failed to load depts:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { loadDepts(); }, []);
@@ -45,16 +55,30 @@ export default function AdminDeptsPage() {
       mailingList: formMailingList.split(/[、,]/).map(s => s.trim()).filter(Boolean),
     };
 
-    const res = await fetch("/api/depts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const res = await fetch("/api/depts", {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          // ✅ バックエンドが求める管理者キーを追加
+          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
+        },
+        // ✅ ログイン情報を送信（誰が保存したか特定させるため）
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
 
-    if (res.ok) {
-      alert("保存しました");
-      setEditingId(null);
-      loadDepts();
+      if (res.ok) {
+        alert("保存しました");
+        setEditingId(null);
+        loadDepts();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        alert(`保存に失敗しました: ${json.error || res.statusText}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("通信エラーが発生しました");
     }
   };
 
@@ -62,7 +86,7 @@ export default function AdminDeptsPage() {
 
   return (
     <div className="kb-root">
-      {/* ヘッダー部分：戻るボタンを追加 */}
+      {/* ヘッダー部分 */}
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
