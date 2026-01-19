@@ -1,4 +1,3 @@
-// app/admin/manuals/edit/page.tsx
 "use client";
 export const dynamic = "force-dynamic";
 
@@ -6,6 +5,9 @@ import Link from "next/link";
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+/**
+ * 型定義
+ */
 type ManualDraft = {
   manualId: string;
   title: string;
@@ -23,14 +25,18 @@ type ManualDraft = {
 
 const DRAFT_KEY = "kb_manual_draft_v1";
 
-// editUrl優先、なければfileIdから組み立て
+/**
+ * 編集用URLの組み立て
+ */
 function buildEditUrl(fileId?: string | null, editUrl?: string | null) {
   if (editUrl && editUrl.startsWith("http")) return editUrl;
   if (fileId) return `https://docs.google.com/presentation/d/${fileId}/edit`;
   return "";
 }
 
-// Slides embed（プレビュー用）
+/**
+ * プレビュー用URLの組み立て (Google Slides embed)
+ */
 function buildEmbedUrl(fileId?: string | null, editUrl?: string | null) {
   const url = buildEditUrl(fileId, editUrl);
   if (!url) return "";
@@ -40,6 +46,9 @@ function buildEmbedUrl(fileId?: string | null, editUrl?: string | null) {
   return `https://docs.google.com/presentation/d/${id}/embed?start=false&loop=false&delayms=3000`;
 }
 
+/**
+ * LocalStorage 操作
+ */
 function safeGetDraft(): ManualDraft | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
@@ -56,13 +65,18 @@ function safeClearDraft() {
   } catch {}
 }
 
+/**
+ * メインコンポーネント
+ */
 export default function ManualEditLanding() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const fileId = sp.get("fileId"); // ← これが「コピーされたファイルID」の想定
+  // URLパラメータから情報を取得
+  const fileId = sp.get("fileId"); 
   const editUrlParam = sp.get("editUrl");
 
+  // メモ化されたURL
   const editUrl = useMemo(
     () => buildEditUrl(fileId, editUrlParam),
     [fileId, editUrlParam]
@@ -76,17 +90,19 @@ export default function ManualEditLanding() {
   const [saving, setSaving] = useState(false);
   const [discarding, setDiscarding] = useState(false);
 
+  // 初回マウント時に下書きをロード
   useEffect(() => {
     setDraft(safeGetDraft());
   }, []);
 
   const canSave = !!draft?.title && !!editUrl;
 
+  /**
+   * 保存処理 (DBへの登録)
+   */
   const saveAndBack = async () => {
     if (!draft) {
-      alert(
-        "下書き（draft）が見つかりません。/admin/manuals に戻ってやり直してください。"
-      );
+      alert("下書き（draft）が見つかりません。管理画面に戻ってやり直してください。");
       return;
     }
     if (!editUrl) {
@@ -95,12 +111,10 @@ export default function ManualEditLanding() {
     }
 
     setSaving(true);
-
     try {
       const payload: ManualDraft = {
         ...draft,
-        // ✅ ここが肝：編集URLを embedUrl として保存（既存仕様に合わせる）
-        embedUrl: editUrl,
+        embedUrl: editUrl, // 編集URLを保存用URLとしてセット
         tags: draft.tags || [],
       };
 
@@ -117,7 +131,6 @@ export default function ManualEditLanding() {
       }
 
       const newManualId = json.manualId || payload.manualId;
-
       safeClearDraft();
       router.push(`/admin/manuals?select=${encodeURIComponent(newManualId)}`);
     } catch (e) {
@@ -128,7 +141,9 @@ export default function ManualEditLanding() {
     }
   };
 
-  // ✅ 追加：破棄時に Drive 側のコピーをゴミ箱へ
+  /**
+   * 破棄処理 (下書き削除 + Driveファイル削除)
+   */
   const discardAndBack = async () => {
     const ok = confirm(
       "下書きを破棄します。\n※作成したGoogleスライド（コピー）もゴミ箱に移動します。\nよろしいですか？"
@@ -136,26 +151,18 @@ export default function ManualEditLanding() {
     if (!ok) return;
 
     setDiscarding(true);
-
     try {
-      // 1) 先に Drive 側を消す（ゴミ箱へ）
       if (fileId) {
         const res = await fetch("/api/drive/trash", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileId }),
         });
-
         const json = await res.json().catch(() => ({} as any));
         if (!res.ok) {
-          // 失敗しても「下書き破棄」は進めたいので警告だけ出す
-          alert(
-            `下書きは破棄しますが、ファイルの削除（ゴミ箱移動）に失敗しました。\n${json.error || res.statusText}\n\n手動でDriveのファイルを削除してください。`
-          );
+          alert(`下書きは破棄しますが、ファイルの削除に失敗しました。\n${json.error || res.statusText}`);
         }
       }
-
-      // 2) 下書き破棄
       safeClearDraft();
       router.push("/admin/manuals");
     } catch (e) {
@@ -167,43 +174,16 @@ export default function ManualEditLanding() {
   };
 
   return (
-    <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto" }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 14,
-        }}
-      >
+    <div style={{ padding: 18, maxWidth: 1100, margin: "0 auto", fontFamily: "sans-serif" }}>
+      {/* ヘッダーエリア */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
         <div style={{ fontSize: 18, fontWeight: 800 }}>
           テンプレート作成完了：編集 → 登録
         </div>
-
-        <div
-          style={{
-            marginLeft: "auto",
-            display: "flex",
-            gap: 10,
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={{ marginLeft: "auto" }}>
           <Link href="/admin/manuals">
             <button style={btnSecondary}>← 管理画面へ戻る</button>
           </Link>
-
-          {editUrl ? (
-            <button
-              style={btnPrimary}
-              onClick={() => window.open(editUrl, "_blank", "noopener,noreferrer")}
-            >
-              Googleスライドで編集（新しいタブ）
-            </button>
-          ) : (
-            <button style={{ ...btnPrimary, opacity: 0.5 }} disabled>
-              編集URLがありません
-            </button>
-          )}
         </div>
       </div>
 
@@ -216,37 +196,46 @@ export default function ManualEditLanding() {
 
       {draft && (
         <>
+          {/* メインカード */}
           <div style={card}>
-            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 14 }}>
               登録内容（下書き）
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "160px 1fr",
-                gap: 8,
-                fontSize: 13,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 8, fontSize: 13, marginBottom: 20 }}>
               <div style={{ color: "#6b7280" }}>タイトル</div>
               <div style={{ fontWeight: 700 }}>{draft.title}</div>
-
               <div style={{ color: "#6b7280" }}>manualId</div>
               <div>{draft.manualId}</div>
-
               <div style={{ color: "#6b7280" }}>fileId（コピー）</div>
-              <div style={{ wordBreak: "break-all" }}>
-                {fileId || "(なし)"}
-              </div>
-
-              <div style={{ color: "#6b7280" }}>embedUrl（保存するURL）</div>
-              <div style={{ wordBreak: "break-all" }}>
-                {editUrl || "(取得できません)"}
-              </div>
+              <div style={{ wordBreak: "break-all" }}>{fileId || "(なし)"}</div>
+              <div style={{ color: "#6b7280" }}>embedUrl（保存用）</div>
+              <div style={{ wordBreak: "break-all" }}>{editUrl || "(取得不可)"}</div>
             </div>
 
-            <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
+            {/* ✅ ボタン配置の修正：編集・登録・破棄 */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
+              
+              {/* 1. Googleスライドで編集 (黄色) */}
+              {editUrl ? (
+                <button
+                  type="button"
+                  style={{
+                    ...btnPrimary,
+                    background: "#facc15",
+                    borderColor: "#facc15",
+                    color: "#000",
+                    boxShadow: "0 4px 12px rgba(250, 204, 21, 0.25)"
+                  }}
+                  onClick={() => window.open(editUrl, "_blank", "noopener,noreferrer")}
+                >
+                  Googleスライドで編集 (新しいタブ)
+                </button>
+              ) : (
+                <button style={{ ...btnPrimary, opacity: 0.5 }} disabled>編集URLなし</button>
+              )}
+
+              {/* 2. 登録ボタン (青色) */}
               <button
                 style={{
                   ...btnPrimary,
@@ -259,12 +248,14 @@ export default function ManualEditLanding() {
                 {saving ? "保存中..." : "この編集URLでマニュアル登録して戻る"}
               </button>
 
-              {/* ✅ ここを変更：破棄時にDriveファイルも消す */}
+              {/* 3. 破棄ボタン (赤色系) */}
               <button
                 style={{
                   ...btnSecondary,
+                  background: "#fee2e2",
+                  color: "#b91c1c",
+                  borderColor: "#fecdd3",
                   opacity: discarding ? 0.6 : 1,
-                  cursor: discarding ? "not-allowed" : "pointer",
                 }}
                 onClick={discardAndBack}
                 disabled={discarding}
@@ -273,45 +264,28 @@ export default function ManualEditLanding() {
               </button>
             </div>
 
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
-              ※「登録して戻る」を押すまで、DB（DynamoDB）には保存されません。<br />
-              ※破棄は、下書き削除 + Googleスライド（コピー）をゴミ箱へ移動します。
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 12 }}>
+              ※「登録して戻る」を押すまでDBには保存されません。<br />
+              ※破棄は、下書き削除とGoogleドライブ上のファイルをゴミ箱へ移動します。
             </div>
           </div>
 
+          {/* プレビューエリア */}
           {embedUrl && (
             <div style={{ ...card, marginTop: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>
                 プレビュー（閲覧用）
               </div>
-
-              <div
-                style={{
-                  width: "100%",
-                  paddingTop: "56.25%",
-                  position: "relative",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                  border: "1px solid #e5e7eb",
-                  background: "#0b1220",
-                }}
-              >
+              <div style={{ width: "100%", paddingTop: "56.25%", position: "relative", borderRadius: 12, overflow: "hidden", border: "1px solid #e5e7eb", background: "#0b1220" }}>
                 <iframe
                   src={embedUrl}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    border: "none",
-                  }}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
                   allowFullScreen
                   loading="lazy"
                 />
               </div>
-
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 8 }}>
-                ※ここは編集不可です（表示確認用）。編集は上のボタンから。
+                ※プレビュー画面では編集できません。編集は上の黄色いボタンをクリックしてください。
               </div>
             </div>
           )}
@@ -321,14 +295,21 @@ export default function ManualEditLanding() {
   );
 }
 
+/**
+ * スタイル定義
+ */
 const btnPrimary: React.CSSProperties = {
   background: "#0ea5e9",
   color: "#fff",
   border: "1px solid #0ea5e9",
   borderRadius: 999,
-  padding: "10px 14px",
+  padding: "12px 24px",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: 14,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const btnSecondary: React.CSSProperties = {
@@ -336,17 +317,21 @@ const btnSecondary: React.CSSProperties = {
   color: "#374151",
   border: "1px solid #d1d5db",
   borderRadius: 999,
-  padding: "10px 14px",
+  padding: "12px 24px",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: 14,
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const card: React.CSSProperties = {
   background: "#fff",
   border: "1px solid #e5e7eb",
   borderRadius: 16,
-  padding: 14,
-  boxShadow: "0 10px 20px rgba(15,23,42,0.04)",
+  padding: 24,
+  boxShadow: "0 10px 25px rgba(15,23,42,0.05)",
 };
 
 const noteDanger: React.CSSProperties = {
@@ -354,7 +339,7 @@ const noteDanger: React.CSSProperties = {
   border: "1px solid #fecdd3",
   color: "#9f1239",
   borderRadius: 12,
-  padding: 12,
-  fontSize: 13,
+  padding: 16,
+  fontSize: 14,
   fontWeight: 800,
 };
