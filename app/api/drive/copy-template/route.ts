@@ -82,9 +82,14 @@ export async function POST(req: Request) {
   try {
     loadEnvFromFileOnce();
 
+    // ✅ 横Verと縦VerのIDを環境変数から取得(変更前)
+    //const templateIdLandscape = process.env.TEMPLATE_FILE_ID; 
+    //const templateIdPortrait = process.env.TEMPLATE_FILE_ID_PORTRAIT;
+    //const parentId = process.env.TEMPLATE_COPY_PARENT_FOLDER_ID?.trim() || null;//
+
     // ✅ 横Verと縦VerのIDを環境変数から取得
-    const templateIdLandscape = process.env.TEMPLATE_FILE_ID; 
-    const templateIdPortrait = process.env.TEMPLATE_FILE_ID_PORTRAIT;
+    const templateIdLandscape = "1zmRStrfKMGvASGkQeKfUtIfHklxj0UHHul9Z71xgwKM"; 
+    const templateIdPortrait = "1Jy-o8antfycfi5J-AX5b30SGJ6FMo-cZa0goLbC6ySA";
     const parentId = process.env.TEMPLATE_COPY_PARENT_FOLDER_ID?.trim() || null;
 
     const body = await req.json().catch(() => ({}));

@@ -234,6 +234,54 @@ const LoginPage = () => {
           />
           Google アカウントでログイン
         </button>
+        <div style={{ 
+  marginTop: "32px", 
+  padding: "20px", 
+  backgroundColor: "#f8fafc", 
+  borderRadius: "16px", 
+  border: "1px solid #e2e8f0",
+  textAlign: "center" 
+}}>
+  <p style={{ 
+    fontSize: "14px", 
+    color: "#475569", 
+    marginBottom: "12px", 
+    fontWeight: "600" 
+  }}>
+    アカウントをお持ちでない方へ
+  </p>
+  <p style={{ 
+    fontSize: "12px", 
+    color: "#64748b", 
+    marginBottom: "16px",
+    lineHeight: "1.5"
+  }}>
+    ご利用には申請が必要です。<br />
+    下のボタンから申請フォームへお進みください。
+  </p>
+  <a 
+    href="https://docs.google.com/forms/d/e/1FAIpQLSdvf3q5kF_FnRkBPc3VjeOdeIGV0sxbyG8slU3uN4FtFAfrRw/viewform?usp=header" 
+    target="_blank" 
+    rel="noopener noreferrer"
+    style={{ 
+      display: "inline-block",
+      fontSize: "14px", 
+      color: "#0ea5e9", 
+      fontWeight: "700",
+      textDecoration: "none",
+      padding: "10px 20px",
+      border: "2px solid #0ea5e9",
+      borderRadius: "12px",
+      transition: "all 0.2s",
+      backgroundColor: "#fff"
+    }}
+  >
+    KnowBaseアカウント作成申請
+  </a>
+  <p style={{ fontSize: "11px", color: "#94a3b8", marginTop: "12px" }}>
+    ※管理者による承認後、ログイン可能になります
+  </p>
+</div>
 
         <div className="kb-login-skip-wrapper" style={{ display: 'none' }}>
           <div className="kb-login-divider" style={{ margin: '20px 0 10px' }}>開発用</div>
