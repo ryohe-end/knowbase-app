@@ -49,7 +49,8 @@ export type Manual = {
   biz?: string;
 
   desc?: string | null;
-  updatedAt?: string; // "YYYY-MM-DD"
+  updatedAt?: string;
+  createdAt?: string;
   tags?: string[];
 
   embedUrl?: string;
@@ -157,6 +158,7 @@ function mapItemToManual(item: any): Manual {
 
     desc: item.desc ?? null,
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+    createdAt: item.createdAt ? String(item.createdAt) : undefined,
     embedUrl: item.embedUrl ? String(item.embedUrl) : undefined,
     externalUrl: item.externalUrl ? String(item.externalUrl) : undefined,
 
@@ -196,9 +198,13 @@ function buildDbItem(input: any): any {
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
-  // ✅ 修正ポイント：.slice(0, 10) を削除し、秒・ミリ秒まで保持する
-  // これにより、保存するたびに確実に異なる値（最新時刻）がセットされます
-  const updatedAt = new Date().toISOString(); 
+ const now = new Date().toISOString(); 
+
+  // ✅ ここを修正：
+  // 1. input.createdAt（既存データからの作成日）があればそれを使う
+  // 2. なければ（新規作成なら）今作成した now を使う
+  const finalCreatedAt = input.createdAt || now;
+  const updatedAt = now;
 
   // ✅ viewScope（ALL / DIRECT）
   const viewScope: ViewScope = normalizeViewScope(input.viewScope);
@@ -230,10 +236,8 @@ function buildDbItem(input: any): any {
     startDate,
     endDate,
     type,
-
+    createdAt: finalCreatedAt,
     updatedAt, // 最新のフルタイムスタンプが保存される
-
-    // ✅ 追加
     viewScope,
   };
 }
