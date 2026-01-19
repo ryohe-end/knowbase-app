@@ -22,8 +22,8 @@ const TABLE_NAME = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
 const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
 
 // 推奨: g001 / g003
-const DIRECT_GROUP_ID = (process.env.KB_DIRECT_GROUP_ID || "g001").trim();
-const HQ_GROUP_ID = (process.env.KB_HQ_GROUP_ID || "g003").trim();
+const HQ_GROUP_ID = (process.env.KB_HQ_GROUP_ID || "g001").trim();
+const DIRECT_GROUP_ID = (process.env.KB_DIRECT_GROUP_ID || "g003").trim();
 
 // 旧値/表記ゆれ保険（あなたの環境が G_DIRECT を使っていても落ちないように）
 const DIRECT_GROUP_ALIASES = Array.from(
