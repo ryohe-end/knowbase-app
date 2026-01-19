@@ -872,7 +872,7 @@ const groupHeaders: HeadersInit = groupIds
 
       // ✅ まとめて取得
       const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes] = await Promise.all([
-        fetch("/api/manuals", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
+        fetch("/api/manuals?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
         fetch("/api/brands", { cache: "no-store" }).then((res) => res.json()),
         fetch("/api/depts", { cache: "no-store" }).then((res) => res.json()),
         fetch("/api/contacts", { cache: "no-store" }).then((res) => res.json()),
@@ -1081,14 +1081,21 @@ const groupHeaders: HeadersInit = groupIds
 
   const [isInquiryModalOpen, setIsInquiryModalOpen] = useState(false);
 
-  const handleInquirySubmit = (email?: string) => {
-    const target = email || INQUIRY_MAIL;
-    window.open(
-      `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(target)}&su=${encodeURIComponent(
-        "[Know Base] お問い合わせ"
-      )}`,
-      "_blank"
-    );
+  // ✅ 修正後の関数：管理画面で設定したメーリングリストに対応
+  const handleInquirySubmit = (emails: string | string[] | undefined, deptName?: string) => {
+    if (!emails || (Array.isArray(emails) && emails.length === 0)) {
+      alert("問い合わせ先メールアドレスが設定されていません。管理画面の「部署・メーリングリスト管理」で設定を確認してください。");
+      return;
+    }
+
+    // 配列（メーリングリスト）ならカンマ区切りに結合、単体ならそのまま使用
+    const to = Array.isArray(emails) ? emails.join(",") : emails;
+    const subject = encodeURIComponent(`【KnowBase問い合わせ】${deptName || ""} 宛`);
+    
+    // Gmail作成画面のURLを生成
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to)}&su=${subject}`;
+    
+    window.open(gmailUrl, "_blank", "noopener,noreferrer");
     setIsInquiryModalOpen(false);
   };
 
@@ -1576,8 +1583,38 @@ const groupHeaders: HeadersInit = groupIds
 
                     <div className="kb-news-body-anim" style={{ maxHeight: isExpanded ? "800px" : "0px" }}>
                       <div className="kb-news-body-inner">
-                        {n.body ? renderRichText(n.body) : <div className="kb-news-empty">本文はありません。</div>}
-                      </div>
+  {/* 本文の表示 */}
+  {n.body ? renderRichText(n.body) : <div className="kb-news-empty">本文はありません。</div>}
+
+  {/* ✅ 参考URLがある場合にリンクを表示 */}
+  {n.url && (
+    <div 
+      className="kb-news-url-section" 
+      style={{ 
+        marginTop: '12px', 
+        paddingTop: '12px', 
+        borderTop: '1px dashed #e2e8f0' 
+      }}
+    >
+      <span style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginBottom: '4px' }}>
+        外部URL:
+      </span>
+      <a 
+        href={n.url} 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        style={{ 
+          fontSize: '13px', 
+          color: '#3b82f6', 
+          textDecoration: 'underline',
+          wordBreak: 'break-all' 
+        }}
+      >
+        {n.url}
+      </a>
+    </div>
+  )}
+</div>
                     </div>
                   </div>
                 );
@@ -1727,45 +1764,40 @@ const groupHeaders: HeadersInit = groupIds
             }}
           >
             <div className="kb-card-title" style={{ marginBottom: 16 }}>
-              問い合わせ先部署を選択してください
+              問い合わせ先を選択してください
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                className="kb-secondary-btn"
-                onClick={() => handleInquirySubmit(INQUIRY_MAIL)}
-                style={{
-                  textAlign: "left",
-                  padding: "12px 16px",
-                  borderRadius: 12,
-                  border: "1px solid #e5e7eb",
-                  background: "#f9fafb",
-                }}
-              >
-                全体問い合わせ先（サポート）
-              </button>
-
+              {/* 管理画面で登録された部署（depts）をループ表示 */}
               {depts.map((d) => (
                 <button
                   key={d.deptId}
                   className="kb-secondary-btn"
-                  onClick={() => handleInquirySubmit(d.email)}
+                  // ✅ ここで上で定義した handleInquirySubmit を呼び出す
+                  onClick={() => handleInquirySubmit(d.mailingList, d.name)}
                   style={{
                     textAlign: "left",
                     padding: "12px 16px",
                     borderRadius: 12,
                     border: "1px solid #e5e7eb",
                     background: "#f9fafb",
+                    cursor: "pointer"
                   }}
                 >
                   {d.name}
                 </button>
               ))}
+              
+              {depts.length === 0 && (
+                <div style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', padding: '20px' }}>
+                  問い合わせ先（部署）が登録されていません。
+                </div>
+              )}
             </div>
 
             <button
               className="kb-logout-btn"
-              style={{ marginTop: 20, width: "100%", padding: "10px" }}
+              style={{ marginTop: 20, width: "100%", padding: "10px", cursor: "pointer" }}
               onClick={() => setIsInquiryModalOpen(false)}
             >
               キャンセル

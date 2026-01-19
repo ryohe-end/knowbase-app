@@ -125,15 +125,16 @@ function canViewManualByScope(req: Request, manual: Manual): boolean {
   const scope: ViewScope = manual.viewScope || "ALL";
   if (scope === "ALL") return true;
 
-  // DIRECT の場合
-  const { primary } = parseGroupIds(req);
-  const p = (primary || "").trim();
-  if (!p) return false;
+  // DIRECT（直営のみ）の場合
+  const { all } = parseGroupIds(req); // すべての所属グループIDを取得
+  if (all.length === 0) return false;
 
-  const isDirect = DIRECT_GROUP_ALIASES.includes(p);
-  const isHq = HQ_GROUP_ALIASES.includes(p);
+  // ユーザーが持つグループIDのいずれかが、直営または本部のエイリアスに含まれているか
+  const isDirectOrHq = all.some(id => 
+    DIRECT_GROUP_ALIASES.includes(id) || HQ_GROUP_ALIASES.includes(id)
+  );
 
-  return isDirect || isHq;
+  return isDirectOrHq;
 }
 
 /** DynamoDB → Manual へのマッピング */
@@ -195,8 +196,9 @@ function buildDbItem(input: any): any {
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
-  // 更新日を「実行時の今日の日付」に固定
-  const updatedAt = new Date().toISOString().slice(0, 10);
+  // ✅ 修正ポイント：.slice(0, 10) を削除し、秒・ミリ秒まで保持する
+  // これにより、保存するたびに確実に異なる値（最新時刻）がセットされます
+  const updatedAt = new Date().toISOString(); 
 
   // ✅ viewScope（ALL / DIRECT）
   const viewScope: ViewScope = normalizeViewScope(input.viewScope);
@@ -229,7 +231,7 @@ function buildDbItem(input: any): any {
     endDate,
     type,
 
-    updatedAt,
+    updatedAt, // 最新のフルタイムスタンプが保存される
 
     // ✅ 追加
     viewScope,
@@ -237,14 +239,16 @@ function buildDbItem(input: any): any {
 }
 
 /** GET: /api/manuals
- * - 管理画面（x-kb-admin-key 正しい）: 全件
- * - 一般画面: viewScope でフィルタ（DIRECTは直営/本部のみ）
- * - optional: ?onlyActive=1 → 公開期間(start/end)内だけ返す
+ * - 管理画面（x-kb-admin-key 正しい）: 全件（?onlyActive=1があれば期間フィルタ）
+ * - 一般画面: viewScope フィルタ ＋ 公開期間(start/end)内を強制フィルタ
  */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const onlyActive = url.searchParams.get("onlyActive") === "1";
+    const isAdmin = isAdminRequest(req); // 管理者かどうかを判定
+    
+    // ✅ 一般ユーザー（!isAdmin）の場合は、パラメータの有無に関わらず強制的に onlyActive 扱いにする
+    const onlyActive = url.searchParams.get("onlyActive") === "1" || !isAdmin; 
     const nowYmd = new Date().toISOString().slice(0, 10);
 
     const result = await ddbDoc.send(
@@ -256,18 +260,21 @@ export async function GET(req: Request) {
     const items = result.Items || [];
     const allManuals = items.map(mapItemToManual);
 
-    // ✅ 管理者ならフィルタなし
-    if (isAdminRequest(req)) {
-      const manuals = onlyActive
+    // ✅ 管理者リクエストの場合
+    if (isAdmin) {
+      // 管理者は「?onlyActive=1」が付いている時だけ期間フィルタを適用（通常は全件確認したいため）
+      const manuals = url.searchParams.get("onlyActive") === "1"
         ? allManuals.filter((m) => isActiveByDate(m, nowYmd))
         : allManuals;
 
       return Response.json({ manuals, admin: true });
     }
 
-    // ✅ 一般ユーザー：viewScope フィルタ
+    // ✅ 一般ユーザーリクエストの場合
+    // 1. 閲覧権限（viewScope）でフィルタ
     let manuals = allManuals.filter((m) => canViewManualByScope(req, m));
 
+    // 2. 公開期間でフィルタ（onlyActiveがtrueなので必ず実行される）
     if (onlyActive) {
       manuals = manuals.filter((m) => isActiveByDate(m, nowYmd));
     }

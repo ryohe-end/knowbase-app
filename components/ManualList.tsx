@@ -162,8 +162,8 @@ export default function ManualList({ manuals }: Props) {
                       marginTop: "4px",
                     }}
                   >
-                    {m.startDate && <span>公開日: {m.startDate}</span>}
-                    {m.updatedAt && <span>最終更新: {m.updatedAt}</span>}
+                    {m.startDate && <span>公開日: {m.startDate.slice(0, 10)}</span>}
+                    {m.updatedAt && <span>最終更新: {m.updatedAt.slice(0, 10)}</span>}
                   </div>
 
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
