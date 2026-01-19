@@ -84,28 +84,47 @@ function PasswordPageContent() {
     try {
       const res = await fetch("/api/account/password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          // ✅ 管理者キー（合言葉）を追加
+          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
+        },
+        // ✅ ログインセッション（Cookie）をサーバーに送信する設定
+        credentials: "include", 
         body: JSON.stringify({ currentPassword, newPassword, newPassword2 }),
       });
+
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
         setMsg(json?.error ?? "更新に失敗しました");
         return;
       }
+
       setCurrentPassword("");
       setNewPassword("");
       setNewPassword2("");
       setMsg("保存しました");
-      const meRes = await fetch("/api/me", { cache: "no-store" });
+
+      // ユーザー情報の再取得時も同様の設定で実行
+      const meRes = await fetch("/api/me", { 
+        cache: "no-store",
+        headers: {
+          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
+        },
+        credentials: "include"
+      });
+      
       const meJson = await meRes.json().catch(() => ({}));
       const nextMe = (meJson?.user ?? null) as KbUser | null;
       setMe(nextMe);
+
       if (nextMe && !nextMe.mustChangePassword) {
         router.replace(returnTo);
         return;
       }
       setMsg("保存はできましたが、強制フラグの解除に失敗しました。管理者に連絡してください。");
-    } catch {
+    } catch (err) {
+      console.error(err);
       setMsg("通信エラーが発生しました");
     } finally {
       setSaving(false);
