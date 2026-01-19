@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,27 +28,23 @@ const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 /**
- * ★ パスワードハッシュ生成（モック）
- * 実際には bcrypt 等を使用しますが、現在の仕様に合わせています。
+ * ★ パスワードハッシュ生成（現在のシステムの仕様に合わせたモック）
  */
 const mockHash = (password: string): string => `hashed_${password}`;
 
 /**
- * 管理者判定（合言葉チェック）
+ * Cookieから現在のユーザーIDを取得
  */
-function isAdminRequest(req: NextRequest) {
-  const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
-  if (!KB_ADMIN_API_KEY) return true; // 設定されていなければスルー
-  const key = (req.headers.get("x-kb-admin-key") || "").trim();
-  return key === KB_ADMIN_API_KEY;
+function getCurrentUserId(req: NextRequest) {
+  // ログイン時に kb_userid という名前で保存されていることを前提とします
+  return req.cookies.get("kb_userid")?.value || "";
 }
 
 /**
- * Cookieから現在のユーザーのメールアドレスを取得
+ * Cookieから現在のメールアドレスを取得（念のためのデバッグ用）
  */
 function getCurrentUserEmail(req: NextRequest) {
   const cookieValue = req.cookies.get("kb_user")?.value ?? "";
-  // 🔴 メールの @ が %40 などにエンコードされている場合があるためデコードする
   try {
     return decodeURIComponent(cookieValue).trim();
   } catch (e) {
@@ -57,20 +53,22 @@ function getCurrentUserEmail(req: NextRequest) {
 }
 
 /**
- * email を条件に DynamoDB からユーザーを検索
+ * userId（主キー）を条件に DynamoDB からユーザーを直接取得
  */
-async function findUserByEmail(email: string): Promise<KbUser | null> {
-  if (!email) return null;
-  const res = await docClient.send(
-    new ScanCommand({
-      TableName: TABLE_NAME,
-      FilterExpression: "email = :email",
-      ExpressionAttributeValues: { ":email": email },
-      Limit: 1,
-    })
-  );
-  const u = (res.Items?.[0] as KbUser | undefined) ?? undefined;
-  return u ?? null;
+async function findUserById(userId: string): Promise<KbUser | null> {
+  if (!userId) return null;
+  try {
+    const res = await docClient.send(
+      new GetCommand({
+        TableName: TABLE_NAME,
+        Key: { userId: userId }, // Partition Key で検索
+      })
+    );
+    return (res.Item as KbUser) || null;
+  } catch (err) {
+    console.error("DynamoDB Get error:", err);
+    return null;
+  }
 }
 
 /**
@@ -87,25 +85,24 @@ function validatePassword(pw: string) {
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. 管理者キーのチェック（任意）
-    if (!isAdminRequest(req)) {
-      // 本来は管理画面操作なら必須にしても良いですが、
-      // ユーザー自身の変更なら Cookie 重視で OK です
-    }
-
-    // 2. Cookieからメール取得
+    // 1. Cookieからユーザー情報を取得
+    const userId = getCurrentUserId(req);
     const email = getCurrentUserEmail(req);
-    if (!email) {
-      return NextResponse.json({ error: "認証が必要です（セッションが見つかりません）" }, { status: 401 });
+
+    // デバッグログ
+    console.log(`Password change attempt: userId=[${userId}], email=[${email}]`);
+
+    if (!userId) {
+      return NextResponse.json({ error: "認証が必要です（セッションIDが見つかりません）" }, { status: 401 });
     }
 
-    // 3. リクエストボディの解析
+    // 2. リクエストボディの解析
     const body = await req.json().catch(() => ({}));
     const currentPassword = String(body?.currentPassword ?? "");
     const newPassword = String(body?.newPassword ?? "");
     const newPassword2 = String(body?.newPassword2 ?? "");
 
-    // 4. 入力バリデーション
+    // 3. 入力バリデーション
     if (!currentPassword) {
       return NextResponse.json({ error: "現在のパスワードを入力してください" }, { status: 400 });
     }
@@ -119,33 +116,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "新しいパスワードが現在のパスワードと同じです" }, { status: 400 });
     }
 
-    // 5. ユーザーの特定
-    const existing = await findUserByEmail(email);
+    // 4. ユーザーの特定（emailのScanではなく、userIdのGetで行う）
+    const existing = await findUserById(userId);
     if (!existing) {
-      // ここでエラーが出る場合は DynamoDB の email と Cookie の値が完全一致しているか確認
-      return NextResponse.json({ error: `ユーザーが見つかりません (${email})` }, { status: 404 });
+      return NextResponse.json({ 
+        error: `ユーザーが見つかりません (ID: ${userId})`,
+        detail: `Email from cookie: ${email}` 
+      }, { status: 404 });
     }
 
     if (existing.isActive === false) {
       return NextResponse.json(
-        { error: "このアカウントは無効に設定されています。管理者に連絡してください。" },
+        { error: "このアカウントは無効に設定されています。" },
         { status: 400 }
       );
     }
 
-    // 6. 現在のパスワード確認
+    // 5. 現在のパスワード確認
     const currentHash = mockHash(currentPassword);
     if (!existing.passwordHash || existing.passwordHash !== currentHash) {
       return NextResponse.json({ error: "現在のパスワードが正しくありません" }, { status: 400 });
     }
 
-    // 7. 更新処理
+    // 6. 更新処理
     const now = new Date().toISOString();
     const putItem: KbUser = {
       ...existing,
       passwordHash: mockHash(newPassword),
       updatedAt: now,
-      mustChangePassword: false, // 変更完了でフラグをオフにする
+      mustChangePassword: false, // 変更完了でフラグを解除
     };
 
     await docClient.send(
@@ -158,12 +157,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
 
   } catch (err: any) {
-    console.error("POST /api/account/password error:", {
-      name: err?.name,
-      message: err?.message,
-    });
+    console.error("POST /api/account/password error:", err);
     return NextResponse.json(
-      { error: "Failed to update password", detail: err?.message },
+      { error: "パスワード更新中にエラーが発生しました", detail: err?.message },
       { status: 500 }
     );
   }
