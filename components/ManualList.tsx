@@ -18,8 +18,7 @@ function toEmbeddableUrl(url: string, isVideo: boolean) {
   const u = (url ?? "").trim();
   if (!u) return "";
 
-  // ✅ Canva 対策: /view 形式を /watch?embed 形式に変換
-  // 対象URL: https://www.canva.com/design/DAG-jewUDGg/.../view?utm_content...
+  // ✅ Canva 対策
   if (u.includes("canva.com/design/")) {
     const canvaMatch = u.match(/design\/([A-Za-z0-9_-]+)/);
     if (canvaMatch?.[1]) {
@@ -74,10 +73,10 @@ function parseTime(s?: string | null) {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
-const WINDOW = 30 * DAY;
+// ✅ NEWバッジを表示する期間（3日間に短縮。必要に応じて変更してください）
+const NEW_WINDOW = 3 * DAY; 
 
 export default function ManualList({ manuals }: Props) {
-  // ✅ ソート状態の統合管理
   const [sortKey, setSortKey] = useState<"date" | "name">("date");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
@@ -107,31 +106,27 @@ export default function ManualList({ manuals }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
 
-  // ✅ ソートボタンが押された時のハンドラ
   const handleSort = (key: "date" | "name") => {
     if (sortKey === key) {
-      // 同じ項目なら向きを反転
       setSortOrder(sortOrder === "desc" ? "asc" : "desc");
     } else {
-      // 違う項目なら、その項目でデフォルトの並び（日付なら降順、名前なら昇順）にする
       setSortKey(key);
       setSortOrder(key === "date" ? "desc" : "asc");
     }
   };
 
-  // ✅ 並び替えロジック
   const sorted = useMemo(() => {
     const list = [...manuals];
     list.sort((a, b) => {
       let comparison = 0;
       if (sortKey === "date") {
+        // 並び替えは最新の更新日(updatedAt)基準
         const da = parseTime(a.updatedAt) ?? 0;
         const db = parseTime(b.updatedAt) ?? 0;
         comparison = da - db;
       } else {
         comparison = (a.title || "").localeCompare(b.title || "", "ja");
       }
-      // 降順(desc)の場合は結果を反転させる
       return sortOrder === "desc" ? -comparison : comparison;
     });
     return list;
@@ -187,21 +182,34 @@ export default function ManualList({ manuals }: Props) {
           const dlDisabled = !!m.noDownload || !m.embedUrl;
           const downloadUrl = dlDisabled ? undefined : toDownloadUrl(previewRaw, isVideo);
 
-          const updated = parseTime(m.updatedAt);
-          const showNew = !!(updated && now - updated <= WINDOW);
+          // ✅ 判定ロジック
+          const createdTime = parseTime(m.createdAt);
+          const updatedTime = parseTime(m.updatedAt);
+
+          // 1. 更新判定: 作成日より更新日が「1時間以上」新しければ更新とみなす
+          const isUpdated = !!(createdTime && updatedTime && (updatedTime - createdTime > 1000 * 60 * 60));
+          
+          // 2. 新規判定: 作成から NEW_WINDOW (3日) 以内
+          const isNew = !!(createdTime && (now - createdTime <= NEW_WINDOW));
 
           return (
             <article className="kbm-card" key={m.manualId}>
               <div className="kbm-card-grid">
                 <div className="kbm-left" data-kind={type}>
-                  <div className="kbm-badges">
+                  <div className="kbm-badges" style={{ display: 'flex', gap: '6px' }}>
                     <span className={`kbm-pill ${isVideo ? "kbm-pill-video" : "kbm-pill-doc"}`}>
                       <span className="kbm-pill-ico" aria-hidden="true">
                         {isVideo ? "🎬" : "📄"}
                       </span>
                       {isVideo ? "動画" : "資料"}
                     </span>
-                    {showNew && <span className="kbm-pill kbm-pill-new">NEW</span>}
+                    
+                    {/* ✅ 表示の優先順位: UPDATE(オレンジ) > NEW(青) */}
+                    {isUpdated ? (
+                      <span className="kbm-pill" style={{ background: '#f59e0b', color: '#fff', fontWeight: 800 }}>UPDATE</span>
+                    ) : isNew ? (
+                      <span className="kbm-pill kbm-pill-new">NEW</span>
+                    ) : null}
                   </div>
 
                   <div className="kbm-title">{m.title}</div>
