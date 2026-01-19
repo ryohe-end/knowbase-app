@@ -14,9 +14,22 @@ const region = process.env.AWS_REGION || "us-east-1";
 const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
+function cookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,      // ✅ dev(http)では false / 本番(https)では true
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // 7日
+  };
+}
+
 export async function GET() {
   // ✅ Next.js 15 対応：cookies() は Promise 扱いになるので await
   const cookieStore = await cookies();
+
+  // kb_user は「email」が入っている前提
   const email = (cookieStore.get("kb_user")?.value ?? "").trim();
 
   if (!email) {
@@ -49,7 +62,8 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Inactive user" }, { status: 403 });
     }
 
-    return NextResponse.json({
+    // ✅ ここが最短修正：kb_userid を補完して発行（/api/account/password がこれを必要とする）
+    const res = NextResponse.json({
       ok: true,
       user: {
         userId: user.userId,
@@ -65,6 +79,12 @@ export async function GET() {
         updatedAt: user.updatedAt,
       },
     });
+
+    // kb_user（email）も念のため揃える（ログインが別実装でもここで補完される）
+    res.cookies.set("kb_user", String(user.email ?? email).trim(), cookieOptions());
+    res.cookies.set("kb_userid", String(user.userId ?? "").trim(), cookieOptions());
+
+    return res;
   } catch (error: any) {
     console.error("API Me Error:", error?.name, error?.message);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });

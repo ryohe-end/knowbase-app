@@ -1,3 +1,4 @@
+// app/api/account/password/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
@@ -36,18 +37,19 @@ const mockHash = (password: string): string => `hashed_${password}`;
  * Cookieから現在のユーザーIDを取得
  */
 function getCurrentUserId(req: NextRequest) {
-  // ログイン時に kb_userid という名前で保存されていることを前提とします
+  // /api/me が kb_userid を補完してくれる想定
   return req.cookies.get("kb_userid")?.value || "";
 }
 
 /**
- * Cookieから現在のメールアドレスを取得（念のためのデバッグ用）
+ * Cookieから現在のメールアドレスを取得（ログ用）
+ * ※ kb_user は email が入っている前提
  */
 function getCurrentUserEmail(req: NextRequest) {
   const cookieValue = req.cookies.get("kb_user")?.value ?? "";
   try {
     return decodeURIComponent(cookieValue).trim();
-  } catch (e) {
+  } catch {
     return cookieValue.trim();
   }
 }
@@ -61,7 +63,7 @@ async function findUserById(userId: string): Promise<KbUser | null> {
     const res = await docClient.send(
       new GetCommand({
         TableName: TABLE_NAME,
-        Key: { userId: userId }, // Partition Key で検索
+        Key: { userId: userId },
       })
     );
     return (res.Item as KbUser) || null;
@@ -85,30 +87,29 @@ function validatePassword(pw: string) {
  */
 export async function POST(req: NextRequest) {
   try {
-    // 1. Cookieからユーザー情報を取得
     const userId = getCurrentUserId(req);
     const email = getCurrentUserEmail(req);
 
-    // デバッグログ
     console.log(`Password change attempt: userId=[${userId}], email=[${email}]`);
 
     if (!userId) {
-      return NextResponse.json({ error: "認証が必要です（セッションIDが見つかりません）" }, { status: 401 });
+      return NextResponse.json(
+        { error: "認証が必要です（kb_userid cookie が見つかりません。/api/me を先に呼ぶ必要があります）" },
+        { status: 401 }
+      );
     }
 
-    // 2. リクエストボディの解析
     const body = await req.json().catch(() => ({}));
     const currentPassword = String(body?.currentPassword ?? "");
     const newPassword = String(body?.newPassword ?? "");
     const newPassword2 = String(body?.newPassword2 ?? "");
 
-    // 3. 入力バリデーション
     if (!currentPassword) {
       return NextResponse.json({ error: "現在のパスワードを入力してください" }, { status: 400 });
     }
     const v = validatePassword(newPassword);
     if (v) return NextResponse.json({ error: v }, { status: 400 });
-    
+
     if (newPassword !== newPassword2) {
       return NextResponse.json({ error: "新しいパスワード（確認）が一致しません" }, { status: 400 });
     }
@@ -116,35 +117,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "新しいパスワードが現在のパスワードと同じです" }, { status: 400 });
     }
 
-    // 4. ユーザーの特定（emailのScanではなく、userIdのGetで行う）
     const existing = await findUserById(userId);
     if (!existing) {
-      return NextResponse.json({ 
-        error: `ユーザーが見つかりません (ID: ${userId})`,
-        detail: `Email from cookie: ${email}` 
-      }, { status: 404 });
-    }
-
-    if (existing.isActive === false) {
       return NextResponse.json(
-        { error: "このアカウントは無効に設定されています。" },
-        { status: 400 }
+        {
+          error: `ユーザーが見つかりません (ID: ${userId})`,
+          detail: `Email from cookie: ${email}`,
+        },
+        { status: 404 }
       );
     }
 
-    // 5. 現在のパスワード確認
+    if (existing.isActive === false) {
+      return NextResponse.json({ error: "このアカウントは無効に設定されています。" }, { status: 400 });
+    }
+
     const currentHash = mockHash(currentPassword);
     if (!existing.passwordHash || existing.passwordHash !== currentHash) {
       return NextResponse.json({ error: "現在のパスワードが正しくありません" }, { status: 400 });
     }
 
-    // 6. 更新処理
     const now = new Date().toISOString();
     const putItem: KbUser = {
       ...existing,
       passwordHash: mockHash(newPassword),
       updatedAt: now,
-      mustChangePassword: false, // 変更完了でフラグを解除
+      mustChangePassword: false,
     };
 
     await docClient.send(
@@ -155,7 +153,6 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json({ ok: true });
-
   } catch (err: any) {
     console.error("POST /api/account/password error:", err);
     return NextResponse.json(
