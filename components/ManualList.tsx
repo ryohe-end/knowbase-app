@@ -73,11 +73,11 @@ function parseTime(s?: string | null) {
 }
 
 const DAY = 24 * 60 * 60 * 1000;
-// ✅ NEWバッジを表示する期間（3日間に短縮。必要に応じて変更してください）
-const NEW_WINDOW = 3 * DAY; 
+// ✅ NEWバッジを表示する期間（3日間）
+const NEW_WINDOW = 3 * DAY;
 
 export default function ManualList({ manuals }: Props) {
-  const [sortKey, setSortKey] = useState<"date" | "name">("date");
+  // ✅ 日付ソートだけ残す（昇降トグルは維持）
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -106,62 +106,60 @@ export default function ManualList({ manuals }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
 
-  const handleSort = (key: "date" | "name") => {
-    if (sortKey === key) {
-      setSortOrder(sortOrder === "desc" ? "asc" : "desc");
-    } else {
-      setSortKey(key);
-      setSortOrder(key === "date" ? "desc" : "asc");
-    }
+  const toggleSortOrder = () => {
+    setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
   };
 
   const sorted = useMemo(() => {
     const list = [...manuals];
     list.sort((a, b) => {
-      let comparison = 0;
-      if (sortKey === "date") {
-        // 並び替えは最新の更新日(updatedAt)基準
-        const da = parseTime(a.updatedAt) ?? 0;
-        const db = parseTime(b.updatedAt) ?? 0;
-        comparison = da - db;
-      } else {
-        comparison = (a.title || "").localeCompare(b.title || "", "ja");
-      }
+      const da = parseTime(a.updatedAt) ?? 0;
+      const db = parseTime(b.updatedAt) ?? 0;
+      const comparison = da - db;
       return sortOrder === "desc" ? -comparison : comparison;
     });
     return list;
-  }, [manuals, sortKey, sortOrder]);
+  }, [manuals, sortOrder]);
 
   return (
     <div className="kbm">
-      <div className="kbm-toolbar" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <span className="kbm-toolbar-label" style={{ fontSize: '13px', fontWeight: 700, color: '#64748b' }}>並び替え</span>
-        <div style={{ display: 'flex', background: '#f1f5f9', padding: '4px', borderRadius: '8px', gap: '4px' }}>
+      {/* ✅ 並び替えUIは「日付順」だけ */}
+      <div
+        className="kbm-toolbar"
+        style={{ display: "flex", alignItems: "center", gap: "12px" }}
+      >
+        <span
+          className="kbm-toolbar-label"
+          style={{ fontSize: "13px", fontWeight: 700, color: "#64748b" }}
+        >
+          並び替え
+        </span>
+
+        <div
+          style={{
+            display: "flex",
+            background: "#f1f5f9",
+            padding: "4px",
+            borderRadius: "8px",
+            gap: "4px",
+          }}
+        >
           <button
             type="button"
-            onClick={() => handleSort("date")}
+            onClick={toggleSortOrder}
             style={{
-              padding: '6px 12px', borderRadius: '6px', border: 'none', fontSize: '12px', cursor: 'pointer',
-              background: sortKey === 'date' ? '#fff' : 'transparent',
-              fontWeight: sortKey === 'date' ? 700 : 400,
-              boxShadow: sortKey === 'date' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.2s'
+              padding: "6px 12px",
+              borderRadius: "6px",
+              border: "none",
+              fontSize: "12px",
+              cursor: "pointer",
+              background: "#fff",
+              fontWeight: 700,
+              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+              transition: "all 0.2s",
             }}
           >
-            日付順 {sortKey === "date" && (sortOrder === "desc" ? "↓" : "↑")}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSort("name")}
-            style={{
-              padding: '6px 12px', borderRadius: '6px', border: 'none', fontSize: '12px', cursor: 'pointer',
-              background: sortKey === 'name' ? '#fff' : 'transparent',
-              fontWeight: sortKey === 'name' ? 700 : 400,
-              boxShadow: sortKey === 'name' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-              transition: 'all 0.2s'
-            }}
-          >
-            名前順 {sortKey === "name" && (sortOrder === "desc" ? "↓" : "↑")}
+            日付順 {sortOrder === "desc" ? "↓" : "↑"}
           </button>
         </div>
       </div>
@@ -187,26 +185,35 @@ export default function ManualList({ manuals }: Props) {
           const updatedTime = parseTime(m.updatedAt);
 
           // 1. 更新判定: 作成日より更新日が「1時間以上」新しければ更新とみなす
-          const isUpdated = !!(createdTime && updatedTime && (updatedTime - createdTime > 1000 * 60 * 60));
-          
+          const isUpdated = !!(
+            createdTime &&
+            updatedTime &&
+            updatedTime - createdTime > 1000 * 60 * 60
+          );
+
           // 2. 新規判定: 作成から NEW_WINDOW (3日) 以内
-          const isNew = !!(createdTime && (now - createdTime <= NEW_WINDOW));
+          const isNew = !!(createdTime && now - createdTime <= NEW_WINDOW);
 
           return (
             <article className="kbm-card" key={m.manualId}>
               <div className="kbm-card-grid">
                 <div className="kbm-left" data-kind={type}>
-                  <div className="kbm-badges" style={{ display: 'flex', gap: '6px' }}>
+                  <div className="kbm-badges" style={{ display: "flex", gap: "6px" }}>
                     <span className={`kbm-pill ${isVideo ? "kbm-pill-video" : "kbm-pill-doc"}`}>
                       <span className="kbm-pill-ico" aria-hidden="true">
                         {isVideo ? "🎬" : "📄"}
                       </span>
                       {isVideo ? "動画" : "資料"}
                     </span>
-                    
+
                     {/* ✅ 表示の優先順位: UPDATE(オレンジ) > NEW(青) */}
                     {isUpdated ? (
-                      <span className="kbm-pill" style={{ background: '#f59e0b', color: '#fff', fontWeight: 800 }}>UPDATE</span>
+                      <span
+                        className="kbm-pill"
+                        style={{ background: "#f59e0b", color: "#fff", fontWeight: 800 }}
+                      >
+                        UPDATE
+                      </span>
                     ) : isNew ? (
                       <span className="kbm-pill kbm-pill-new">NEW</span>
                     ) : null}
@@ -231,7 +238,7 @@ export default function ManualList({ manuals }: Props) {
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
                 </div>
 
-                <div className="kbm-right" style={{ zIndex: 10, display: 'flex', gap: '8px' }}>
+                <div className="kbm-right" style={{ zIndex: 10, display: "flex", gap: "8px" }}>
                   <button
                     className="kbm-btn kbm-btn-primary"
                     type="button"
