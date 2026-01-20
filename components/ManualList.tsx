@@ -3,48 +3,48 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Manual } from "@/types/manual";
 
-type Props = { manuals: (Manual & { externalUrl?: string })[] };
+type Props = {
+  manuals: (Manual & { externalUrl?: string })[];
+};
 
 function safeOpen(url: string) {
-  if (!url) return;
-  // ✅ 外部リンクを常に別タブで開く
-  window.open(url, "_blank", "noopener,noreferrer");
+  const u = (url || "").trim();
+  if (!u) return;
+  window.open(u, "_blank", "noopener,noreferrer");
 }
 
 /**
- * 埋め込み用URL変換 (YouTube, Canva, Google Drive 対策)
+ * 埋め込み用URL変換 (YouTube, Canva, Google Drive, Google Docs/Slides)
  */
 function toEmbeddableUrl(url: string, isVideo: boolean) {
   const u = (url ?? "").trim();
   if (!u) return "";
 
-  // ✅ Canva 対策
+  // Canva
   if (u.includes("canva.com/design/")) {
     const canvaMatch = u.match(/design\/([A-Za-z0-9_-]+)/);
-    if (canvaMatch?.[1]) {
-      return `https://www.canva.com/design/${canvaMatch[1]}/watch?embed`;
-    }
+    if (canvaMatch?.[1]) return `https://www.canva.com/design/${canvaMatch[1]}/watch?embed`;
   }
 
-  // YouTube 対策
+  // YouTube
   const ytMatch = u.match(
     /(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/
   );
-  if (ytMatch?.[1]) {
-    return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0&enablejsapi=1`;
-  }
+  if (ytMatch?.[1]) return `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?rel=0&enablejsapi=1`;
 
-  // Google Drive 対策
+  // Google Drive file
   const driveMatch = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
   if (driveMatch?.[1]) return `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
 
-  // Google Docs/Sheets/Slides 対策
-  const docsMatch = u.match(
-    /docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([^/]+)/
-  );
+  // Google Docs/Sheets/Slides
+  const docsMatch = u.match(/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([^/]+)/);
   if (docsMatch?.[1] && docsMatch?.[2]) {
-    const suffix = isVideo ? "embed" : "preview";
-    return `https://docs.google.com/${docsMatch[1]}/d/${docsMatch[2]}/${suffix}`;
+    // presentation は embed が安定、doc/sheets は preview が安定
+    const kind = docsMatch[1];
+    if (kind === "presentation") {
+      return `https://docs.google.com/presentation/d/${docsMatch[2]}/embed`;
+    }
+    return `https://docs.google.com/${kind}/d/${docsMatch[2]}/preview`;
   }
 
   return u;
@@ -54,31 +54,44 @@ function toDownloadUrl(url: string, isVideo: boolean) {
   const u = (url ?? "").trim();
   if (!u || isVideo) return u;
 
+  // Slides → PDF
   const slideMatch = u.match(/docs\.google\.com\/presentation\/d\/([^/]+)/);
-  if (slideMatch?.[1]) {
-    return `https://docs.google.com/presentation/d/${slideMatch[1]}/export/pdf`;
-  }
+  if (slideMatch?.[1]) return `https://docs.google.com/presentation/d/${slideMatch[1]}/export/pdf`;
 
+  // Drive file → download
   const driveMatch = u.match(/drive\.google\.com\/file\/d\/([^/]+)/);
-  if (driveMatch?.[1]) {
-    return `https://drive.google.com/uc?export=download&id=${driveMatch[1]}`;
-  }
+  if (driveMatch?.[1]) return `https://drive.google.com/uc?export=download&id=${driveMatch[1]}`;
 
   return u;
 }
 
 function parseTime(s?: string | null) {
-  const t = s ? Date.parse(s) : NaN;
+  // ISO っぽい文字列だけを Date.parse する（JST整形文字列が来ても壊れないように）
+  const v = (s || "").trim();
+  if (!v) return null;
+
+  // 例: 2026-01-20 / 2026-01-20T12:34:56Z など
+  const looksISO = /^\d{4}-\d{2}-\d{2}/.test(v);
+  if (!looksISO) return null;
+
+  const t = Date.parse(v);
   return Number.isFinite(t) ? t : null;
 }
 
+function shortDateLabel(s?: string | null) {
+  const v = (s || "").trim();
+  if (!v) return "";
+  // ISOなら YYYY-MM-DD を表示
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  // それ以外（JST整形済み等）はそのまま（長ければ先頭だけ）
+  return v.length > 16 ? v.slice(0, 16) : v;
+}
+
 const DAY = 24 * 60 * 60 * 1000;
-// ✅ NEWバッジを表示する期間（3日間）
-const NEW_WINDOW = 3 * DAY;
+const NEW_WINDOW = 3 * DAY; // NEWは3日
 
 export default function ManualList({ manuals }: Props) {
-  // ✅ 日付ソートだけ残す（昇降トグルは維持）
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  // ✅ ManualList は「受け取った順のまま表示」(page.tsx 側でソート/ページング済み前提)
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
@@ -86,9 +99,7 @@ export default function ManualList({ manuals }: Props) {
   const [rawUrl, setRawUrl] = useState("");
 
   const [now, setNow] = useState<number>(0);
-  useEffect(() => {
-    setNow(Date.now());
-  }, []);
+  useEffect(() => setNow(Date.now()), []);
 
   const closeModal = () => {
     setIsModalOpen(false);
@@ -106,94 +117,49 @@ export default function ManualList({ manuals }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [isModalOpen]);
 
-  const toggleSortOrder = () => {
-    setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"));
-  };
+  // 表示用（map内で毎回計算しすぎないため）
+  const view = useMemo(() => {
+    return manuals.map((m) => {
+      const type: "video" | "doc" =
+        (m as any).type ||
+        ((m.embedUrl ?? "").includes("youtube") || (m.embedUrl ?? "").includes("youtu.be") ? "video" : "doc");
 
-  const sorted = useMemo(() => {
-    const list = [...manuals];
-    list.sort((a, b) => {
-      const da = parseTime(a.updatedAt) ?? 0;
-      const db = parseTime(b.updatedAt) ?? 0;
-      const comparison = da - db;
-      return sortOrder === "desc" ? -comparison : comparison;
+      const isVideo = type === "video";
+      const previewRaw = (m.embedUrl ?? "").trim();
+      const hasPreview = !!previewRaw;
+      const embeddable = hasPreview ? toEmbeddableUrl(previewRaw, isVideo) : "";
+
+      const dlDisabled = !!m.noDownload || !m.embedUrl;
+      const downloadUrl = dlDisabled ? undefined : toDownloadUrl(previewRaw, isVideo);
+
+      // NEW/UPDATE 判定（ISOが来た時だけ有効にする）
+      const createdTime = parseTime((m as any).createdAt);
+      const updatedTime = parseTime(m.updatedAt);
+
+      const isUpdated = !!(createdTime && updatedTime && updatedTime - createdTime > 1000 * 60 * 60);
+      const isNew = !!(createdTime && now && now - createdTime <= NEW_WINDOW);
+
+      return {
+        m,
+        type,
+        isVideo,
+        hasPreview,
+        previewRaw,
+        embeddable,
+        dlDisabled,
+        downloadUrl,
+        isUpdated,
+        isNew,
+      };
     });
-    return list;
-  }, [manuals, sortOrder]);
+  }, [manuals, now]);
 
   return (
     <div className="kbm">
-      {/* ✅ 並び替えUIは「日付順」だけ */}
-      <div
-        className="kbm-toolbar"
-        style={{ display: "flex", alignItems: "center", gap: "12px" }}
-      >
-        <span
-          className="kbm-toolbar-label"
-          style={{ fontSize: "13px", fontWeight: 700, color: "#64748b" }}
-        >
-          並び替え
-        </span>
-
-        <div
-          style={{
-            display: "flex",
-            background: "#f1f5f9",
-            padding: "4px",
-            borderRadius: "8px",
-            gap: "4px",
-          }}
-        >
-          <button
-            type="button"
-            onClick={toggleSortOrder}
-            style={{
-              padding: "6px 12px",
-              borderRadius: "6px",
-              border: "none",
-              fontSize: "12px",
-              cursor: "pointer",
-              background: "#fff",
-              fontWeight: 700,
-              boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-              transition: "all 0.2s",
-            }}
-          >
-            日付順 {sortOrder === "desc" ? "↓" : "↑"}
-          </button>
-        </div>
-      </div>
+      {/* ✅ 並び替えUIはここから削除（page.tsx 側にあるため二重管理すると壊れる） */}
 
       <div className="kbm-list">
-        {sorted.map((m) => {
-          const type: "video" | "doc" =
-            m.type ||
-            ((m.embedUrl ?? "").includes("youtube") || (m.embedUrl ?? "").includes("youtu.be")
-              ? "video"
-              : "doc");
-
-          const isVideo = type === "video";
-          const previewRaw = (m.embedUrl ?? "").trim();
-          const hasPreview = !!previewRaw;
-          const embeddable = hasPreview ? toEmbeddableUrl(previewRaw, isVideo) : "";
-
-          const dlDisabled = !!m.noDownload || !m.embedUrl;
-          const downloadUrl = dlDisabled ? undefined : toDownloadUrl(previewRaw, isVideo);
-
-          // ✅ 判定ロジック
-          const createdTime = parseTime(m.createdAt);
-          const updatedTime = parseTime(m.updatedAt);
-
-          // 1. 更新判定: 作成日より更新日が「1時間以上」新しければ更新とみなす
-          const isUpdated = !!(
-            createdTime &&
-            updatedTime &&
-            updatedTime - createdTime > 1000 * 60 * 60
-          );
-
-          // 2. 新規判定: 作成から NEW_WINDOW (3日) 以内
-          const isNew = !!(createdTime && now - createdTime <= NEW_WINDOW);
-
+        {view.map(({ m, type, isVideo, hasPreview, previewRaw, embeddable, dlDisabled, downloadUrl, isUpdated, isNew }) => {
           return (
             <article className="kbm-card" key={m.manualId}>
               <div className="kbm-card-grid">
@@ -206,12 +172,9 @@ export default function ManualList({ manuals }: Props) {
                       {isVideo ? "動画" : "資料"}
                     </span>
 
-                    {/* ✅ 表示の優先順位: UPDATE(オレンジ) > NEW(青) */}
+                    {/* 優先順位: UPDATE > NEW */}
                     {isUpdated ? (
-                      <span
-                        className="kbm-pill"
-                        style={{ background: "#f59e0b", color: "#fff", fontWeight: 800 }}
-                      >
+                      <span className="kbm-pill" style={{ background: "#f59e0b", color: "#fff", fontWeight: 800 }}>
                         UPDATE
                       </span>
                     ) : isNew ? (
@@ -229,10 +192,11 @@ export default function ManualList({ manuals }: Props) {
                       fontSize: "11px",
                       color: "#94a3b8",
                       marginTop: "4px",
+                      flexWrap: "wrap",
                     }}
                   >
-                    {m.startDate && <span>公開日: {m.startDate.slice(0, 10)}</span>}
-                    {m.updatedAt && <span>最終更新: {m.updatedAt.slice(0, 10)}</span>}
+                    {m.startDate && <span>公開日: {shortDateLabel(m.startDate)}</span>}
+                    {m.updatedAt && <span>最終更新: {shortDateLabel(m.updatedAt)}</span>}
                   </div>
 
                   {m.desc && <div className="kbm-desc">{m.desc}</div>}
@@ -270,14 +234,14 @@ export default function ManualList({ manuals }: Props) {
                     DL
                   </a>
 
-                  {m.externalUrl && (
+                  {(m as any).externalUrl && (
                     <button
                       className="kbm-btn"
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        safeOpen(m.externalUrl!);
+                        safeOpen((m as any).externalUrl);
                       }}
                     >
                       外部リンク
