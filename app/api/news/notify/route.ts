@@ -1,4 +1,3 @@
-// app/api/news/notify/route.ts
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
@@ -17,9 +16,13 @@ const FRANCHISE_GROUP_ID = "g002";
 const ddb = new DynamoDBClient({ region });
 const doc = DynamoDBDocumentClient.from(ddb);
 
-/** ========= admin key（Forbidden対策） ========= */
+/** ========= 認証ロジック（Amplify/Cron対応拡張） ========= */
 function requireAdmin(req: Request) {
+  const url = new URL(req.url);
   const headerKey = (req.headers.get("x-kb-admin-key") || "").trim();
+  // ✅ クエリパラメータでも認証できるように拡張 (?token=xxxx)
+  const queryToken = url.searchParams.get("token") || "";
+
   const serverKey =
     (process.env.KB_ADMIN_API_KEY || "").trim() ||
     (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
@@ -33,16 +36,19 @@ function requireAdmin(req: Request) {
       ),
     };
   }
-  if (!headerKey || headerKey !== serverKey) {
-    return {
-      ok: false as const,
-      res: NextResponse.json(
-        { error: "Forbidden", detail: "Invalid x-kb-admin-key" },
-        { status: 403 }
-      ),
-    };
+  
+  // ヘッダーまたはURLパラメータのどちらかが一致すれば許可
+  if ((headerKey && headerKey === serverKey) || (queryToken && queryToken === serverKey)) {
+    return { ok: true as const };
   }
-  return { ok: true as const };
+
+  return {
+    ok: false as const,
+    res: NextResponse.json(
+      { error: "Forbidden", detail: "Invalid admin key or token" },
+      { status: 403 }
+    ),
+  };
 }
 
 /** ========= SendGrid ========= */
@@ -157,7 +163,6 @@ async function processNotification(news: any, allUsers: any[]) {
   }
 
   // ✅ 送信完了後にフラグを更新
-  // テーブル定義に合わせて PK (newsId / news_id) を適宜調整してください
   await doc.send(new UpdateCommand({
     TableName: NEWS_TABLE,
     Key: { newsId: news.newsId },
@@ -170,14 +175,15 @@ async function processNotification(news: any, allUsers: any[]) {
 
 /**
  * GET: 定期実行（Cron等）用
- * 予約時間を過ぎているが、まだ通知していないお知らせをスキャンして配信
+ * ✅ 日本時間のズレを修正し、予約時刻を過ぎたものをスキャン
  */
 export async function GET(req: Request) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.res;
 
   try {
-    const now = new Date().toISOString();
+    // ✅ 日本時間(UTC+9)の現在時刻を生成して比較
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
 
     const newsRes = await doc.send(new ScanCommand({ TableName: NEWS_TABLE }));
     const allNews = (newsRes.Items || []) as any[];
@@ -191,7 +197,7 @@ export async function GET(req: Request) {
       const isNotified = !!n.isNotified;
       const publishAt = n.publishAt || null;
       // publishAtがない（即時）または過ぎている
-      return !isHidden && !isNotified && (!publishAt || publishAt <= now);
+      return !isHidden && !isNotified && (!publishAt || publishAt <= nowJst);
     });
 
     let count = 0;
@@ -199,8 +205,14 @@ export async function GET(req: Request) {
       count += await processNotification(news, allUsers);
     }
 
-    return NextResponse.json({ ok: true, processedNews: targets.length, totalEmails: count });
+    return NextResponse.json({ 
+      ok: true, 
+      checkedAt: nowJst,
+      processedNews: targets.length, 
+      totalEmails: count 
+    });
   } catch (error: any) {
+    console.error("[NOTIFY_GET_ERROR]", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -221,8 +233,8 @@ export async function POST(req: Request) {
     if (!news) return NextResponse.json({ error: "NotFound" }, { status: 404 });
 
     // 予約日時が設定されている場合、POSTでも未来のものは送らない（ガード）
-    const now = new Date().toISOString();
-    if (news.publishAt && news.publishAt > now) {
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
+    if (news.publishAt && news.publishAt > nowJst) {
       return NextResponse.json({ ok: true, message: "予約時刻前のため通知をスキップしました" });
     }
 
