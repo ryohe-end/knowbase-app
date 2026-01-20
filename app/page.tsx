@@ -328,19 +328,20 @@ function renderRichText(body?: string) {
   return <div className="kb-news-rich">{blocks}</div>;
 }
 
-/* ===== SSE helpers ===== */
-function extractSseData(eventBlock: string) {
-  const lines = eventBlock.split("\n");
-  const dataLines = lines
-    .filter((l) => l.startsWith("data:"))
-    .map((l) => l.replace(/^data:\s?/, ""));
-  return dataLines.join("\n");
+
+function extractSseEventName(eventBlock: string): string | null {
+  const m = eventBlock.match(/^event:\s*(.+)$/m);
+  return m ? m[1].trim() : null;
 }
 
-function extractSseEventName(eventBlock: string) {
-  const line = eventBlock.split("\n").find((l) => l.startsWith("event:"));
-  return line ? line.replace(/^event:\s?/, "").trim() : "";
+function extractSseData(eventBlock: string): string {
+  const lines = eventBlock
+    .split("\n")
+    .filter((l) => l.startsWith("data:"))
+    .map((l) => l.slice(5).replace(/^ /, ""));
+  return lines.join("\n");
 }
+
 /* ===== /SSE helpers ===== */
 
 function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
@@ -592,36 +593,126 @@ useEffect(() => {
   }, []);
 
   /* ========= Knowbie（Amazon Q） ========= */
-  const [prompt, setPrompt] = useState("");
-  const [loadingAI, setLoadingAI] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [sources, setSources] = useState<SourceAttribution[]>([]);
-  const [showSources, setShowSources] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement | null>(null);
-  const manualListRef = useRef<HTMLDivElement | null>(null);
 
-  const [keyword, setKeyword] = useState("");
-  const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
-  const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
-  const [contactSearch, setContactSearch] = useState("");
+// 既存の state（あなたのまま）
+const [prompt, setPrompt] = useState("");
+const [loadingAI, setLoadingAI] = useState(false);
+const [messages, setMessages] = useState<Message[]>([]);
+const [sources, setSources] = useState<SourceAttribution[]>([]);
+const [showSources, setShowSources] = useState(false);
+const chatEndRef = useRef<HTMLDivElement | null>(null);
+const manualListRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ 新しいメッセージ・参照元が来たら自動で一番下へ
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, sources, showSources]);
+const [keyword, setKeyword] = useState("");
+const [selectedBrandId, setSelectedBrandId] = useState<string>(ALL_BRAND_ID);
+const [selectedDeptId, setSelectedDeptId] = useState<string>(ALL_DEPT_ID);
+const [contactSearch, setContactSearch] = useState("");
+const SLOW_TIP = "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）";
+const INITIAL_TEXT = "送信しました。検索しています…";
 
-  function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
-    const next = [...prev, ...incoming];
-    const seen = new Set<string>();
-    return next.filter((s) => {
-      const key = String(s.url || s.documentId || s.title || JSON.stringify(s));
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+// ★ 追加：会話継続したい場合（サーバーから conversationId が返る前提）
+const [conversationId, setConversationId] = useState<string | undefined>(undefined);
+
+// ★ 追加：キャンセル用 AbortController を保持
+const abortRef = useRef<AbortController | null>(null);
+
+// ★ 追加：ストリーミング描画を軽くするバッファ
+const aiBufRef = useRef("");
+const flushTimerRef = useRef<number | null>(null);
+
+/** 参照元の uniq merge（あなたのを流用） */
+function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
+  const next = [...prev, ...incoming];
+  const seen = new Set<string>();
+  return next.filter((s) => {
+    const key = String(s.url || s.documentId || s.title || JSON.stringify(s));
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** ★ streaming中は smooth をやめる（最重要） */
+useEffect(() => {
+  const behavior = loadingAI ? "auto" : "smooth";
+  chatEndRef.current?.scrollIntoView({ behavior, block: "end" });
+}, [messages, sources, showSources, loadingAI]);
+
+/** ★ 受信テキストを 50ms で間引き反映 */
+const flushAssistant = (assistantId: number) => {
+  flushTimerRef.current = null;
+  const chunk = aiBufRef.current;
+  aiBufRef.current = "";
+  if (!chunk) return;
+
+  setMessages((prev) =>
+    prev.map((m) =>
+      m.id === assistantId
+        ? { ...m, content: (m.content ?? "") + chunk, loading: true }
+        : m
+    )
+  );
+};
+
+const appendToAssistant = (assistantId: number, chunk: string) => {
+  if (!chunk) return;
+  aiBufRef.current += chunk;
+  if (flushTimerRef.current != null) return;
+
+  flushTimerRef.current = window.setTimeout(() => flushAssistant(assistantId), 50);
+};
+
+const setAssistantDone = (assistantId: number) => {
+  // 残バッファを反映してから終わる
+  if (flushTimerRef.current != null) {
+    window.clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
+  }
+  if (aiBufRef.current) {
+    const rest = aiBufRef.current;
+    aiBufRef.current = "";
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === assistantId
+          ? { ...m, content: (m.content ?? "") + rest, loading: true }
+          : m
+      )
+    );
   }
 
-  async function handleAsk() {
+  setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, loading: false } : m)));
+};
+
+/** ★ キャンセル（ボタン用） */
+function handleCancelAsk() {
+  if (!loadingAI) return;
+
+  try {
+    abortRef.current?.abort();
+  } catch {}
+
+  abortRef.current = null;
+
+  // UI上も “中断” と分かるようにする（最新のassistantを探す簡易版）
+  setMessages((prev) => {
+    const idx = [...prev].reverse().findIndex((m) => m.role === "assistant" && m.loading);
+    if (idx === -1) return prev;
+    const realIndex = prev.length - 1 - idx;
+    const target = prev[realIndex];
+    const next = [...prev];
+    next[realIndex] = {
+      ...target,
+      loading: false,
+      content: (target.content ?? "") + "\n\n（キャンセルしました）",
+    };
+    return next;
+  });
+
+  setLoadingAI(false);
+}
+
+/** ★ メイン：質問送信 */
+async function handleAsk() {
   if (!prompt.trim() || loadingAI) return;
 
   const userPrompt = prompt.trim();
@@ -630,47 +721,58 @@ useEffect(() => {
   setSources([]);
   setShowSources(false);
 
-  const newUserMessage: Message = { id: Date.now(), role: "user", content: userPrompt };
-  const newAssistantId = Date.now() + 1;
+  const now = Date.now();
+  const newUserMessage: Message = { id: now, role: "user", content: userPrompt };
+  const assistantId = now + 1;
 
   const newAssistantMessage: Message = {
-    id: newAssistantId,
+    id: assistantId,
     role: "assistant",
     content: "送信しました。検索しています…",
     loading: true,
   };
 
+  // 表示を追加
   setMessages((prev) => [...prev, newUserMessage, newAssistantMessage]);
   setLoadingAI(true);
 
-  const appendToAssistant = (chunk: string) => {
-    if (!chunk) return;
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === newAssistantId ? { ...m, content: (m.content ?? "") + chunk, loading: true } : m
-      )
-    );
-  };
+  // streamingバッファ初期化
+  aiBufRef.current = "";
+  if (flushTimerRef.current != null) {
+    window.clearTimeout(flushTimerRef.current);
+    flushTimerRef.current = null;
+  }
 
-  const setAssistantDone = () => {
-    setMessages((prev) => prev.map((m) => (m.id === newAssistantId ? { ...m, loading: false } : m)));
-  };
+  // AbortController セット
+  const ac = new AbortController();
+  abortRef.current = ac;
 
   const slowTimer = window.setTimeout(() => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === newAssistantId && m.loading
-          ? { ...m, content: "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）" }
-          : m
-      )
-    );
-  }, 3000);
+  setMessages((prev) =>
+    prev.map((m) => {
+      if (m.id !== assistantId || !m.loading) return m;
+
+      // まだ本文が来てない“初期状態”のときだけ置き換える
+      const cur = (m.content ?? "").trim();
+      if (cur === "" || cur === INITIAL_TEXT) {
+        return { ...m, content: SLOW_TIP };
+      }
+
+      // すでに何か本文が来てるなら何もしない（邪魔しない）
+      return m;
+    })
+  );
+}, 3000);
 
   try {
     const res = await fetch("/api/amazonq", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: userPrompt }),
+      signal: ac.signal,
+      body: JSON.stringify({
+        prompt: userPrompt,
+        conversationId, // ★ 継続したい場合
+      }),
     });
 
     if (!res.ok) {
@@ -685,18 +787,31 @@ useEffect(() => {
 
     const contentType = res.headers.get("content-type") || "";
 
-    // assistantを空にしてストリーム開始
-    setMessages((prev) =>
-      prev.map((m) => (m.id === newAssistantId ? { ...m, content: "", loading: true } : m))
-    );
-
-    // ✅ SSE
+    // SSE
     if (contentType.includes("text/event-stream")) {
+  // ✅ ここで slow 表示を止める（遅い文言が途中で混ざるのを防止）
+  window.clearTimeout(slowTimer);
+
+  // “検索しています…” / slowTip を消してストリーム表示開始
+  setMessages((prev) =>
+    prev.map((m) => (m.id === assistantId ? { ...m, content: "", loading: true } : m))
+  );
+
       const handleSseBlock = (block: string) => {
         const eventName = extractSseEventName(block);
         const data = extractSseData(block);
 
         if (eventName === "ping") return { stop: false };
+
+        if (eventName === "conversation") {
+          // { conversationId: "..." }
+          try {
+            const j = JSON.parse(data || "{}");
+            const cid = j?.conversationId;
+            if (cid && typeof cid === "string") setConversationId(cid);
+          } catch {}
+          return { stop: false };
+        }
 
         if (eventName === "sources") {
           try {
@@ -712,31 +827,32 @@ useEffect(() => {
         }
 
         if (eventName === "done" || data === "[DONE]") {
-          setAssistantDone();
+          setAssistantDone(assistantId);
           return { stop: true };
         }
 
         if (eventName === "error") {
           try {
             const j = JSON.parse(data || "{}");
-            throw new Error(j.error || JSON.stringify(j));
+            throw new Error(j.error || j.message || JSON.stringify(j));
           } catch {
             throw new Error(data || "unknown stream error");
           }
         }
 
-        if (data) appendToAssistant(data);
+        if (data) appendToAssistant(assistantId, data);
         return { stop: false };
       };
 
       if (!res.body) {
+        // body が無い環境は fallback
         const all = await res.text().catch(() => "");
         const blocks = all.split("\n\n");
         for (const b of blocks) {
           const r = handleSseBlock(b);
-          if (r?.stop) return;
+          if (r?.stop) break;
         }
-        setAssistantDone();
+        setAssistantDone(assistantId);
         return;
       }
 
@@ -755,15 +871,27 @@ useEffect(() => {
 
         for (const part of parts) {
           const r = handleSseBlock(part);
-          if (r?.stop) return;
+          if (r?.stop) {
+            try { reader.cancel(); } catch {}
+            return;
+          }
         }
       }
 
-      setAssistantDone();
+      // 最後に残った分も処理
+      if (buffer.trim()) {
+        const parts = buffer.split("\n\n");
+        for (const part of parts) {
+          const r = handleSseBlock(part);
+          if (r?.stop) break;
+        }
+      }
+
+      setAssistantDone(assistantId);
       return;
     }
 
-    // ✅ SSEじゃない場合（JSON or text）
+    // SSEじゃない場合（JSON or text）
     const text = await res.text().catch(() => "");
     let answer = text;
 
@@ -784,22 +912,39 @@ useEffect(() => {
     }
 
     setMessages((prev) =>
-      prev.map((m) => (m.id === newAssistantId ? { ...m, content: answer, loading: false } : m))
+      prev.map((m) => (m.id === assistantId ? { ...m, content: answer, loading: false } : m))
     );
   } catch (err: unknown) {
+    // ★ キャンセルはここに来る
+    const aborted =
+      err instanceof DOMException
+        ? err.name === "AbortError"
+        : err instanceof Error && (err as any).name === "AbortError";
+
+    if (aborted) {
+      // handleCancelAsk 側でも表示してるけど、ここでも保険
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: (m.content ?? "") + "\n\n（キャンセルしました）", loading: false }
+            : m
+        )
+      );
+      return;
+    }
+
     const msg = err instanceof Error ? err.message : String(err);
 
     setMessages((prev) =>
       prev.map((m) =>
-        m.id === newAssistantId
-          ? { ...m, content: `エラーが発生しました：${msg}`, loading: false }
-          : m
+        m.id === assistantId ? { ...m, content: `エラーが発生しました：${msg}`, loading: false } : m
       )
     );
     setSources([]);
     setShowSources(false);
   } finally {
     window.clearTimeout(slowTimer);
+    abortRef.current = null;
     setLoadingAI(false);
   }
 }
@@ -1507,9 +1652,13 @@ const groupHeaders: HeadersInit = groupIds
                     }
                   }}
                 />
-                <button className="kb-chat-send" onClick={handleAsk} disabled={loadingAI}>
-                  送信
-                </button>
+                <button
+  className="kb-chat-send"
+  onClick={loadingAI ? handleCancelAsk : handleAsk}
+  disabled={!loadingAI && !prompt.trim()}
+>
+  {loadingAI ? "■" : "送信"}
+</button>
               </div>
             </div>
           </div>
