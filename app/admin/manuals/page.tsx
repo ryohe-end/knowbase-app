@@ -718,23 +718,32 @@ export default function AdminManuals() {
                 </div>
               </div>
 
-              {/* ✅ 追加：閲覧権限 */}
-              <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">閲覧権限</label>
-                <select
-                  name="viewScope"
-                  className="kb-admin-select full"
-                  value={normalizeViewScope(manualForm.viewScope)}
-                  onChange={handleInputChange}
-                  disabled={!isEditing || busy}
-                >
-                  <option value="all">すべて（直営 / FC / 本部）</option>
-                  <option value="direct">直営のみ（直営 / 本部）</option>
-                </select>
-                <div className="kb-subnote full" style={{ marginTop: 6 }}>
-                  ※「直営のみ」は <b>直営店舗</b> と <b>本部</b> のみ表示されます（FCは非表示）
-                </div>
-              </div>
+             {/* ✅ 修正：閲覧権限の選択肢追加 */}
+<div className="kb-admin-form-row">
+  <label className="kb-admin-label full">閲覧権限</label>
+  <select
+    name="viewScope"
+    className="kb-admin-select full"
+    value={normalizeViewScope(manualForm.viewScope)}
+    onChange={handleInputChange}
+    disabled={!isEditing || busy}
+  >
+    <option value="all">すべて（直営 / FC / 本部）</option>
+    <option value="direct">直営のみ（直営 / 本部）</option>
+    <option value="fc">FCのみ（FC / 本部）</option>
+  </select>
+  <div className="kb-subnote full" style={{ marginTop: 6, minHeight: '1.5em' }}>
+    {manualForm.viewScope === 'direct' && (
+      <span>※ <b>直営店舗</b> と <b>本部</b> のみ表示されます（FCは非表示）</span>
+    )}
+    {manualForm.viewScope === 'fc' && (
+      <span>※ <b>FC店舗</b> と <b>本部</b> のみ表示されます（直営は非表示）</span>
+    )}
+    {manualForm.viewScope === 'all' && (
+      <span>※ 全てのユーザー（直営・FC・本部）が閲覧可能です。</span>
+    )}
+  </div>
+</div>
 
               <div className="kb-admin-form-row two-col">
                 <div>

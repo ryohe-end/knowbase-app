@@ -7,6 +7,9 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE_NAME = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
 
@@ -15,28 +18,42 @@ const TABLE_NAME = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
  * - KB_ADMIN_API_KEY: 管理画面が全件取得/更新するための鍵（あなたが手で決めた文字列でOK）
  * - KB_DIRECT_GROUP_ID: 直営の groupId（例: g001）
  * - KB_HQ_GROUP_ID: 本部の groupId（例: g003）
+ * - KB_FC_GROUP_ID: FCの groupId（例: g002）
  *
- * ※ 既にあなたは KB_ADMIN_API_KEY をセット済み
- * ※ KB_DIRECT_GROUP_ID が "G_DIRECT" など旧値でも壊れないように保険あり
+ * ※ 既にあなたは KB_ADMIN_API_KEY をセット済み想定
  */
 const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
 
-// 推奨: g001 / g003
-const HQ_GROUP_ID = (process.env.KB_HQ_GROUP_ID || "g001").trim();
-const DIRECT_GROUP_ID = (process.env.KB_DIRECT_GROUP_ID || "g003").trim();
+/** 推奨: g001 / g003 / g002（環境に合わせて env で上書き） */
+const DIRECT_GROUP_ID = (process.env.KB_DIRECT_GROUP_ID || "g001").trim(); // 直営
+const HQ_GROUP_ID = (process.env.KB_HQ_GROUP_ID || "g003").trim(); // 本部
+const FC_GROUP_ID = (process.env.KB_FC_GROUP_ID || "g002").trim(); // FC
 
-// 旧値/表記ゆれ保険（あなたの環境が G_DIRECT を使っていても落ちないように）
+// 旧値/表記ゆれ保険（必要に応じて増やしてOK）
 const DIRECT_GROUP_ALIASES = Array.from(
   new Set([DIRECT_GROUP_ID, "g001", "G_DIRECT"].filter(Boolean))
 );
-const HQ_GROUP_ALIASES = Array.from(new Set([HQ_GROUP_ID, "g003"].filter(Boolean)));
+const HQ_GROUP_ALIASES = Array.from(
+  new Set([HQ_GROUP_ID, "g003", "G_HQ"].filter(Boolean))
+);
+const FC_GROUP_ALIASES = Array.from(
+  new Set([FC_GROUP_ID, "g002", "G_FC", "fc"].filter(Boolean))
+);
+
+// ✅ 正規化（大小文字/空白ゆれ対策）
+const norm = (s: string) => String(s || "").trim().toLowerCase();
+
+// ✅ Set 化
+const DIRECT_GROUP_SET = new Set(DIRECT_GROUP_ALIASES.map(norm));
+const HQ_GROUP_SET = new Set(HQ_GROUP_ALIASES.map(norm));
+const FC_GROUP_SET = new Set(FC_GROUP_ALIASES.map(norm));
 
 // DynamoDBクライアントの初期化
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
 
 export type ManualType = "doc" | "video";
-export type ViewScope = "ALL" | "DIRECT";
+export type ViewScope = "ALL" | "DIRECT" | "FC";
 
 export type Manual = {
   manualId: string;
@@ -64,7 +81,7 @@ export type Manual = {
 
   isNew?: boolean;
 
-  // ✅ 追加：閲覧権限（すべて / 直営のみ）
+  // ✅ 閲覧権限（すべて / 直営のみ / FCのみ）
   viewScope?: ViewScope;
 };
 
@@ -77,7 +94,7 @@ function normalizeYmd(v: any): string | undefined {
 }
 
 function normalizeType(v: any): ManualType | undefined {
-  const s = String(v || "").toLowerCase();
+  const s = String(v || "").toLowerCase().trim();
   if (s === "doc" || s === "video") return s as ManualType;
   return undefined;
 }
@@ -85,6 +102,7 @@ function normalizeType(v: any): ManualType | undefined {
 function normalizeViewScope(v: any): ViewScope {
   const s = String(v || "").toUpperCase().trim();
   if (s === "DIRECT") return "DIRECT";
+  if (s === "FC") return "FC";
   return "ALL";
 }
 
@@ -105,7 +123,7 @@ function parseGroupIds(req: Request): { primary?: string; all: string[] } {
 function isAdminRequest(req: Request) {
   if (!KB_ADMIN_API_KEY) return false;
   const key = (req.headers.get("x-kb-admin-key") || "").trim();
-  return key && key === KB_ADMIN_API_KEY;
+  return !!key && key === KB_ADMIN_API_KEY;
 }
 
 /** 公開期間内かどうか（onlyActive=1 で使う） */
@@ -118,24 +136,38 @@ function isActiveByDate(m: Manual, nowYmd: string) {
 }
 
 /**
- * ✅ viewScope の閲覧可否
- * - ALL: 認証ユーザーならOK（= group header がある前提。無くても落とさず返すのは危険なので "許可" に寄せる or "拒否" に寄せるは運用次第）
- * - DIRECT: primary が 直営 or 本部 のときだけOK（本部OK版）
+ * ✅ viewScope の閲覧可否（一般ユーザー向け）
+ *
+ * 期待仕様：
+ * - all    : admin ✅ / direct ✅ / fc ✅
+ * - direct : admin ✅ / direct ✅ / fc ❌
+ * - fc     : admin ✅ / direct ❌ / fc ✅
+ *
+ * admin は GET で先に全件分岐するので、ここは「一般ユーザー」の判定。
+ * ただし「本部(HQ)は全部見れる」を再現するため HQ は direct/fc どちらにも許可側に入れる。
  */
 function canViewManualByScope(req: Request, manual: Manual): boolean {
   const scope: ViewScope = manual.viewScope || "ALL";
   if (scope === "ALL") return true;
 
-  // DIRECT（直営のみ）の場合
-  const { all } = parseGroupIds(req); // すべての所属グループIDを取得
+  const { all } = parseGroupIds(req);
   if (all.length === 0) return false;
 
-  // ユーザーが持つグループIDのいずれかが、直営または本部のエイリアスに含まれているか
-  const isDirectOrHq = all.some(id => 
-    DIRECT_GROUP_ALIASES.includes(id) || HQ_GROUP_ALIASES.includes(id)
-  );
+  const hasHQ = all.some((id) => HQ_GROUP_SET.has(norm(id)));
+  const hasDirect = all.some((id) => DIRECT_GROUP_SET.has(norm(id)));
+  const hasFc = all.some((id) => FC_GROUP_SET.has(norm(id)));
 
-  return isDirectOrHq;
+  if (scope === "DIRECT") {
+    // 本部 or 直営
+    return hasHQ || hasDirect;
+  }
+
+  if (scope === "FC") {
+    // 本部 or FC
+    return hasHQ || hasFc;
+  }
+
+  return true;
 }
 
 /** DynamoDB → Manual へのマッピング */
@@ -178,7 +210,7 @@ function mapItemToManual(item: any): Manual {
     type: normalizeType(item.type) ?? "doc",
     isNew: item.isNew === true,
 
-    // ✅ 追加
+    // ✅ viewScope（ALL / DIRECT / FC）
     viewScope: normalizeViewScope(item.viewScope),
   };
 }
@@ -198,15 +230,13 @@ function buildDbItem(input: any): any {
     ? input.tags.map((t: any) => String(t)).filter(Boolean)
     : [];
 
- const now = new Date().toISOString(); 
+  const now = new Date().toISOString();
 
-  // ✅ ここを修正：
-  // 1. input.createdAt（既存データからの作成日）があればそれを使う
-  // 2. なければ（新規作成なら）今作成した now を使う
-  const finalCreatedAt = input.createdAt || now;
+  // ✅ createdAt は「既存があれば維持」、無ければ新規作成
+  const finalCreatedAt = input.createdAt ? String(input.createdAt) : now;
   const updatedAt = now;
 
-  // ✅ viewScope（ALL / DIRECT）
+  // ✅ viewScope（ALL / DIRECT / FC）
   const viewScope: ViewScope = normalizeViewScope(input.viewScope);
 
   return {
@@ -237,7 +267,7 @@ function buildDbItem(input: any): any {
     endDate,
     type,
     createdAt: finalCreatedAt,
-    updatedAt, // 最新のフルタイムスタンプが保存される
+    updatedAt,
     viewScope,
   };
 }
@@ -249,10 +279,10 @@ function buildDbItem(input: any): any {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const isAdmin = isAdminRequest(req); // 管理者かどうかを判定
-    
-    // ✅ 一般ユーザー（!isAdmin）の場合は、パラメータの有無に関わらず強制的に onlyActive 扱いにする
-    const onlyActive = url.searchParams.get("onlyActive") === "1" || !isAdmin; 
+    const isAdmin = isAdminRequest(req);
+
+    // ✅ 一般ユーザー（!isAdmin）は強制 onlyActive
+    const onlyActive = url.searchParams.get("onlyActive") === "1" || !isAdmin;
     const nowYmd = new Date().toISOString().slice(0, 10);
 
     const result = await ddbDoc.send(
@@ -264,21 +294,21 @@ export async function GET(req: Request) {
     const items = result.Items || [];
     const allManuals = items.map(mapItemToManual);
 
-    // ✅ 管理者リクエストの場合
+    // ✅ 管理者: 全件（任意で onlyActive）
     if (isAdmin) {
-      // 管理者は「?onlyActive=1」が付いている時だけ期間フィルタを適用（通常は全件確認したいため）
-      const manuals = url.searchParams.get("onlyActive") === "1"
-        ? allManuals.filter((m) => isActiveByDate(m, nowYmd))
-        : allManuals;
+      const manuals =
+        url.searchParams.get("onlyActive") === "1"
+          ? allManuals.filter((m) => isActiveByDate(m, nowYmd))
+          : allManuals;
 
       return Response.json({ manuals, admin: true });
     }
 
-    // ✅ 一般ユーザーリクエストの場合
-    // 1. 閲覧権限（viewScope）でフィルタ
+    // ✅ 一般ユーザー:
+    // 1) viewScope でフィルタ
     let manuals = allManuals.filter((m) => canViewManualByScope(req, m));
 
-    // 2. 公開期間でフィルタ（onlyActiveがtrueなので必ず実行される）
+    // 2) 公開期間でフィルタ（一般は必ず実行）
     if (onlyActive) {
       manuals = manuals.filter((m) => isActiveByDate(m, nowYmd));
     }
@@ -296,9 +326,7 @@ export async function GET(req: Request) {
   }
 }
 
-/** POST: /api/manuals 新規登録（管理画面想定）
- * - 原則：管理画面から x-kb-admin-key 付きで呼ぶ
- */
+/** POST: /api/manuals 新規登録（管理画面想定） */
 export async function POST(req: Request) {
   try {
     if (!isAdminRequest(req)) {
