@@ -19,8 +19,6 @@ const TABLE_NAME = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
  * - KB_DIRECT_GROUP_ID: 直営の groupId（例: g001）
  * - KB_HQ_GROUP_ID: 本部の groupId（例: g003）
  * - KB_FC_GROUP_ID: FCの groupId（例: g002）
- *
- * ※ 既にあなたは KB_ADMIN_API_KEY をセット済み想定
  */
 const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
 
@@ -106,17 +104,84 @@ function normalizeViewScope(v: any): ViewScope {
   return "ALL";
 }
 
-/** header: x-kb-group-ids を "a,b,c" で受け取る */
-function parseGroupIds(req: Request): { primary?: string; all: string[] } {
-  const raw = (req.headers.get("x-kb-group-ids") || "").trim();
-  if (!raw) return { primary: undefined, all: [] };
-  const all = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+/** DynamoDB AttributeValue / 文字列 / 数値 を "g001" 形式に寄せる */
+function normalizeGroupId(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") {
+    const s = v.trim();
+    return s ? s : null;
+  }
+  if (typeof v === "number") return String(v);
 
-  const primary = all[0];
-  return { primary, all };
+  if (typeof v === "object") {
+    // DynamoDB AttributeValue 形式
+    if (typeof v.S === "string") return v.S.trim();
+    if (typeof v.N === "string") return v.N.trim();
+  }
+
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
+/**
+ * header: x-kb-group-ids を柔軟に受ける
+ * - "g001,g003"
+ * - '["g001","g003"]'
+ * - '[{"S":"g001"},{"S":"g003"}]'   ← あなたのパターン
+ * - さらに保険で x-kb-group-id（単数）も拾う
+ */
+function parseGroupIds(req: Request): { primary?: string; all: string[] } {
+  // まず複数ヘッダ
+  const raw = (req.headers.get("x-kb-group-ids") || "").trim();
+  // 単数ヘッダ保険
+  const rawOne = (req.headers.get("x-kb-group-id") || "").trim();
+
+  const collected: string[] = [];
+
+  const pushNormalized = (val: any) => {
+    const s = normalizeGroupId(val);
+    if (s) collected.push(s);
+  };
+
+  // 1) x-kb-group-ids が JSON っぽい場合は JSON パースを試す
+  if (raw) {
+    const first = raw[0];
+    const looksJson = first === "[" || first === "{";
+    if (looksJson) {
+      try {
+        const parsed = JSON.parse(raw);
+
+        if (Array.isArray(parsed)) {
+          for (const x of parsed) pushNormalized(x);
+        } else {
+          // {S:"g001"} みたいな単体の可能性
+          pushNormalized(parsed);
+        }
+      } catch {
+        // JSON 失敗 → カンマ区切りとして扱う
+        raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .forEach((s) => pushNormalized(s));
+      }
+    } else {
+      // 2) 通常のカンマ区切り
+      raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .forEach((s) => pushNormalized(s));
+    }
+  }
+
+  // 3) 単数ヘッダ
+  if (rawOne) pushNormalized(rawOne);
+
+  // 4) 重複除去 + 空除去
+  const all = Array.from(new Set(collected.map((s) => s.trim()).filter(Boolean)));
+
+  return { primary: all[0], all };
 }
 
 /** 管理者判定（管理画面はこれを必ず付ける運用にする） */
@@ -139,9 +204,9 @@ function isActiveByDate(m: Manual, nowYmd: string) {
  * ✅ viewScope の閲覧可否（一般ユーザー向け）
  *
  * 期待仕様：
- * - all    : admin ✅ / direct ✅ / fc ✅
- * - direct : admin ✅ / direct ✅ / fc ❌
- * - fc     : admin ✅ / direct ❌ / fc ✅
+ * - ALL    : admin ✅ / direct ✅ / fc ✅
+ * - DIRECT : admin ✅ / direct ✅ / fc ❌
+ * - FC     : admin ✅ / direct ❌ / fc ✅
  *
  * admin は GET で先に全件分岐するので、ここは「一般ユーザー」の判定。
  * ただし「本部(HQ)は全部見れる」を再現するため HQ は direct/fc どちらにも許可側に入れる。
@@ -275,11 +340,14 @@ function buildDbItem(input: any): any {
 /** GET: /api/manuals
  * - 管理画面（x-kb-admin-key 正しい）: 全件（?onlyActive=1があれば期間フィルタ）
  * - 一般画面: viewScope フィルタ ＋ 公開期間(start/end)内を強制フィルタ
+ * - debug=1: ヘッダー/判定情報を返す（原因特定用）
  */
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const isAdmin = isAdminRequest(req);
+
+    const debug = url.searchParams.get("debug") === "1";
 
     // ✅ 一般ユーザー（!isAdmin）は強制 onlyActive
     const onlyActive = url.searchParams.get("onlyActive") === "1" || !isAdmin;
@@ -301,6 +369,25 @@ export async function GET(req: Request) {
           ? allManuals.filter((m) => isActiveByDate(m, nowYmd))
           : allManuals;
 
+      // 管理者でも debug 見たいことあるので返す
+      if (debug) {
+        return Response.json({
+          admin: true,
+          onlyActive,
+          nowYmd,
+          headers: {
+            "x-kb-group-ids": req.headers.get("x-kb-group-ids"),
+            "x-kb-group-id": req.headers.get("x-kb-group-id"),
+            "x-kb-admin-key": req.headers.get("x-kb-admin-key") ? "(present)" : "(none)",
+          },
+          counts: {
+            scanned: items.length,
+            manuals: manuals.length,
+          },
+          sample: manuals.slice(0, 10),
+        });
+      }
+
       return Response.json({ manuals, admin: true });
     }
 
@@ -311,6 +398,49 @@ export async function GET(req: Request) {
     // 2) 公開期間でフィルタ（一般は必ず実行）
     if (onlyActive) {
       manuals = manuals.filter((m) => isActiveByDate(m, nowYmd));
+    }
+
+    if (debug) {
+      // canView の判定材料を全部見える化
+      const parsed = parseGroupIds(req);
+      const all = parsed.all;
+
+      const hasHQ = all.some((id) => HQ_GROUP_SET.has(norm(id)));
+      const hasDirect = all.some((id) => DIRECT_GROUP_SET.has(norm(id)));
+      const hasFc = all.some((id) => FC_GROUP_SET.has(norm(id)));
+
+      // DIRECTのmanualが何件あって、見える判定になってるか
+      const directSamples = allManuals
+        .filter((m) => (m.viewScope || "ALL") === "DIRECT")
+        .slice(0, 10)
+        .map((m) => ({
+          manualId: m.manualId,
+          title: m.title,
+          viewScope: m.viewScope,
+          canView: canViewManualByScope(req, m),
+          startDate: m.startDate,
+          endDate: m.endDate,
+        }));
+
+      return Response.json({
+        admin: false,
+        onlyActive,
+        nowYmd,
+        headers: {
+          "x-kb-group-ids": req.headers.get("x-kb-group-ids"),
+          "x-kb-group-id": req.headers.get("x-kb-group-id"),
+          "x-kb-admin-key": req.headers.get("x-kb-admin-key") ? "(present)" : "(none)",
+        },
+        parsedGroupIds: parsed,
+        groupMatch: { hasHQ, hasDirect, hasFc },
+        counts: {
+          scanned: items.length,
+          allManuals: allManuals.length,
+          afterScope: allManuals.filter((m) => canViewManualByScope(req, m)).length,
+          afterActive: manuals.length,
+        },
+        directSamples,
+      });
     }
 
     return Response.json({ manuals, admin: false });
@@ -325,6 +455,7 @@ export async function GET(req: Request) {
     );
   }
 }
+
 
 /** POST: /api/manuals 新規登録（管理画面想定） */
 export async function POST(req: Request) {
@@ -447,3 +578,4 @@ export async function DELETE(req: Request) {
     );
   }
 }
+

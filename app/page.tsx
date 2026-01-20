@@ -41,6 +41,7 @@ type Dept = {
   sortOrder?: number;
   isActive?: boolean;
   email?: string;
+  mailingList?: string | string[];
 };
 
 type Contact = {
@@ -66,6 +67,7 @@ type News = {
   toDate?: string | null;
   updatedAt?: string;
   isHidden?: boolean;
+  url?: string;
 };
 
 type Message = {
@@ -100,7 +102,6 @@ type ExternalLink = {
 
 const ALL_BRAND_ID = "__ALL_BRAND__";
 const ALL_DEPT_ID = "__ALL_DEPT__";
-const INQUIRY_MAIL = "support@example.com";
 
 function buildGroupIdsHeader(groupId?: string) {
   const HQ = "g003";
@@ -969,6 +970,11 @@ async function handleAsk() {
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
 
   const PAGE_SIZE = 5;
+  type ManualSortKey = "publish" | "update";
+  type SortOrder = "asc" | "desc";
+
+const [manualSortKey, setManualSortKey] = useState<ManualSortKey>("publish"); // 公開日
+const [manualSortOrder, setManualSortOrder] = useState<SortOrder>("desc");    // 新しい順
   const [manualPage, setManualPage] = useState(1);
 
   // ★ お知らせ：ページネーション
@@ -1121,22 +1127,66 @@ const groupHeaders: HeadersInit = groupIds
   });
 }, [manuals, keyword, selectedBrandId, selectedDeptId, me]);
 
-  useEffect(() => setManualPage(1), [keyword, selectedBrandId, selectedDeptId]);
+  useEffect(
+  () => setManualPage(1),
+  [keyword, selectedBrandId, selectedDeptId, manualSortKey, manualSortOrder]
+);
 
-  const totalManualPages = Math.max(1, Math.ceil(filteredManuals.length / PAGE_SIZE));
-  const pagedManuals = useMemo(() => {
-    const start = (manualPage - 1) * PAGE_SIZE;
-    return filteredManuals.slice(start, start + PAGE_SIZE);
-  }, [filteredManuals, manualPage]);
+  function parseTimeMs(s?: string | null) {
+  const t = s ? Date.parse(s) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
 
-  const recentTags = useMemo(() => {
-    const counts: Record<string, number> = {};
-    manuals.forEach((m) => (m.tags || []).forEach((t) => (counts[t] = (counts[t] || 0) + 1)));
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 12)
-      .map(([tag]) => tag);
-  }, [manuals]);
+// ✅ 空日付は常に最後に飛ばす（2100年）
+const FAR_FUTURE = 4102444800000; // 2100-01-01
+
+// ✅ 全体をソート（公開日>最終更新 or 更新日）してからページング
+const sortedManuals = useMemo(() => {
+  const list = [...filteredManuals];
+
+  list.sort((a, b) => {
+    // 1) primary（publish: startDate / update: updatedAt）
+    const aPrimary =
+      manualSortKey === "publish"
+        ? (parseTimeMs(a.startDate) ?? FAR_FUTURE)
+        : (parseTimeMs(a.updatedAt) ?? FAR_FUTURE);
+
+    const bPrimary =
+      manualSortKey === "publish"
+        ? (parseTimeMs(b.startDate) ?? FAR_FUTURE)
+        : (parseTimeMs(b.updatedAt) ?? FAR_FUTURE);
+
+    // 2) publish のときはタイブレークに updatedAt（要件：公開日 > 最終更新）
+    const aTie = parseTimeMs(a.updatedAt) ?? FAR_FUTURE;
+    const bTie = parseTimeMs(b.updatedAt) ?? FAR_FUTURE;
+
+    const primaryDiff = aPrimary - bPrimary;
+    const tieDiff = aTie - bTie;
+
+    const cmp = primaryDiff !== 0 ? primaryDiff : tieDiff;
+    return manualSortOrder === "desc" ? -cmp : cmp;
+  });
+
+  return list;
+}, [filteredManuals, manualSortKey, manualSortOrder]);
+
+// ✅ 総ページ数（sortedManuals 기준で）
+const totalManualPages = Math.max(1, Math.ceil(sortedManuals.length / PAGE_SIZE));
+
+// ✅ 5件ずつに切るのはソート後
+const pagedManuals = useMemo(() => {
+  const start = (manualPage - 1) * PAGE_SIZE;
+  return sortedManuals.slice(start, start + PAGE_SIZE);
+}, [sortedManuals, manualPage]);
+
+const recentTags = useMemo(() => {
+  const counts: Record<string, number> = {};
+  manuals.forEach((m) => (m.tags || []).forEach((t) => (counts[t] = (counts[t] || 0) + 1)));
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([tag]) => tag);
+}, [manuals]);
 
   const filteredContacts = useMemo(() => {
     const kw = (contactSearch || keyword).trim().toLowerCase();
@@ -1797,90 +1847,179 @@ const groupHeaders: HeadersInit = groupIds
           </div>
 
           {/* マニュアル */}
-          <div className="kb-card kb-manual-card" ref={manualListRef}>
-            <div className="kb-card-header">
-              <div>
-                <div className="kb-card-title">マニュアル一覧</div>
-                <div className="kb-card-meta">
-                  {loadingManuals
-                    ? "読み込み中..."
-                    : filteredManuals.length === 0
-                    ? "0 件表示中"
-                    : `${filteredManuals.length} 件中 ${(manualPage - 1) * PAGE_SIZE + 1}〜${Math.min(
-                        manualPage * PAGE_SIZE,
-                        filteredManuals.length
-                      )} 件を表示`}
-                </div>
-              </div>
-            </div>
-
-            {loadingManuals && <div>読み込み中...</div>}
-
-            {!loadingManuals && filteredManuals.length === 0 && (
-              <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>条件に一致するマニュアルがありません。</div>
-            )}
-
-            {!loadingManuals && filteredManuals.length > 0 && (
-              <>
-                <ManualList
-  manuals={pagedManuals.map((m) => ({
-    ...m,
-    startDate: formatToJST(m.startDate),
-    updatedAt: formatToJST(m.updatedAt),
-    viewScope: normalizeManualViewScope(m.viewScope),
-  }))}
-/>
-
-                {totalManualPages > 1 && (
-                  <div className="kb-pager">
-                    <button
-                      type="button"
-                      className="kb-pager-btn"
-                      disabled={manualPage === 1}
-                      onClick={() => setManualPage((p) => Math.max(1, p - 1))}
-                    >
-                      前へ
-                    </button>
-                    <span className="kb-pager-info">
-                      {manualPage} / {totalManualPages}
-                    </span>
-                    <button
-                      type="button"
-                      className="kb-pager-btn"
-                      disabled={manualPage === totalManualPages}
-                      onClick={() => setManualPage((p) => Math.min(totalManualPages, p + 1))}
-                    >
-                      次へ
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </main>
-
-        <aside className="kb-panel">
-          <div className="kb-panel-header-row">
-            <div className="kb-panel-title">担当者リスト{currentDeptTitleLabel}</div>
-          </div>
-
-          <div className="kb-contact-inquiry-wrap">
-            <button type="button" className="kb-contact-inquiry-btn" onClick={() => setIsInquiryModalOpen(true)}>
-              問い合わせ
-            </button>
-          </div>
-
-          <div className="kb-contact-list-wrapper" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-            <ContactList
-              contacts={filteredContacts}
-              contactSearch={contactSearch}
-              setContactSearch={setContactSearch}
-              deptMap={deptMap}
-              loading={loadingContacts}
-            />
-          </div>
-        </aside>
+<div className="kb-card kb-manual-card" ref={manualListRef}>
+  {/* ✅ header を差し替え（左：タイトル/件数 右：トグルUI） */}
+  <div
+    className="kb-card-header"
+    style={{
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      gap: 12,
+    }}
+  >
+    {/* 左：タイトルと件数 */}
+    <div>
+      <div className="kb-card-title">マニュアル一覧</div>
+      <div className="kb-card-meta">
+        {loadingManuals
+          ? "読み込み中..."
+          : filteredManuals.length === 0
+          ? "0 件表示中"
+          : `${sortedManuals.length} 件中 ${(manualPage - 1) * PAGE_SIZE + 1}〜${Math.min(
+    manualPage * PAGE_SIZE,
+    sortedManuals.length
+  )} 件を表示`}
       </div>
+    </div>
+
+    {/* 右：ソートトグルUI */}
+<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+  {/* 公開日/更新日 */}
+  <div
+    style={{
+      display: "flex",
+      background: "#f1f5f9",
+      padding: 4,
+      borderRadius: 10,
+      gap: 4,
+    }}
+  >
+    <button
+      type="button"
+      onClick={() => setManualSortKey("publish")}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "none",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 800,
+        background: manualSortKey === "publish" ? "#fff" : "transparent",
+        boxShadow: manualSortKey === "publish" ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+      }}
+    >
+      公開日
+    </button>
+
+    <button
+      type="button"
+      onClick={() => setManualSortKey("update")}
+      style={{
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "none",
+        cursor: "pointer",
+        fontSize: 12,
+        fontWeight: 800,
+        background: manualSortKey === "update" ? "#fff" : "transparent",
+        boxShadow: manualSortKey === "update" ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+      }}
+    >
+      更新日
+    </button>
+  </div>
+
+  {/* 昇順/降順 */}
+  <button
+    type="button"
+    onClick={() => setManualSortOrder((p) => (p === "desc" ? "asc" : "desc"))}
+    style={{
+      padding: "6px 10px",
+      borderRadius: 10,
+      border: "1px solid #e2e8f0",
+      background: "#fff",
+      cursor: "pointer",
+      fontSize: 12,
+      fontWeight: 800,
+    }}
+    title="昇順 / 降順"
+  >
+    {manualSortOrder === "desc" ? "↓" : "↑"}
+  </button>
+</div>
+  </div>
+
+  {loadingManuals && <div>読み込み中...</div>}
+
+  {!loadingManuals && filteredManuals.length === 0 && (
+    <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>
+      条件に一致するマニュアルがありません。
+    </div>
+  )}
+
+  {!loadingManuals && filteredManuals.length > 0 && (
+    <>
+      <ManualList
+        manuals={pagedManuals.map((m) => ({
+          ...m,
+          // ✅ 表示用だけ JST 文字列にする（ソートは pagedManuals 作成前にやる前提）
+          startDate: formatToJST(m.startDate),
+          updatedAt: formatToJST(m.updatedAt),
+          viewScope: normalizeManualViewScope(m.viewScope),
+        }))}
+      />
+
+      {totalManualPages > 1 && (
+        <div className="kb-pager">
+          <button
+            type="button"
+            className="kb-pager-btn"
+            disabled={manualPage === 1}
+            onClick={() => setManualPage((p) => Math.max(1, p - 1))}
+          >
+            前へ
+          </button>
+
+          <span className="kb-pager-info">
+            {manualPage} / {totalManualPages}
+          </span>
+
+          <button
+            type="button"
+            className="kb-pager-btn"
+            disabled={manualPage === totalManualPages}
+            onClick={() => setManualPage((p) => Math.min(totalManualPages, p + 1))}
+          >
+            次へ
+          </button>
+        </div>
+      )}
+    </>
+  )}
+</div>
+</main>
+
+<aside className="kb-panel">
+  <div className="kb-panel-header-row">
+    <div className="kb-panel-title">担当者リスト{currentDeptTitleLabel}</div>
+  </div>
+
+  <div className="kb-contact-inquiry-wrap">
+    <button
+      type="button"
+      className="kb-contact-inquiry-btn"
+      onClick={() => setIsInquiryModalOpen(true)}
+    >
+      問い合わせ
+    </button>
+  </div>
+
+  <div
+    className="kb-contact-list-wrapper"
+    style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+  >
+    <ContactList
+      contacts={filteredContacts}
+      contactSearch={contactSearch}
+      setContactSearch={setContactSearch}
+      deptMap={deptMap}
+      loading={loadingContacts}
+    />
+  </div>
+</aside>
+</div>
+
 
       {/* 問い合わせモーダル */}
       {isInquiryModalOpen && (

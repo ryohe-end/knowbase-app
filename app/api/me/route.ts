@@ -18,18 +18,30 @@ function cookieOptions() {
   const isProd = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
-    secure: isProd,      // ✅ dev(http)では false / 本番(https)では true
+    secure: isProd,
     sameSite: "lax" as const,
     path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7日
+    maxAge: 60 * 60 * 24 * 7,
   };
 }
 
-export async function GET() {
-  // ✅ Next.js 15 対応：cookies() は Promise 扱いになるので await
-  const cookieStore = await cookies();
+// ✅ DynamoDBの「文字/ {S:""} / 混在配列」を string[] に正規化
+function normalizeStringArray(raw: any): string[] {
+  if (!raw) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  return arr
+    .map((x) => {
+      if (!x) return "";
+      if (typeof x === "string") return x;
+      if (typeof x === "object" && "S" in x) return String((x as any).S);
+      return String(x);
+    })
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
-  // kb_user は「email」が入っている前提
+export async function GET() {
+  const cookieStore = await cookies();
   const email = (cookieStore.get("kb_user")?.value ?? "").trim();
 
   if (!email) {
@@ -62,17 +74,25 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Inactive user" }, { status: 403 });
     }
 
-    // ✅ ここが最短修正：kb_userid を補完して発行（/api/account/password がこれを必要とする）
+    // ✅ ここが今回の本丸：groupIdsを正規化して primary groupId も作る
+    const groupIds = normalizeStringArray(user.groupIds);
+    const groupId = groupIds[0] || ""; // 先頭を primary として扱う
+
     const res = NextResponse.json({
       ok: true,
       user: {
-        userId: user.userId,
+        userId: String(user.userId ?? "").trim(),
         name: user.name,
         email: user.email,
         role: user.role,
-        brandIds: user.brandIds ?? [],
-        deptIds: user.deptIds ?? [],
-        groupIds: user.groupIds ?? [],
+
+        brandIds: normalizeStringArray(user.brandIds),
+        deptIds: normalizeStringArray(user.deptIds),
+
+        // ✅ 両方返す（フロント互換）
+        groupId,      // ← 追加：page.tsx が今見てるやつ
+        groupIds,     // ← string[] に正規化して返す
+
         isActive: user.isActive ?? true,
         mustChangePassword: user.mustChangePassword === true,
         createdAt: user.createdAt,
@@ -80,7 +100,6 @@ export async function GET() {
       },
     });
 
-    // kb_user（email）も念のため揃える（ログインが別実装でもここで補完される）
     res.cookies.set("kb_user", String(user.email ?? email).trim(), cookieOptions());
     res.cookies.set("kb_userid", String(user.userId ?? "").trim(), cookieOptions());
 
