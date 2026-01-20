@@ -1,5 +1,5 @@
 // app/api/amazonq/route.ts
-import { QBusinessClient, ChatSyncCommand } from "@aws-sdk/client-qbusiness";
+import { QBusinessClient, ChatCommand } from "@aws-sdk/client-qbusiness";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -86,84 +86,6 @@ function pickUserId(req: Request): string | undefined {
   return undefined;
 }
 
-/* =========================
-   Q Business レスポンスから text / sources を頑丈に抽出
-========================= */
-function extractAnswerAndSources(raw: any): { text: string; sources: Source[] } {
-  const textCandidates: (string | undefined)[] = [
-    raw?.finalTextMessage,
-    raw?.systemMessage,
-    raw?.output?.text,
-    raw?.outputText,
-    raw?.assistantMessage,
-    raw?.messages?.find?.((m: any) => m?.role === "assistant")?.content?.[0]?.text,
-    raw?.message?.text,
-  ];
-
-  const text =
-    textCandidates.find((t) => typeof t === "string" && t.trim().length > 0)?.trim() || "";
-
-  const sources: Source[] = [];
-
-  const sa =
-    raw?.sourceAttributions ??
-    raw?.sourceAttribution ??
-    raw?.citations ??
-    raw?.attributions;
-
-  if (Array.isArray(sa)) {
-    for (const item of sa) {
-      const title =
-        item?.title ??
-        item?.documentTitle ??
-        item?.source?.title ??
-        item?.retrievedReferences?.[0]?.title;
-
-      const url =
-        item?.url ??
-        item?.documentUrl ??
-        item?.source?.url ??
-        item?.retrievedReferences?.[0]?.url;
-
-      const excerpt =
-        item?.snippet ??
-        item?.excerpt ??
-        item?.text ??
-        item?.snippetExcerpt?.text ??
-        item?.textMessageSegments?.[0]?.snippetExcerpt?.text ??
-        item?.source?.excerpt ??
-        item?.retrievedReferences?.[0]?.excerpt;
-
-      if (title || url || excerpt) sources.push({ title, url, excerpt });
-    }
-  }
-
-  const refs = raw?.references ?? raw?.sourceReferences;
-  if (Array.isArray(refs)) {
-    for (const r of refs) {
-      const title = r?.title ?? r?.name;
-      const url = r?.url ?? r?.link;
-      const excerpt = r?.excerpt ?? r?.snippet ?? r?.text;
-      if (title || url || excerpt) sources.push({ title, url, excerpt });
-    }
-  }
-
-  const seen = new Set<string>();
-  const uniq = sources.filter((s) => {
-    const key = `${s.url || ""}|${s.title || ""}|${s.excerpt || ""}`.trim();
-    if (!key) return false;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return { text, sources: uniq };
-}
-
-function getClient(region: string) {
-  return new QBusinessClient({ region });
-}
-
 function isAnonymousUserIdValidation(err: any): boolean {
   const name = err?.name || "";
   const msg = err?.message || "";
@@ -180,7 +102,6 @@ function isAnonymousUserIdValidation(err: any): boolean {
 const enc = new TextEncoder();
 
 function toSse(eventName: string | null, data: string) {
-  // SSE は data: 行を複数行に分割して送るのが安全
   const lines = String(data ?? "").split("\n");
   let out = "";
 
@@ -191,14 +112,71 @@ function toSse(eventName: string | null, data: string) {
 }
 
 function toSseComment(comment: string) {
-  // ":" から始まる行は comment（クライアント側では無視されるが、即 flush できる）
   return enc.encode(`: ${comment}\n\n`);
+}
+
+/* =========================
+   QBusiness client（regionごとに使い回し）
+========================= */
+const _clientCache = new Map<string, QBusinessClient>();
+function getClient(region: string) {
+  const hit = _clientCache.get(region);
+  if (hit) return hit;
+
+  const c = new QBusinessClient({ region });
+  _clientCache.set(region, c);
+  return c;
+}
+
+/* =========================
+   ChatCommand 用 inputStream generator
+   - TextInputEvent(userMessage) → EndOfInputEvent
+========================= */
+function makeInputStream(userMessage: string) {
+  async function* gen() {
+    yield { textEvent: { userMessage } };
+    yield { endOfInputEvent: {} };
+  }
+  return gen();
+}
+
+/* =========================
+   SourceAttribution -> Source（あなたのUIに合わせた整形）
+========================= */
+function normalizeSources(sa: any[] | undefined): Source[] {
+  if (!Array.isArray(sa)) return [];
+
+  const out: Source[] = [];
+  for (const item of sa) {
+    const title = item?.title ?? item?.documentTitle;
+    const url = item?.url ?? item?.documentUrl;
+
+    // snippet があれば最優先。なければ textMessageSegments の snippetExcerpt.text を拾う
+    const excerpt =
+      item?.snippet ??
+      item?.excerpt ??
+      item?.text ??
+      item?.textMessageSegments?.[0]?.snippetExcerpt?.text ??
+      item?.snippetExcerpt?.text;
+
+    if (title || url || excerpt) out.push({ title, url, excerpt });
+  }
+
+  // uniq
+  const seen = new Set<string>();
+  return out.filter((s) => {
+    const key = `${s.url || ""}|${s.title || ""}|${s.excerpt || ""}`.trim();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export async function POST(req: Request) {
   const runtimeEnv = readRuntimeEnvFile();
 
-  // body の parse はここで先にやる（SSE開始前に 400 を返せる）
+  // body parse（SSE開始前に 400 を返せる）
   let body: any = {};
   try {
     body = (await req.json().catch(() => ({}))) as any;
@@ -210,7 +188,7 @@ export async function POST(req: Request) {
   const conversationId: string | undefined =
     body?.conversationId ? String(body.conversationId) : undefined;
 
-  // デバッグ：env check は JSON で返す（フロントのfetch確認用）
+  // env check
   if (prompt === "env check") {
     const QBUSINESS_APP_ID = getEnv("QBUSINESS_APP_ID", runtimeEnv);
     const AWS_REGION = getEnv("AWS_REGION", runtimeEnv) ?? "us-east-1";
@@ -241,7 +219,7 @@ export async function POST(req: Request) {
     });
   }
 
-  // ===== ここから SSE 本番 =====
+  // ===== SSE 本番 =====
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
@@ -254,21 +232,19 @@ export async function POST(req: Request) {
         } catch {}
       };
 
-      // クライアントが切断したら止める
+      // abort
       const onAbort = () => {
         clearInterval(pingTimer);
         close();
       };
       req.signal?.addEventListener?.("abort", onAbort);
 
-      // ✅ まず 1バイトでも返す（Amplify/ALB/CF のタイムアウト回避）
+      // まず1バイト
       controller.enqueue(toSseComment("sse-open"));
 
-      // ✅ keep-alive ping（3秒推奨。環境次第で 2〜5 秒）
-      const ping = () => {
-        controller.enqueue(toSse("ping", JSON.stringify({ t: Date.now() })));
-      };
-      ping(); // 最初のpingも即送る
+      // keep-alive ping
+      const ping = () => controller.enqueue(toSse("ping", JSON.stringify({ t: Date.now() })));
+      ping();
       const pingTimer = setInterval(ping, 3_000);
 
       (async () => {
@@ -280,43 +256,71 @@ export async function POST(req: Request) {
           const client = getClient(qRegion);
           const userId = pickUserId(req);
 
-          const sendChat = async (opts: { includeUserId: boolean }) => {
+          const sendChatStream = async (opts: { includeUserId: boolean }) => {
             const input: any = {
               applicationId: appId,
               conversationId,
-              userMessage: prompt,
+              inputStream: makeInputStream(prompt),
             };
             if (opts.includeUserId && userId) input.userId = userId;
 
-            const cmd = new ChatSyncCommand(input);
+            const cmd = new ChatCommand(input);
             return client.send(cmd);
           };
 
-          let result: any;
+          let resp: any;
           try {
-            result = await sendChat({ includeUserId: true });
+            resp = await sendChatStream({ includeUserId: true });
           } catch (err: any) {
             if (isAnonymousUserIdValidation(err)) {
-              result = await sendChat({ includeUserId: false });
+              resp = await sendChatStream({ includeUserId: false });
             } else {
               throw err;
             }
           }
 
-          const { text, sources } = extractAnswerAndSources(result);
+          // 会話IDを拾えたらフロントへ（必要なら使う）
+          let sentConversation = false;
 
-          // ✅ 参照元を event:sources で先に送る（フロントが最優先で拾える）
-          controller.enqueue(toSse("sources", JSON.stringify(sources ?? [])));
+          // sources は metadataEvent から来る（sourceAttributions）
+          let sentSources = false;
 
-          // ✅ 本文（必要なら分割して少しずつ送る）
-          const answer = text || "(回答を取得できませんでした)";
-          const CHUNK = 240; // data: 1行が長すぎると壊れる環境があるので短め推奨
-          for (let i = 0; i < answer.length; i += CHUNK) {
-            const chunk = answer.slice(i, i + CHUNK);
-            controller.enqueue(toSse(null, chunk));
+          // ★ここが「本当のストリーミング」
+          const outStream = resp?.outputStream;
+          if (!outStream || typeof outStream[Symbol.asyncIterator] !== "function") {
+            throw new Error("outputStream is missing (streaming not available).");
           }
 
-          // ✅ done
+          for await (const ev of outStream) {
+            // 生成テキスト（増分）
+            const delta = ev?.textEvent?.systemMessage; // TextOutputEvent.systemMessage :contentReference[oaicite:2]{index=2}
+            if (typeof delta === "string" && delta.length > 0) {
+              controller.enqueue(toSse(null, delta));
+            }
+
+            // 会話IDなど（metadataEvent / textEvent どちらからでも拾える）
+            const convId =
+              ev?.metadataEvent?.conversationId ??
+              ev?.textEvent?.conversationId ??
+              undefined;
+            if (!sentConversation && convId) {
+              controller.enqueue(toSse("conversation", JSON.stringify({ conversationId: convId })));
+              sentConversation = true;
+            }
+
+            // 参照元（metadataEvent.sourceAttributions） :contentReference[oaicite:3]{index=3}
+            const atts = ev?.metadataEvent?.sourceAttributions;
+            if (!sentSources && Array.isArray(atts) && atts.length > 0) {
+              const sources = normalizeSources(atts);
+              controller.enqueue(toSse("sources", JSON.stringify(sources)));
+              sentSources = true;
+            }
+
+            // finalTextMessage は「最終全文」なので、deltaをもう送ってるなら二重送信注意
+            // const final = ev?.metadataEvent?.finalTextMessage;
+          }
+
+          // done
           controller.enqueue(toSse("done", "[DONE]"));
         } catch (err: any) {
           const payload = {
@@ -339,7 +343,6 @@ export async function POST(req: Request) {
       "content-type": "text/event-stream; charset=utf-8",
       "cache-control": "no-cache, no-transform",
       connection: "keep-alive",
-      // Nginx 等のバッファ抑止（効く環境のみ）
       "x-accel-buffering": "no",
     },
   });
