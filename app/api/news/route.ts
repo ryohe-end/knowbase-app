@@ -90,8 +90,7 @@ function nowISO() {
 function parseTimeMs(v: any): number | null {
   if (v == null || v === "") return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
-  const d = new Date(String(v));
-  const ms = d.getTime();
+  const ms = Date.parse(String(v));
   return Number.isFinite(ms) ? ms : null;
 }
 
@@ -183,7 +182,7 @@ function toApiNews(item: any) {
 
   const startDate = item.startDate || item.start || "";
   const endDate = item.endDate || item.end || "";
-  const publishAt = item.publishAt || item.publish_at || null;
+  const publishAt = (item.publishAt ?? item.publish_at ?? null);
 
   const viewScope = normalizeViewScope(
     item.viewScope ?? item.view_scope ?? item.scope
@@ -204,6 +203,22 @@ function toApiNews(item: any) {
     isHidden: normalizeBool(item.isHidden ?? item.is_hidden),
   };
 }
+/** publishAt を JST(+09:00) 付きISO文字列に正規化 */
+function normalizePublishAt(input: any): string | null {
+  if (input == null || input === "") return null;
+
+  const s = String(input).trim();
+  if (!s) return null;
+
+  // すでに TZ 付き（Z or ±HH:MM）ならそのまま
+  if (/[zZ]|[+-]\d{2}:\d{2}$/.test(s)) return s;
+
+  // "YYYY-MM-DDTHH:mm" なら秒を付ける
+  const withSeconds = s.length === 16 ? `${s}:00` : s;
+
+  // JST として +09:00 を付与
+  return `${withSeconds}+09:00`;
+}
 
 function toDbNews(payload: any, mode: "create" | "update") {
   const newsId = String(payload?.newsId || payload?.news_id || "").trim();
@@ -220,7 +235,8 @@ function toDbNews(payload: any, mode: "create" | "update") {
 
   const startDate = String(payload?.startDate || payload?.start || "").trim();
   const endDate = String(payload?.endDate || payload?.end || "").trim();
-  const publishAt = payload?.publishAt ?? payload?.publish_at ?? null;
+  const publishAtRaw = payload?.publishAt ?? payload?.publish_at ?? null;
+  const publishAt = normalizePublishAt(publishAtRaw);
 
   const viewScope = normalizeViewScope(
     payload?.viewScope ?? payload?.view_scope ?? payload?.scope

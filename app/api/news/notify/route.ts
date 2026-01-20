@@ -191,7 +191,6 @@ async function processNotification(news: any, allUsers: any[]) {
     </div>
   `;
 
-  // ✅ 先に送信 → 成功したらフラグ更新（再送を避けるなら別途ロック設計も可能）
   if (toNonFranchise.length > 0) {
     await sgMail.sendMultiple({
       to: toNonFranchise,
@@ -212,7 +211,6 @@ async function processNotification(news: any, allUsers: any[]) {
     });
   }
 
-  // ✅ 送信完了後にフラグを更新（上書き）
   await doc.send(
     new UpdateCommand({
       TableName: NEWS_TABLE,
@@ -229,9 +227,8 @@ async function processNotification(news: any, allUsers: any[]) {
 }
 
 /**
- * GET: 定期実行（Cron等）用
- * - publishAt を epoch(ms) で比較（タイムゾーン問題を根絶）
- * - Scan 全件ページング対応
+ * GET: cron専用（予約配信のみ）
+ * ✅ publishAt が「ある」ものだけ送る（nullは送らない）
  */
 export async function GET(req: Request) {
   const auth = requireAdmin(req);
@@ -244,14 +241,16 @@ export async function GET(req: Request) {
     const allNews = await scanAll(NEWS_TABLE);
     const allUsers = await scanAll(USERS_TABLE);
 
-    // 公開予約時刻を過ぎている、かつ通知未済、かつ非表示でない
     const targets = allNews.filter((n) => {
       const isHidden = !!n.isHidden || !!n.is_hidden;
       const isNotified = !!n.isNotified;
 
-      const publishMs = toMs(n.publishAt); // nullなら即時
-      const isDue = publishMs === null || publishMs <= nowMs;
+      const publishMs = toMs(n.publishAt);
 
+      // ★ここが重要：publishAt が null のものは cron では送らない
+      if (publishMs === null) return false;
+
+      const isDue = publishMs <= nowMs;
       return !isHidden && !isNotified && isDue;
     });
 
@@ -277,12 +276,21 @@ export async function GET(req: Request) {
 }
 
 /**
- * POST: 即時実行用（管理画面の保存後通知など）
- * - publishAt が未来なら送らない
+ * POST: 即時配信（手動ボタン専用）
+ * ✅ force=1 のときだけ送る（保存時誤爆を防ぐ）
  */
 export async function POST(req: Request) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.res;
+
+  const url = new URL(req.url);
+  const force = url.searchParams.get("force") === "1";
+  if (!force) {
+    return NextResponse.json({
+      ok: true,
+      message: "即時配信は force=1 のときだけ実行します（保存時の誤爆防止）",
+    });
+  }
 
   try {
     const { newsId } = await req.json();
@@ -295,7 +303,7 @@ export async function POST(req: Request) {
     const nowMs = Date.now();
     const publishMs = toMs(news.publishAt);
 
-    // 予約日時が設定されていて未来ならスキップ
+    // 予約日時が設定されていて未来ならスキップ（即時ボタンでも送らない）
     if (publishMs !== null && publishMs > nowMs) {
       return NextResponse.json({
         ok: true,
