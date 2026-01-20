@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  ScanCommand,
+  GetCommand,
+  UpdateCommand,
+} from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 
 /** ========= 設定 ========= */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const region = process.env.AWS_REGION || "us-east-1";
 const NEWS_TABLE = process.env.KB_NEWS_TABLE || "yamauchi-News";
 const USERS_TABLE = process.env.KB_USERS_TABLE || "yamauchi-Users";
@@ -16,12 +24,11 @@ const FRANCHISE_GROUP_ID = "g002";
 const ddb = new DynamoDBClient({ region });
 const doc = DynamoDBDocumentClient.from(ddb);
 
-/** ========= 認証ロジック（Amplify/Cron対応拡張） ========= */
+/** ========= 認証ロジック（Amplify/Cron対応） ========= */
 function requireAdmin(req: Request) {
   const url = new URL(req.url);
   const headerKey = (req.headers.get("x-kb-admin-key") || "").trim();
-  // ✅ クエリパラメータでも認証できるように拡張 (?token=xxxx)
-  const queryToken = url.searchParams.get("token") || "";
+  const queryToken = (url.searchParams.get("token") || "").trim();
 
   const serverKey =
     (process.env.KB_ADMIN_API_KEY || "").trim() ||
@@ -36,8 +43,7 @@ function requireAdmin(req: Request) {
       ),
     };
   }
-  
-  // ヘッダーまたはURLパラメータのどちらかが一致すれば許可
+
   if ((headerKey && headerKey === serverKey) || (queryToken && queryToken === serverKey)) {
     return { ok: true as const };
   }
@@ -67,23 +73,58 @@ function normalizeViewScope(v: any): "all" | "direct" {
   const s = String(v || "").trim().toLowerCase();
   return s === "direct" ? "direct" : "all";
 }
+
 function toArray(v: any): string[] {
   if (!v) return [];
   if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
   if (typeof v === "string") return [v];
   return [];
 }
-function isFranchiseUser(user: any): boolean {
-  const gids = toArray(user?.groupIds);
-  return gids.includes(FRANCHISE_GROUP_ID);
+
+function uniq(arr: string[]) {
+  return Array.from(new Set(arr));
 }
+
 function isValidEmail(s: any) {
   const v = String(s || "").trim();
   if (!v) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
-function uniq(arr: string[]) {
-  return Array.from(new Set(arr));
+
+/** "2026-01-20T09:00:00+09:00" / "...Z" / epoch(ms) などを許容 */
+function toMs(v: any): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const s = String(v).trim();
+  const ms = Date.parse(s);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/** ユーザー側が単一/配列どっちでも一致できるように */
+function hasId(userVal: any, id: string) {
+  const target = String(id || "").trim();
+  if (!target || target === "ALL") return true;
+  const arr = Array.isArray(userVal) ? userVal : (userVal ? [userVal] : []);
+  return arr.map(String).includes(target);
+}
+
+function isFranchiseUser(user: any): boolean {
+  const gids = toArray(user?.groupIds ?? user?.groupId);
+  return gids.includes(FRANCHISE_GROUP_ID);
+}
+
+/** ========= DynamoDB Scan（全件ページング対応） ========= */
+async function scanAll(TableName: string) {
+  let items: any[] = [];
+  let ExclusiveStartKey: any = undefined;
+
+  do {
+    const res = await doc.send(new ScanCommand({ TableName, ExclusiveStartKey }));
+    items = items.concat(res.Items || []);
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+
+  return items;
 }
 
 /**
@@ -93,16 +134,21 @@ async function processNotification(news: any, allUsers: any[]) {
   const { from } = initSendGrid();
   const viewScope = normalizeViewScope(news.viewScope);
 
+  // ✅ isActive !== false かつ メール有効
   const activeUsers = allUsers.filter((u) => u?.isActive !== false && isValidEmail(u?.email));
 
-  const targetUsers = activeUsers.filter((user) => {
-    const brandId = String(news.brandId ?? "ALL");
-    const deptId = String(news.deptId ?? "ALL");
-    const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds : [];
+  // news側ターゲット条件（無ければALL扱い）
+  const brandId = String(news.brandId ?? "ALL").trim();
+  const deptId = String(news.deptId ?? "ALL").trim();
+  const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds.map(String) : [];
 
-    const matchBrand = brandId === "ALL" || !brandId || user.brandId === brandId;
-    const matchDept = deptId === "ALL" || !deptId || user.deptId === deptId;
-    const matchGroup = targetGroupIds.length === 0 || targetGroupIds.includes(user.groupId);
+  const targetUsers = activeUsers.filter((user) => {
+    const matchBrand = hasId(user.brandIds ?? user.brandId, brandId);
+    const matchDept = hasId(user.deptIds ?? user.deptId, deptId);
+
+    const userGroups = toArray(user.groupIds ?? user.groupId);
+    const matchGroup =
+      targetGroupIds.length === 0 || targetGroupIds.some((g) => userGroups.includes(String(g)));
 
     return matchBrand && matchDept && matchGroup;
   });
@@ -110,7 +156,10 @@ async function processNotification(news: any, allUsers: any[]) {
   const franchiseTargets = targetUsers.filter((u) => isFranchiseUser(u));
   const nonFranchiseTargets = targetUsers.filter((u) => !isFranchiseUser(u));
 
-  const toNonFranchise = uniq(nonFranchiseTargets.map((u) => String(u.email).trim()).filter(Boolean));
+  const toNonFranchise = uniq(
+    nonFranchiseTargets.map((u) => String(u.email).trim()).filter(Boolean)
+  );
+
   const sendFranchiseRouting =
     viewScope === "all" && franchiseTargets.length > 0 && isValidEmail(FRANCHISE_ROUTING_EMAIL);
 
@@ -142,6 +191,7 @@ async function processNotification(news: any, allUsers: any[]) {
     </div>
   `;
 
+  // ✅ 先に送信 → 成功したらフラグ更新（再送を避けるなら別途ロック設計も可能）
   if (toNonFranchise.length > 0) {
     await sgMail.sendMultiple({
       to: toNonFranchise,
@@ -162,63 +212,73 @@ async function processNotification(news: any, allUsers: any[]) {
     });
   }
 
-  // ✅ 送信完了後にフラグを更新
-  await doc.send(new UpdateCommand({
-    TableName: NEWS_TABLE,
-    Key: { newsId: news.newsId },
-    UpdateExpression: "SET isNotified = :val",
-    ExpressionAttributeValues: { ":val": true }
-  }));
+  // ✅ 送信完了後にフラグを更新（上書き）
+  await doc.send(
+    new UpdateCommand({
+      TableName: NEWS_TABLE,
+      Key: { newsId: news.newsId },
+      UpdateExpression: "SET isNotified = :val, notifiedAt = :at",
+      ExpressionAttributeValues: {
+        ":val": true,
+        ":at": new Date().toISOString(),
+      },
+    })
+  );
 
   return toNonFranchise.length + (sendFranchiseRouting ? 1 : 0);
 }
 
 /**
  * GET: 定期実行（Cron等）用
- * ✅ 日本時間のズレを修正し、予約時刻を過ぎたものをスキャン
+ * - publishAt を epoch(ms) で比較（タイムゾーン問題を根絶）
+ * - Scan 全件ページング対応
  */
 export async function GET(req: Request) {
   const auth = requireAdmin(req);
   if (!auth.ok) return auth.res;
 
   try {
-    // ✅ 日本時間(UTC+9)の現在時刻を生成して比較
-    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
 
-    const newsRes = await doc.send(new ScanCommand({ TableName: NEWS_TABLE }));
-    const allNews = (newsRes.Items || []) as any[];
-
-    const usersRes = await doc.send(new ScanCommand({ TableName: USERS_TABLE }));
-    const allUsers = (usersRes.Items || []) as any[];
+    const allNews = await scanAll(NEWS_TABLE);
+    const allUsers = await scanAll(USERS_TABLE);
 
     // 公開予約時刻を過ぎている、かつ通知未済、かつ非表示でない
-    const targets = allNews.filter(n => {
+    const targets = allNews.filter((n) => {
       const isHidden = !!n.isHidden || !!n.is_hidden;
       const isNotified = !!n.isNotified;
-      const publishAt = n.publishAt || null;
-      // publishAtがない（即時）または過ぎている
-      return !isHidden && !isNotified && (!publishAt || publishAt <= nowJst);
+
+      const publishMs = toMs(n.publishAt); // nullなら即時
+      const isDue = publishMs === null || publishMs <= nowMs;
+
+      return !isHidden && !isNotified && isDue;
     });
 
-    let count = 0;
+    let totalEmails = 0;
+    let processedNews = 0;
+
     for (const news of targets) {
-      count += await processNotification(news, allUsers);
+      totalEmails += await processNotification(news, allUsers);
+      processedNews += 1;
     }
 
-    return NextResponse.json({ 
-      ok: true, 
-      checkedAt: nowJst,
-      processedNews: targets.length, 
-      totalEmails: count 
+    return NextResponse.json({
+      ok: true,
+      checkedAt: nowIso,
+      checkedAtMs: nowMs,
+      processedNews,
+      totalEmails,
     });
   } catch (error: any) {
     console.error("[NOTIFY_GET_ERROR]", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error?.message || String(error) }, { status: 500 });
   }
 }
 
 /**
- * POST: 即時実行用（管理画面の保存ボタン後の通知などで使用）
+ * POST: 即時実行用（管理画面の保存後通知など）
+ * - publishAt が未来なら送らない
  */
 export async function POST(req: Request) {
   const auth = requireAdmin(req);
@@ -232,18 +292,25 @@ export async function POST(req: Request) {
     const news = newsRes.Item;
     if (!news) return NextResponse.json({ error: "NotFound" }, { status: 404 });
 
-    // 予約日時が設定されている場合、POSTでも未来のものは送らない（ガード）
-    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString();
-    if (news.publishAt && news.publishAt > nowJst) {
-      return NextResponse.json({ ok: true, message: "予約時刻前のため通知をスキップしました" });
+    const nowMs = Date.now();
+    const publishMs = toMs(news.publishAt);
+
+    // 予約日時が設定されていて未来ならスキップ
+    if (publishMs !== null && publishMs > nowMs) {
+      return NextResponse.json({
+        ok: true,
+        message: "予約時刻前のため通知をスキップしました",
+        now: new Date(nowMs).toISOString(),
+        publishAt: news.publishAt,
+      });
     }
 
-    const usersRes = await doc.send(new ScanCommand({ TableName: USERS_TABLE }));
-    const count = await processNotification(news, usersRes.Items || []);
+    const allUsers = await scanAll(USERS_TABLE);
+    const count = await processNotification(news, allUsers);
 
     return NextResponse.json({ ok: true, count });
   } catch (error: any) {
     console.error("[NOTIFY_POST_ERROR]", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error?.message || String(error) }, { status: 500 });
   }
 }
