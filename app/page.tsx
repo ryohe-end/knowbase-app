@@ -137,11 +137,13 @@ function formatToJST(dateStr?: string) {
   }
 }
 
-type ManualViewScope = "all" | "direct";
+type ManualViewScope = "all" | "direct" | "fc";
 
-const normalizeManualViewScope = (v: unknown): "all" | "direct" => {
+const normalizeManualViewScope = (v: unknown): ManualViewScope => {
   const s = String(v ?? "").trim().toLowerCase();
-  return s === "direct" ? "direct" : "all";
+  if (s === "direct") return "direct";
+  if (s === "fc") return "fc";
+  return "all"; // null / 未設定は all
 };
 
 /* ========= キーワード分解（単語検索用） ========= */
@@ -1108,15 +1110,21 @@ const groupHeaders: HeadersInit = groupIds
   const tokens = tokenizeJP(keyword);
   const hasTokens = tokens.length > 0;
 
-  const isFranchise = me?.groupId === "g002";
+  const isFranchise = me?.groupId === "g002"; // FC
 
   return manuals.filter((m) => {
-    // ✅ フランチャイズは direct のみ表示
-    if (isFranchise && normalizeManualViewScope(m.viewScope) !== "direct") return false;
+    const scope = normalizeManualViewScope(m.viewScope);
 
+    // ✅ FC は direct を非表示（all + fc だけ表示）
+    if (isFranchise && scope === "direct") return false;
+
+    // ✅ ブランド: 選択したら “完全一致だけ” （ALL/空は混ぜない）
     if (selectedBrandId !== ALL_BRAND_ID && (m.brandId ?? "") !== selectedBrandId) return false;
+
+    // ✅ 部署: 選択したら “完全一致だけ” （ALL/空は混ぜない）
     if (selectedDeptId !== ALL_DEPT_ID && (m.bizId ?? "") !== selectedDeptId) return false;
 
+    // ✅ キーワード
     if (!hasTokens) return true;
 
     const haystack = [m.title ?? "", m.desc ?? "", ...(m.tags ?? []), m.brand ?? "", m.biz ?? ""]
@@ -1126,11 +1134,6 @@ const groupHeaders: HeadersInit = groupIds
     return tokens.some((t) => haystack.includes(t));
   });
 }, [manuals, keyword, selectedBrandId, selectedDeptId, me]);
-
-  useEffect(
-  () => setManualPage(1),
-  [keyword, selectedBrandId, selectedDeptId, manualSortKey, manualSortOrder]
-);
 
   function parseTimeMs(s?: string | null) {
   const t = s ? Date.parse(s) : NaN;

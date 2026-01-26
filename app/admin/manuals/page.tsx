@@ -9,7 +9,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 /* ========= 型定義 ========= */
 
 type ManualType = "doc" | "video";
-type ManualViewScope = "all" | "direct";
+type ManualViewScope = "all" | "direct" | "fc";
 
 type Manual = {
   manualId: string;
@@ -49,7 +49,9 @@ const generateNewManualId = () => `M200-${Date.now().toString().slice(-6)}`;
 
 const normalizeViewScope = (v: any): ManualViewScope => {
   const s = String(v ?? "").trim().toLowerCase();
-  return s === "direct" ? "direct" : "all";
+  if (s === "direct") return "direct";
+  if (s === "fc") return "fc";
+  return "all";
 };
 
 const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
@@ -629,6 +631,7 @@ export default function AdminManuals() {
                       {m.type === "video" ? "🎬 " : "📄 "}
                       {m.title}
                       {scope === "direct" && <span className="kb-scope-badge">直営のみ</span>}
+                      {scope === "fc" && <span className="kb-scope-badge">FCのみ</span>} 
                     </div>
                     <div className="kb-manual-meta-admin">
                       {brandMap[m.brandId || ""]?.name || "全社"} / {deptMap[m.bizId || ""]?.name || "未設定"} /
