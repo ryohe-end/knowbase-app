@@ -1,3 +1,4 @@
+// app/admin/news/page.tsx
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -9,16 +10,25 @@ import Link from "next/link";
 
 type ViewScope = "all" | "direct";
 
+type Dept = { deptId: string; name: string };
+
 type News = {
   newsId: string;
   title: string;
   body?: string | null;
   updatedAt?: string;
-  startDate?: string;
-  endDate?: string;
+
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string;   // YYYY-MM-DD
+
   tags?: string[];
   url?: string;
+
+  // ✅ 閲覧権限
   viewScope?: ViewScope;
+
+  // ✅ 配信元部署（復活）
+  bizId?: string;
 
   // API互換（来てもOK）
   publishAt?: string | null;
@@ -65,6 +75,8 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     endDate: "",
     url: "",
     publishAt: "",
+    viewScope: "all",
+    bizId: "",
     ...initial,
   } as any;
 
@@ -72,6 +84,7 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     ...merged,
     viewScope: normalizeViewScope(merged.viewScope),
     tags: normalizeTags(merged.tags),
+    bizId: String(merged.bizId ?? ""),
   } as News;
 };
 
@@ -166,6 +179,7 @@ function BusyOverlay({ text }: { text: string }) {
 
 export default function AdminNewsPage() {
   const [newsList, setNewsList] = useState<News[]>([]);
+  const [depts, setDepts] = useState<Dept[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [selected, setSelected] = useState<News | null>(null);
@@ -186,24 +200,39 @@ export default function AdminNewsPage() {
     return k ? { "x-kb-admin-key": k } : {};
   }, []);
 
-  const loadNews = useCallback(async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setBusyText("お知らせを読み込み中...");
 
     try {
-      const res = await fetch("/api/news", {
-        method: "GET",
-        headers: getAdminHeaders(),
-        cache: "no-store",
-      });
+      const [newsRes, deptRes] = await Promise.all([
+        fetch("/api/news", {
+          method: "GET",
+          headers: getAdminHeaders(),
+          cache: "no-store",
+        }),
+        fetch("/api/depts", { cache: "no-store" }),
+      ]);
 
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const msg = json?.detail ? `${json.error}: ${json.detail}` : json?.error || "Failed to fetch news";
+      const newsJson = await newsRes.json().catch(() => ({}));
+      const deptJson = await deptRes.json().catch(() => ({}));
+
+      if (!newsRes.ok) {
+        const msg = newsJson?.detail
+          ? `${newsJson.error}: ${newsJson.detail}`
+          : newsJson?.error || "Failed to fetch news";
+        throw new Error(msg);
+      }
+      if (!deptRes.ok) {
+        const msg = deptJson?.detail
+          ? `${deptJson.error}: ${deptJson.detail}`
+          : deptJson?.error || "Failed to fetch depts";
         throw new Error(msg);
       }
 
-      const rawList: any[] = json.news || json.items || json.newsItems || [];
+      setDepts(deptJson.depts || []);
+
+      const rawList: any[] = newsJson.news || newsJson.items || newsJson.newsItems || [];
       const normalized: News[] = rawList.map((n: any) => ({
         newsId: String(n.newsId || ""),
         title: String(n.title || ""),
@@ -212,11 +241,14 @@ export default function AdminNewsPage() {
         updatedAt: n.updatedAt || "",
         startDate: n.startDate || "",
         endDate: n.endDate || "",
-        publishAt: n.publishAt || "",
+        publishAt: n.publishAt ?? "",
         tags: normalizeTags(n.tags),
         viewScope: normalizeViewScope(n.viewScope),
         createdAt: n.createdAt || "",
         isHidden: !!n.isHidden,
+
+        // ✅ 部署（無ければ空）
+        bizId: String(n.bizId ?? ""),
       }));
 
       setNewsList(normalized);
@@ -230,8 +262,13 @@ export default function AdminNewsPage() {
   }, [getAdminHeaders]);
 
   useEffect(() => {
-    loadNews();
-  }, [loadNews]);
+    loadAll();
+  }, [loadAll]);
+
+  const deptMap = useMemo(
+    () => depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>),
+    [depts]
+  );
 
   const filtered = useMemo(() => {
     const kw = filterText.trim().toLowerCase();
@@ -241,9 +278,10 @@ export default function AdminNewsPage() {
       const id = (n.newsId || "").toLowerCase().includes(kw);
       const tag = (n.tags || []).some((x) => (x || "").toLowerCase().includes(kw));
       const body = (n.body || "").toLowerCase().includes(kw);
-      return t || id || tag || body;
+      const deptName = (deptMap[n.bizId || ""]?.name || "").toLowerCase().includes(kw);
+      return t || id || tag || body || deptName;
     });
-  }, [newsList, filterText]);
+  }, [newsList, filterText, deptMap]);
 
   const handleNew = () => {
     setSelected(null);
@@ -259,7 +297,9 @@ export default function AdminNewsPage() {
     setTagInput((n.tags || []).join(", "));
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
     const { name, value } = e.target;
 
     if (name === "tags") {
@@ -270,6 +310,11 @@ export default function AdminNewsPage() {
       setForm((p) => ({ ...p, viewScope: normalizeViewScope(value) }));
       return;
     }
+    if (name === "bizId") {
+      setForm((p) => ({ ...p, bizId: String(value || "") }));
+      return;
+    }
+
     setForm((p) => ({ ...p, [name]: value }));
   };
 
@@ -297,6 +342,7 @@ export default function AdminNewsPage() {
 
     const payload: News = {
       ...form,
+      bizId: String(form.bizId ?? ""),
       tags: finalTags,
       updatedAt: getTodayDate(),
       publishAt: form.publishAt ? form.publishAt : null,
@@ -309,7 +355,6 @@ export default function AdminNewsPage() {
     try {
       const isNew = !selected;
 
-      // ✅ 保存（1回だけ）
       const res = await fetch("/api/news", {
         method: isNew ? "POST" : "PUT",
         headers: {
@@ -339,7 +384,7 @@ export default function AdminNewsPage() {
         console.warn("notify failed:", e);
       }
 
-      await loadNews();
+      await loadAll();
       setIsEditing(false);
       alert("保存しました");
     } catch (e: any) {
@@ -368,7 +413,7 @@ export default function AdminNewsPage() {
         throw new Error(msg);
       }
 
-      await loadNews();
+      await loadAll();
       setSelected(null);
       setIsEditing(false);
       alert("削除しました");
@@ -429,7 +474,7 @@ export default function AdminNewsPage() {
           <input
             type="text"
             className="kb-admin-input"
-            placeholder="タイトル、ID、本文、タグで検索..."
+            placeholder="タイトル、ID、本文、タグ、部署で検索..."
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             style={{ marginBottom: 12 }}
@@ -441,6 +486,7 @@ export default function AdminNewsPage() {
               filtered.map((n) => {
                 const isSel = selected?.newsId === n.newsId;
                 const sc = normalizeViewScope(n.viewScope);
+                const deptName = deptMap[n.bizId || ""]?.name || "未設定";
 
                 return (
                   <div
@@ -454,7 +500,7 @@ export default function AdminNewsPage() {
                       {sc === "direct" && <span className="kb-scope-badge">直営のみ</span>}
                     </div>
                     <div className="kb-item-meta">
-                      更新日: {n.updatedAt || "未設定"} / 公開: {n.startDate || "-"} 〜 {n.endDate || "-"}
+                      部署: {deptName} / 更新日: {n.updatedAt || "未設定"} / 公開: {n.startDate || "-"} 〜 {n.endDate || "-"}
                     </div>
                   </div>
                 );
@@ -491,6 +537,28 @@ export default function AdminNewsPage() {
                   readOnly={!isEditing}
                   disabled={busy}
                 />
+              </div>
+
+              {/* ✅ 配信元部署（復活） */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">配信元部署</label>
+                <select
+                  name="bizId"
+                  className="kb-admin-select full"
+                  value={form.bizId || ""}
+                  onChange={handleChange}
+                  disabled={!isEditing || busy}
+                >
+                  <option value="">- 未設定 -</option>
+                  {depts.map((d) => (
+                    <option key={d.deptId} value={d.deptId}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="kb-subnote full" style={{ marginTop: 6 }}>
+                  ※ お知らせの「配信元」として表示したい部署を設定します
+                </div>
               </div>
 
               <div className="kb-admin-form-row">
@@ -862,5 +930,3 @@ export default function AdminNewsPage() {
     </div>
   );
 }
-
-
