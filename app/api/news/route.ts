@@ -52,10 +52,18 @@ function requireAdmin(req: NextRequest) {
  * Helpers / Normalizers
  * ========================= */
 type NewsScope = "all" | "direct";
+type BrandId = "ALL" | "JOYFIT" | "FIT365";
 
 function normalizeViewScope(v: any): NewsScope {
   const raw = String(v || "").trim().toLowerCase();
   return raw === "direct" ? "direct" : "all";
+}
+
+function normalizeBrandId(v: any): BrandId {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (s === "JOYFIT") return "JOYFIT";
+  if (s === "FIT365") return "FIT365";
+  return "ALL";
 }
 
 function normalizeTags(v: any): string[] {
@@ -182,10 +190,16 @@ function toApiNews(item: any) {
 
   const startDate = item.startDate || item.start || "";
   const endDate = item.endDate || item.end || "";
-  const publishAt = (item.publishAt ?? item.publish_at ?? null);
+  const publishAt = item.publishAt ?? item.publish_at ?? null;
 
   const viewScope = normalizeViewScope(
     item.viewScope ?? item.view_scope ?? item.scope
+  );
+
+  // ✅ 追加：部署・ブランド（互換吸収）
+  const bizId = String(item.bizId ?? item.deptId ?? item.dept_id ?? "").trim();
+  const brandId = normalizeBrandId(
+    item.brandId ?? item.brand ?? item.brand_id ?? "ALL"
   );
 
   return {
@@ -201,8 +215,13 @@ function toApiNews(item: any) {
     createdAt,
     updatedAt,
     isHidden: normalizeBool(item.isHidden ?? item.is_hidden),
+
+    // ✅ APIに返す
+    bizId,
+    brandId,
   };
 }
+
 /** publishAt を JST(+09:00) 付きISO文字列に正規化 */
 function normalizePublishAt(input: any): string | null {
   if (input == null || input === "") return null;
@@ -235,12 +254,19 @@ function toDbNews(payload: any, mode: "create" | "update") {
 
   const startDate = String(payload?.startDate || payload?.start || "").trim();
   const endDate = String(payload?.endDate || payload?.end || "").trim();
+
   const publishAtRaw = payload?.publishAt ?? payload?.publish_at ?? null;
   const publishAt = normalizePublishAt(publishAtRaw);
 
   const viewScope = normalizeViewScope(
     payload?.viewScope ?? payload?.view_scope ?? payload?.scope
   );
+
+  // ✅ 追加：部署・ブランド（互換吸収）
+  // - 管理画面は bizId / brandId を送る
+  // - 旧実装やnotify互換で deptId / brand が来ても拾う
+  const bizId = String(payload?.bizId ?? payload?.deptId ?? payload?.dept_id ?? "").trim();
+  const brandId = normalizeBrandId(payload?.brandId ?? payload?.brand ?? payload?.brand_id ?? "ALL");
 
   return {
     newsId,
@@ -255,6 +281,14 @@ function toDbNews(payload: any, mode: "create" | "update") {
     createdAt: createdAt || now,
     updatedAt,
     isHidden: normalizeBool(payload?.isHidden ?? payload?.is_hidden),
+
+    // ✅ DBに保存（これが②の本丸）
+    bizId,
+    brandId,
+
+    // ✅ 互換：古い参照先が deptId / brand を見ても動くように残す（任意だけど安全）
+    deptId: bizId || "ALL",
+    brand: brandId,
   };
 }
 
@@ -442,6 +476,10 @@ export async function PUT(req: NextRequest) {
         existing?.viewScope ??
         existing?.view_scope ??
         existing?.scope,
+
+      // ✅ 互換：新payloadに無ければ既存値を温存（これが“保存したのに消える”を防ぐ）
+      bizId: payload?.bizId ?? payload?.deptId ?? existing?.bizId ?? existing?.deptId ?? existing?.dept_id ?? "",
+      brandId: payload?.brandId ?? payload?.brand ?? existing?.brandId ?? existing?.brand ?? existing?.brand_id ?? "ALL",
     };
 
     const dbItem = toDbNews(merged, "update");

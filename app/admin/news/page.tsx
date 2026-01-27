@@ -19,7 +19,7 @@ type News = {
   updatedAt?: string;
 
   startDate?: string; // YYYY-MM-DD
-  endDate?: string;   // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD
 
   tags?: string[];
   url?: string;
@@ -30,8 +30,11 @@ type News = {
   // ✅ 配信元部署（復活）
   bizId?: string;
 
+  // ✅ 配信ブランド（復活）
+  brandId?: string; // "JOYFIT" | "FIT365" | "ALL"(=すべて)
+
   // API互換（来てもOK）
-  publishAt?: string | null;
+  publishAt?: string | null; // datetime-local or ISO or null
   createdAt?: string;
   isHidden?: boolean;
 };
@@ -65,6 +68,39 @@ const normalizeTags = (v: any): string[] => {
   return [];
 };
 
+const normalizeBrandId = (v: any): string => {
+  const s = String(v ?? "").trim();
+  if (!s) return "ALL";
+  if (s === "JOYFIT") return "JOYFIT";
+  if (s === "FIT365") return "FIT365";
+  return "ALL";
+};
+
+/**
+ * ✅ 保存用に publishAt を正規化
+ * - "" / null / undefined => null
+ * - "YYYY-MM-DDTHH:mm"（datetime-local）を ISO(Z) に変換して保存
+ *   ※サーバ側の比較がブレないようにする（ここが③の肝）
+ */
+const normalizePublishAtForSave = (v: any): string | null => {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+
+  // datetime-local 形式なら ISO へ（ローカル時刻として解釈）
+  // 例: "2026-01-27T11:30"
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) {
+    const ms = Date.parse(s); // ブラウザローカルの解釈
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString(); // "....Z"
+  }
+
+  // すでにISO/Z/offset等ならそのまま（パースできないならnull）
+  const ms = Date.parse(s);
+  if (!Number.isFinite(ms)) return null;
+  return s;
+};
+
 const createEmptyNews = (initial: Partial<News> = {}): News => {
   const merged = {
     newsId: generateNewNewsId(),
@@ -74,9 +110,10 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     startDate: "",
     endDate: "",
     url: "",
-    publishAt: "",
+    publishAt: null,
     viewScope: "all",
     bizId: "",
+    brandId: "ALL",
     ...initial,
   } as any;
 
@@ -85,6 +122,8 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     viewScope: normalizeViewScope(merged.viewScope),
     tags: normalizeTags(merged.tags),
     bizId: String(merged.bizId ?? ""),
+    brandId: normalizeBrandId(merged.brandId),
+    // 画面表示用は「datetime-local」形式も許容のまま保持
   } as News;
 };
 
@@ -175,6 +214,19 @@ function BusyOverlay({ text }: { text: string }) {
   );
 }
 
+/* ========= バッジ ========= */
+
+function ScopeBadge({ scope }: { scope?: ViewScope }) {
+  const sc = normalizeViewScope(scope);
+  return <span className="kb-scope-badge">{sc === "direct" ? "直営のみ" : "すべて"}</span>;
+}
+
+function BrandBadge({ brandId }: { brandId?: string }) {
+  const b = normalizeBrandId(brandId);
+  if (b === "ALL") return null; // 混乱防止：ALLは出さない（必要なら「全ブランド」に変更可）
+  return <span className="kb-brand-badge">{b}</span>;
+}
+
 /* ========= メイン ========= */
 
 export default function AdminNewsPage() {
@@ -241,14 +293,13 @@ export default function AdminNewsPage() {
         updatedAt: n.updatedAt || "",
         startDate: n.startDate || "",
         endDate: n.endDate || "",
-        publishAt: n.publishAt ?? "",
+        publishAt: n.publishAt ?? null,
         tags: normalizeTags(n.tags),
         viewScope: normalizeViewScope(n.viewScope),
         createdAt: n.createdAt || "",
         isHidden: !!n.isHidden,
-
-        // ✅ 部署（無ければ空）
         bizId: String(n.bizId ?? ""),
+        brandId: normalizeBrandId(n.brandId),
       }));
 
       setNewsList(normalized);
@@ -279,7 +330,8 @@ export default function AdminNewsPage() {
       const tag = (n.tags || []).some((x) => (x || "").toLowerCase().includes(kw));
       const body = (n.body || "").toLowerCase().includes(kw);
       const deptName = (deptMap[n.bizId || ""]?.name || "").toLowerCase().includes(kw);
-      return t || id || tag || body || deptName;
+      const brand = (normalizeBrandId(n.brandId) || "").toLowerCase().includes(kw);
+      return t || id || tag || body || deptName || brand;
     });
   }, [newsList, filterText, deptMap]);
 
@@ -314,6 +366,10 @@ export default function AdminNewsPage() {
       setForm((p) => ({ ...p, bizId: String(value || "") }));
       return;
     }
+    if (name === "brandId") {
+      setForm((p) => ({ ...p, brandId: normalizeBrandId(value) }));
+      return;
+    }
 
     setForm((p) => ({ ...p, [name]: value }));
   };
@@ -340,12 +396,16 @@ export default function AdminNewsPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
+    // ✅ publishAt 正規化（"" -> null / datetime-local -> ISO）
+    const normalizedPublishAt = normalizePublishAtForSave(form.publishAt);
+
     const payload: News = {
       ...form,
       bizId: String(form.bizId ?? ""),
+      brandId: normalizeBrandId(form.brandId),
       tags: finalTags,
       updatedAt: getTodayDate(),
-      publishAt: form.publishAt ? form.publishAt : null,
+      publishAt: normalizedPublishAt, // ✅ ここが重要
       viewScope: normalizeViewScope(form.viewScope),
     };
 
@@ -370,23 +430,26 @@ export default function AdminNewsPage() {
         throw new Error(msg);
       }
 
-      // ✅ 保存後に通知（失敗しても保存は成功扱い）
-      try {
-        await fetch("/api/news/notify", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...getAdminHeaders(),
-          },
-          body: JSON.stringify({ newsId: payload.newsId }),
-        });
-      } catch (e) {
-        console.warn("notify failed:", e);
+      // ✅ 保存後の通知は「publishAt が空（= 即時）」のときだけ
+      //    publishAt が入っている場合は cron 配信に任せる（即時誤爆防止）
+      if (normalizedPublishAt === null) {
+        try {
+          await fetch("/api/news/notify?force=1", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...getAdminHeaders(),
+            },
+            body: JSON.stringify({ newsId: payload.newsId }),
+          });
+        } catch (e) {
+          console.warn("notify failed (but save ok):", e);
+        }
       }
 
       await loadAll();
       setIsEditing(false);
-      alert("保存しました");
+      alert(normalizedPublishAt ? "保存しました（予約配信）" : "保存しました（即時配信）");
     } catch (e: any) {
       alert(`保存エラー: ${e?.message || ""}`);
     } finally {
@@ -474,7 +537,7 @@ export default function AdminNewsPage() {
           <input
             type="text"
             className="kb-admin-input"
-            placeholder="タイトル、ID、本文、タグ、部署で検索..."
+            placeholder="タイトル、ID、本文、タグ、部署、ブランドで検索..."
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             style={{ marginBottom: 12 }}
@@ -485,7 +548,6 @@ export default function AdminNewsPage() {
             {!loading &&
               filtered.map((n) => {
                 const isSel = selected?.newsId === n.newsId;
-                const sc = normalizeViewScope(n.viewScope);
                 const deptName = deptMap[n.bizId || ""]?.name || "未設定";
 
                 return (
@@ -497,7 +559,10 @@ export default function AdminNewsPage() {
                   >
                     <div className="kb-item-title">
                       📰 {n.title}
-                      {sc === "direct" && <span className="kb-scope-badge">直営のみ</span>}
+                      <div style={{ marginLeft: 10, display: "inline-flex", gap: 8 }}>
+                        <ScopeBadge scope={n.viewScope} />
+                        <BrandBadge brandId={n.brandId} />
+                      </div>
                     </div>
                     <div className="kb-item-meta">
                       部署: {deptName} / 更新日: {n.updatedAt || "未設定"} / 公開: {n.startDate || "-"} 〜 {n.endDate || "-"}
@@ -539,6 +604,25 @@ export default function AdminNewsPage() {
                 />
               </div>
 
+              {/* ✅ 配信ブランド（復活） */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">配信ブランド</label>
+                <select
+                  name="brandId"
+                  className="kb-admin-select full"
+                  value={normalizeBrandId(form.brandId)}
+                  onChange={handleChange}
+                  disabled={!isEditing || busy}
+                >
+                  <option value="ALL">すべて</option>
+                  <option value="JOYFIT">JOYFIT</option>
+                  <option value="FIT365">FIT365</option>
+                </select>
+                <div className="kb-subnote full" style={{ marginTop: 6 }}>
+                  ※ ユーザーのブランド設定に応じて配信対象を絞り込みます
+                </div>
+              </div>
+
               {/* ✅ 配信元部署（復活） */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信元部署</label>
@@ -562,7 +646,7 @@ export default function AdminNewsPage() {
               </div>
 
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">閲覧権限</label>
+                <label className="kb-admin-label full">閲覧範囲（表示制御）</label>
                 <select
                   name="viewScope"
                   className="kb-admin-select full"
@@ -573,6 +657,12 @@ export default function AdminNewsPage() {
                   <option value="all">すべて（直営 / FC / 本部）</option>
                   <option value="direct">直営のみ（直営 / 本部）</option>
                 </select>
+
+                {/* ✅ 現在値バッジ（編集フォーム側にも表示） */}
+                <div style={{ marginTop: 8 }}>
+                  <ScopeBadge scope={form.viewScope} /> <BrandBadge brandId={form.brandId} />
+                </div>
+
                 <div className="kb-subnote full" style={{ marginTop: 6 }}>
                   ※「直営のみ」は <b>直営店舗</b> と <b>本部</b> のみ表示されます（FCは非表示）
                 </div>
@@ -617,7 +707,9 @@ export default function AdminNewsPage() {
                   readOnly={!isEditing}
                   disabled={busy}
                 />
-                <div className="kb-subnote">※指定した日時になるまでユーザー画面には表示されません（空欄で即時配信）。</div>
+                <div className="kb-subnote">
+                  ※空欄：保存後に即時通知 / 入力あり：指定時刻に通知（cron配信）
+                </div>
               </div>
 
               <div className="kb-admin-form-row">
@@ -839,15 +931,34 @@ export default function AdminNewsPage() {
           border-color: #fb7185;
         }
 
+        /* ✅ 閲覧範囲バッジ（青で統一） */
         .kb-scope-badge {
           font-size: 11px;
           font-weight: 800;
-          padding: 3px 10px;
+          padding: 4px 10px;
           border-radius: 999px;
-          border: 1px solid #fecaca;
-          background: #fff1f2;
-          color: #e11d48;
-          margin-left: 10px;
+          display: inline-flex;
+          align-items: center;
+          line-height: 1;
+          white-space: nowrap;
+          border: 1px solid rgba(59, 130, 246, 0.28);
+          background: rgba(59, 130, 246, 0.10);
+          color: #1d4ed8;
+        }
+
+        /* ✅ ブランドバッジ（控えめ） */
+        .kb-brand-badge {
+          font-size: 11px;
+          font-weight: 800;
+          padding: 4px 10px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          line-height: 1;
+          white-space: nowrap;
+          border: 1px solid rgba(2, 132, 199, 0.22);
+          background: rgba(2, 132, 199, 0.08);
+          color: #0369a1;
         }
 
         .kb-list-scroll {

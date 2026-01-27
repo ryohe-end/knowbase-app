@@ -1,3 +1,4 @@
+// app/api/news/notify/route.ts
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
@@ -8,7 +9,6 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 
-/** ========= 設定 ========= */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,15 +16,13 @@ const region = process.env.AWS_REGION || "us-east-1";
 const NEWS_TABLE = process.env.KB_NEWS_TABLE || "yamauchi-News";
 const USERS_TABLE = process.env.KB_USERS_TABLE || "yamauchi-Users";
 
-// FCの代表送信先（固定）
 const FRANCHISE_ROUTING_EMAIL = "g_O0301006675@okamoto-group.co.jp";
-// FC判定：users.groupIds に g002 が含まれる
 const FRANCHISE_GROUP_ID = "g002";
 
 const ddb = new DynamoDBClient({ region });
 const doc = DynamoDBDocumentClient.from(ddb);
 
-/** ========= 認証ロジック（Amplify/Cron対応） ========= */
+/* ========= 認証 ========= */
 function requireAdmin(req: Request) {
   const url = new URL(req.url);
   const headerKey = (req.headers.get("x-kb-admin-key") || "").trim();
@@ -57,7 +55,7 @@ function requireAdmin(req: Request) {
   };
 }
 
-/** ========= SendGrid ========= */
+/* ========= SendGrid ========= */
 function initSendGrid() {
   const key = process.env.SENDGRID_API_KEY ?? "";
   const from = process.env.SENDGRID_FROM_EMAIL ?? "";
@@ -68,7 +66,7 @@ function initSendGrid() {
   return { from };
 }
 
-/** ========= util ========= */
+/* ========= util ========= */
 function normalizeViewScope(v: any): "all" | "direct" {
   const s = String(v || "").trim().toLowerCase();
   return s === "direct" ? "direct" : "all";
@@ -91,16 +89,23 @@ function isValidEmail(s: any) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
-/** "2026-01-20T09:00:00+09:00" / "...Z" / epoch(ms) などを許容 */
+/**
+ * publishAt を「確実に」ms化する
+ * - null/undefined/"" は null
+ * - number(ms) はそのまま
+ * - ISO / Z / "+09:00" などは Date.parse
+ * - "YYYY-MM-DDTHH:mm"（timezone無し）も Date.parse（※ローカル扱いになるので、保存はISO推奨）
+ */
 function toMs(v: any): number | null {
-  if (v === null || v === undefined || v === "") return null;
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
+
   const s = String(v).trim();
   const ms = Date.parse(s);
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** ユーザー側が単一/配列どっちでも一致できるように */
 function hasId(userVal: any, id: string) {
   const target = String(id || "").trim();
   if (!target || target === "ALL") return true;
@@ -113,7 +118,7 @@ function isFranchiseUser(user: any): boolean {
   return gids.includes(FRANCHISE_GROUP_ID);
 }
 
-/** ========= DynamoDB Scan（全件ページング対応） ========= */
+/* ========= Scan All ========= */
 async function scanAll(TableName: string) {
   let items: any[] = [];
   let ExclusiveStartKey: any = undefined;
@@ -127,17 +132,15 @@ async function scanAll(TableName: string) {
   return items;
 }
 
-/**
- * 特定のお知らせ1件を配信し、フラグを更新する共通関数
- */
+/* ========= 配信本体 ========= */
 async function processNotification(news: any, allUsers: any[]) {
   const { from } = initSendGrid();
   const viewScope = normalizeViewScope(news.viewScope);
 
-  // ✅ isActive !== false かつ メール有効
+  // isActive !== false かつ email valid
   const activeUsers = allUsers.filter((u) => u?.isActive !== false && isValidEmail(u?.email));
 
-  // news側ターゲット条件（無ければALL扱い）
+  // ターゲット条件（無ければALL扱い）
   const brandId = String(news.brandId ?? "ALL").trim();
   const deptId = String(news.deptId ?? "ALL").trim();
   const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds.map(String) : [];
@@ -211,6 +214,7 @@ async function processNotification(news: any, allUsers: any[]) {
     });
   }
 
+  // ✅ 配信済みフラグ
   await doc.send(
     new UpdateCommand({
       TableName: NEWS_TABLE,
@@ -228,7 +232,7 @@ async function processNotification(news: any, allUsers: any[]) {
 
 /**
  * GET: cron専用（予約配信のみ）
- * ✅ publishAt が「ある」ものだけ送る（nullは送らない）
+ * ✅ publishAt が「ある」ものだけ送る（null/"" は送らない）
  */
 export async function GET(req: Request) {
   const auth = requireAdmin(req);
@@ -236,7 +240,6 @@ export async function GET(req: Request) {
 
   try {
     const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
 
     const allNews = await scanAll(NEWS_TABLE);
     const allUsers = await scanAll(USERS_TABLE);
@@ -247,9 +250,10 @@ export async function GET(req: Request) {
 
       const publishMs = toMs(n.publishAt);
 
-      // ★ここが重要：publishAt が null のものは cron では送らない
+      // ✅ 予約が無いなら cron は送らない
       if (publishMs === null) return false;
 
+      // ✅ 予約時刻到来
       const isDue = publishMs <= nowMs;
       return !isHidden && !isNotified && isDue;
     });
@@ -264,8 +268,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      checkedAt: nowIso,
-      checkedAtMs: nowMs,
+      checkedAt: new Date(nowMs).toISOString(),
       processedNews,
       totalEmails,
     });
@@ -277,7 +280,8 @@ export async function GET(req: Request) {
 
 /**
  * POST: 即時配信（手動ボタン専用）
- * ✅ force=1 のときだけ送る（保存時誤爆を防ぐ）
+ * ✅ force=1 のときだけ送る（誤爆防止）
+ * ✅ publishAt が未来なら送らない（手動でもスキップ）
  */
 export async function POST(req: Request) {
   const auth = requireAdmin(req);
@@ -288,12 +292,13 @@ export async function POST(req: Request) {
   if (!force) {
     return NextResponse.json({
       ok: true,
-      message: "即時配信は force=1 のときだけ実行します（保存時の誤爆防止）",
+      message: "即時配信は force=1 のときだけ実行します（誤爆防止）",
     });
   }
 
   try {
-    const { newsId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    const newsId = String(body?.newsId || "").trim();
     if (!newsId) return NextResponse.json({ error: "newsId required" }, { status: 400 });
 
     const newsRes = await doc.send(new GetCommand({ TableName: NEWS_TABLE, Key: { newsId } }));
@@ -303,10 +308,11 @@ export async function POST(req: Request) {
     const nowMs = Date.now();
     const publishMs = toMs(news.publishAt);
 
-    // 予約日時が設定されていて未来ならスキップ（即時ボタンでも送らない）
+    // ✅ 予約が未来なら送らない（即時ボタンでもスキップ）
     if (publishMs !== null && publishMs > nowMs) {
       return NextResponse.json({
         ok: true,
+        skipped: true,
         message: "予約時刻前のため通知をスキップしました",
         now: new Date(nowMs).toISOString(),
         publishAt: news.publishAt,
