@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-// ✅ UpdateCommand を追加
-import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  QueryCommand,
+  UpdateCommand,
+  PutCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { randomUUID } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +25,7 @@ const mockCompare = (password: string, hash: string): boolean => {
 
 // DynamoDBのユーザー型定義
 type KbUser = {
-  userId: string; // ✅ user_id -> userId に修正（他のファイルと統一）
+  userId: string;
   name: string;
   email: string;
   role: "admin" | "editor" | "viewer";
@@ -30,8 +35,10 @@ type KbUser = {
 
 const ADMIN_EMAIL_FALLBACK = "admin@example.com";
 const ADMIN_PASS_FALLBACK = "admin123";
+
 const TABLE_USERS = "yamauchi-Users";
 const EMAIL_GSI_NAME = "email-index";
+const TABLE_LOGIN_LOGS = "yamauchi-LoginLogs";
 
 const region = process.env.AWS_REGION || "us-east-1";
 const ddbClient = new DynamoDBClient({ region });
@@ -93,14 +100,12 @@ export async function POST(req: Request) {
   const authenticatedUser = await authenticateUser(email, isExternalLogin, pass);
 
   if (!authenticatedUser) {
-    return NextResponse.json(
-      { ok: false, error: "認証に失敗しました" },
-      { status: 401 }
-    );
+    return NextResponse.json({ ok: false, error: "認証に失敗しました" }, { status: 401 });
   }
 
-  // ✅ 追加: ログイン日時 (lastLoginAt) を更新
-  // (フォールバック管理者の場合はDBにいないのでスキップ)
+  const nowIso = new Date().toISOString();
+
+  // ✅ 1) lastLoginAt 更新（フォールバック管理者はDBにいないのでスキップ）
   if (authenticatedUser.userId !== "ADMIN_FALLBACK") {
     try {
       await docClient.send(
@@ -108,21 +113,45 @@ export async function POST(req: Request) {
           TableName: TABLE_USERS,
           Key: { userId: authenticatedUser.userId },
           UpdateExpression: "set lastLoginAt = :now",
-          ExpressionAttributeValues: {
-            ":now": new Date().toISOString(),
-          },
+          ExpressionAttributeValues: { ":now": nowIso },
         })
       );
     } catch (err) {
       console.error("Failed to update lastLoginAt", err);
-      // ログイン自体は成功させるためエラーは握りつぶす
+      // ログイン自体は成功させる
+    }
+
+    // ✅ 2) ログインログを1件記録（これが “ログイン成功直後”）
+    try {
+      await docClient.send(
+        new PutCommand({
+          TableName: TABLE_LOGIN_LOGS,
+          Item: {
+            logId: randomUUID(),
+            userId: authenticatedUser.userId,
+            loggedAt: nowIso,
+          },
+        })
+      );
+    } catch (err) {
+      console.error("Failed to write login log", err);
+      // ログイン自体は成功させる
     }
   }
 
   const cookieStore = await cookies();
   const isAdmin = authenticatedUser.role === "admin";
 
-  cookieStore.set("kb_user", authenticatedUser.email, {
+  // ✅ 超重要：kb_user は “userId” を入れる（ログ/集計と一致させる）
+  cookieStore.set("kb_user", authenticatedUser.userId, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+  });
+
+  // （任意）emailも必要なら別cookieに
+  cookieStore.set("kb_email", authenticatedUser.email, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
