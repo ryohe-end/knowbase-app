@@ -24,6 +24,7 @@ export type KbUser = {
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  lastLoginAt?: string;
   passwordHash?: string;
   mustChangePassword?: boolean;
 };

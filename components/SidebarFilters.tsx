@@ -1,3 +1,4 @@
+// components/SidebarFilters.tsx
 "use client";
 
 type Props = {
@@ -11,6 +12,7 @@ type Props = {
   setSelectedBrandId: (v: string) => void;
   setSelectedDeptId: (v: string) => void;
   setKeyword: (v: string) => void;
+  onTagClick?: (tag: string) => void; // ✅ 追加：タグクリック時にログを飛ばせるように
 };
 
 const ALL_BRAND_ID = "__ALL_BRAND__";
@@ -25,6 +27,7 @@ export default function SidebarFilters({
   setSelectedBrandId,
   setSelectedDeptId,
   setKeyword,
+  onTagClick,
 }: Props) {
   return (
     <aside className="kb-panel" aria-label="フィルター">
@@ -104,7 +107,10 @@ export default function SidebarFilters({
                 key={tag}
                 type="button"
                 className="kb-chip small"
-                onClick={() => setKeyword(tag)}
+                onClick={() => {
+                  setKeyword(tag);
+                  onTagClick?.(tag); // ✅ 追加
+                }}
               >
                 #{tag}
               </button>
