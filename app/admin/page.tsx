@@ -37,6 +37,7 @@ export default function AdminHome() {
 
   if (isInitializing) return <Loading />;
 
+  // ✅ メニュー項目に「7. ANALYTICS」を追加
   const menuItems = [
     {
       href: "/admin/manuals",
@@ -79,6 +80,13 @@ export default function AdminHome() {
       title: "外部リンク管理",
       desc: "ポータル内に表示する便利な外部ツール等のリンクを管理します",
       color: "#10b981",
+    },
+    {
+      href: "/admin/analytics",
+      label: "7. ANALYTICS",
+      title: "分析ダッシュボード",
+      desc: "マニュアルの閲覧数やユーザーの利用状況を可視化します",
+      color: "#f59e0b", // アンバー（オレンジ系）でアクセント
     },
   ];
 

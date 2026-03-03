@@ -1141,7 +1141,7 @@ const groupHeaders: HeadersInit = groupIds
 }
 
 // ✅ 空日付は常に最後に飛ばす（2100年）
-const FAR_FUTURE = 4102444800000; // 2100-01-01
+const FAR_FUTURE = 0; // 2100-01-01
 
 // ✅ 全体をソート（公開日>最終更新 or 更新日）してからページング
 const sortedManuals = useMemo(() => {
@@ -1252,6 +1252,9 @@ const recentTags = useMemo(() => {
   }, [newsList, selectedBrandId, selectedDeptId, me, keyword]);
 
   useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
+  useEffect(() => {
+    setManualPage(1);
+  }, [keyword, selectedBrandId, selectedDeptId, manualSortKey, manualSortOrder]);
 
   const totalNewsPages = Math.max(1, Math.ceil(filteredNews.length / NEWS_PAGE_SIZE));
   const pagedNews = useMemo(() => {

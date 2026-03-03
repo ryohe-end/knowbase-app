@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+// ✅ UpdateCommand を追加
+import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ const mockCompare = (password: string, hash: string): boolean => {
 
 // DynamoDBのユーザー型定義
 type KbUser = {
-  user_id: string;
+  userId: string; // ✅ user_id -> userId に修正（他のファイルと統一）
   name: string;
   email: string;
   role: "admin" | "editor" | "viewer";
@@ -46,7 +47,7 @@ async function authenticateUser(
 ): Promise<KbUser | null> {
   if (!isExternalLogin && email === ADMIN_EMAIL_FALLBACK && pass === ADMIN_PASS_FALLBACK) {
     return {
-      user_id: "ADMIN_FALLBACK",
+      userId: "ADMIN_FALLBACK",
       email: ADMIN_EMAIL_FALLBACK,
       name: "Fallback Admin",
       role: "admin",
@@ -98,19 +99,34 @@ export async function POST(req: Request) {
     );
   }
 
+  // ✅ 追加: ログイン日時 (lastLoginAt) を更新
+  // (フォールバック管理者の場合はDBにいないのでスキップ)
+  if (authenticatedUser.userId !== "ADMIN_FALLBACK") {
+    try {
+      await docClient.send(
+        new UpdateCommand({
+          TableName: TABLE_USERS,
+          Key: { userId: authenticatedUser.userId },
+          UpdateExpression: "set lastLoginAt = :now",
+          ExpressionAttributeValues: {
+            ":now": new Date().toISOString(),
+          },
+        })
+      );
+    } catch (err) {
+      console.error("Failed to update lastLoginAt", err);
+      // ログイン自体は成功させるためエラーは握りつぶす
+    }
+  }
+
   const cookieStore = await cookies();
   const isAdmin = authenticatedUser.role === "admin";
 
-  // ★ 修正ポイント: maxAge を削除します。
-  // maxAge や expires を設定しないことで「セッションクッキー」となり、
-  // ブラウザやタブを閉じると消滅し、リロード時にも認証チェックが走りやすくなります。
-  
   cookieStore.set("kb_user", authenticatedUser.email, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    // maxAge: maxAge, // ← 削除
   });
 
   if (isAdmin) {
@@ -119,7 +135,6 @@ export async function POST(req: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
-      // maxAge: maxAge, // ← 削除
     });
   } else {
     cookieStore.delete("kb_admin");

@@ -90,6 +90,16 @@ function shortDateLabel(s?: string | null) {
 const DAY = 24 * 60 * 60 * 1000;
 const NEW_WINDOW = 3 * DAY; // NEWは3日
 
+// ✅ 追加: 閲覧数カウント用関数 (Fire-and-Forget)
+const incrementReadCount = (manualId: string) => {
+  fetch("/api/manuals/read", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ manualId }),
+    cache: "no-store",
+  }).catch((err) => console.error("Read count error:", err));
+};
+
 export default function ManualList({ manuals }: Props) {
   // ✅ ManualList は「受け取った順のまま表示」(page.tsx 側でソート/ページング済み前提)
 
@@ -195,6 +205,9 @@ export default function ManualList({ manuals }: Props) {
                       flexWrap: "wrap",
                     }}
                   >
+                    {/* ✅ 追加: 部署名の表示 */}
+                    {m.biz && <span style={{ fontWeight: 600, color: "#64748b" }}>{m.biz}</span>}
+
                     {m.startDate && <span>公開日: {shortDateLabel(m.startDate)}</span>}
                     {m.updatedAt && <span>最終更新: {shortDateLabel(m.updatedAt)}</span>}
                   </div>
@@ -210,6 +223,10 @@ export default function ManualList({ manuals }: Props) {
                       e.preventDefault();
                       e.stopPropagation();
                       if (!hasPreview) return;
+                      
+                      // ✅ ここでカウントアップAPIを呼ぶ
+                      incrementReadCount(m.manualId);
+
                       setModalTitle(m.title);
                       setRawUrl(previewRaw);
                       setModalUrl(embeddable);
