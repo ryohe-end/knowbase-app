@@ -25,7 +25,10 @@ const mockCompare = (password: string, hash: string): boolean => {
 
 // DynamoDBのユーザー型定義
 type KbUser = {
-  userId: string;
+  userId?: string; // ← 実データ揺れに備えて optional
+  user_id?: string;
+  uid?: string;
+
   name: string;
   email: string;
   role: "admin" | "editor" | "viewer";
@@ -103,55 +106,61 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "認証に失敗しました" }, { status: 401 });
   }
 
+  // ✅ userIdの揺れ吸収（ここが超重要）
+  const uid =
+    String(authenticatedUser.userId ?? authenticatedUser.user_id ?? authenticatedUser.uid ?? "").trim()
+    || `EMAIL:${authenticatedUser.email}`; // 最悪でも空にしない
+
   const nowIso = new Date().toISOString();
 
-  // ✅ 1) lastLoginAt 更新（フォールバック管理者はDBにいないのでスキップ）
-  if (authenticatedUser.userId !== "ADMIN_FALLBACK") {
+  // ✅ lastLoginAt 更新（Keyが userId の前提。違うならここは後で合わせる）
+  // 失敗してもログインは通す
+  if (uid !== "ADMIN_FALLBACK" && !uid.startsWith("EMAIL:")) {
     try {
       await docClient.send(
         new UpdateCommand({
           TableName: TABLE_USERS,
-          Key: { userId: authenticatedUser.userId },
+          Key: { userId: uid },
           UpdateExpression: "set lastLoginAt = :now",
           ExpressionAttributeValues: { ":now": nowIso },
         })
       );
     } catch (err) {
       console.error("Failed to update lastLoginAt", err);
-      // ログイン自体は成功させる
     }
+  }
 
-    // ✅ 2) ログインログを1件記録（これが “ログイン成功直後”）
+  // ✅ ログインログを記録（失敗してもログインは通す）
+  if (uid !== "ADMIN_FALLBACK") {
     try {
       await docClient.send(
         new PutCommand({
           TableName: TABLE_LOGIN_LOGS,
           Item: {
             logId: randomUUID(),
-            userId: authenticatedUser.userId,
+            userId: uid,
             loggedAt: nowIso,
           },
         })
       );
     } catch (err) {
       console.error("Failed to write login log", err);
-      // ログイン自体は成功させる
     }
   }
 
   const cookieStore = await cookies();
   const isAdmin = authenticatedUser.role === "admin";
 
-  // ✅ 超重要：kb_user は “userId” を入れる（ログ/集計と一致させる）
-  cookieStore.set("kb_user", authenticatedUser.userId, {
+  // ✅ 互換維持：kb_user は “email” のまま
+  cookieStore.set("kb_user", authenticatedUser.email, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
   });
 
-  // （任意）emailも必要なら別cookieに
-  cookieStore.set("kb_email", authenticatedUser.email, {
+  // ✅ 追加：ログ用途の userId
+  cookieStore.set("kb_uid", uid, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

@@ -9,20 +9,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const ddbClient = new DynamoDBClient({ region: REGION });
-const docClient = DynamoDBDocumentClient.from(ddbClient);
+const docClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
 const TABLE = "yamauchi-LoginLogs";
 
 export async function POST() {
   try {
-    // ✅ 既存のログイン状態（kb_user）から userId を取る
-    const userId = cookies().get("kb_user")?.value;
+    const c = await cookies();
+
+    // ✅ kb_uid を優先（なければ旧 kb_user も一応見る）
+    const userId = c.get("kb_uid")?.value || c.get("kb_user")?.value;
     if (!userId) {
       return NextResponse.json({ ok: false, error: "NOT_LOGGED_IN" }, { status: 401 });
     }
-
-    const loggedAt = new Date().toISOString();
 
     await docClient.send(
       new PutCommand({
@@ -30,7 +29,7 @@ export async function POST() {
         Item: {
           logId: randomUUID(),
           userId,
-          loggedAt,
+          loggedAt: new Date().toISOString(),
         },
       })
     );
