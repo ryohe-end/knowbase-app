@@ -5,6 +5,7 @@ import type { Manual } from "@/types/manual";
 
 type Props = {
   manuals: (Manual & { externalUrl?: string })[];
+  userId: string;
 };
 
 function safeOpen(url: string) {
@@ -91,16 +92,16 @@ const DAY = 24 * 60 * 60 * 1000;
 const NEW_WINDOW = 3 * DAY; // NEWは3日
 
 // ✅ 追加: 閲覧数カウント用関数 (Fire-and-Forget)
-const incrementReadCount = (manualId: string) => {
+const incrementReadCount = (manualId: string, userId: string) => {
   fetch("/api/manuals/view", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ manualId }),
+    body: JSON.stringify({ manualId, userId }),
     cache: "no-store",
   }).catch((err) => console.error("Read count error:", err));
 };
 
-export default function ManualList({ manuals }: Props) {
+export default function ManualList({ manuals, userId }: Props) {
   // ✅ ManualList は「受け取った順のまま表示」(page.tsx 側でソート/ページング済み前提)
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -225,7 +226,7 @@ export default function ManualList({ manuals }: Props) {
                       if (!hasPreview) return;
                       
                       // ✅ ここでカウントアップAPIを呼ぶ
-                      incrementReadCount(m.manualId);
+                      incrementReadCount(m.manualId, userId);
 
                       setModalTitle(m.title);
                       setRawUrl(previewRaw);

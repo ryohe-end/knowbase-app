@@ -27,13 +27,13 @@ type News = {
   // ✅ 閲覧権限
   viewScope?: ViewScope;
 
-  // ✅ 配信元部署（復活）
+  // ✅ 配信元部署
   bizId?: string;
 
-  // ✅ 配信ブランド（復活）
-  brandId?: string; // "JOYFIT" | "FIT365" | "ALL"(=すべて)
+  // ✅ 配信ブランド
+  brandId?: string; // "JOYFIT" | "FIT365" | "ALL"
 
-  // API互換（来てもOK）
+  // API互換
   publishAt?: string | null; // datetime-local or ISO or null
   createdAt?: string;
   isHidden?: boolean;
@@ -80,25 +80,47 @@ const normalizeBrandId = (v: any): string => {
  * ✅ 保存用に publishAt を正規化
  * - "" / null / undefined => null
  * - "YYYY-MM-DDTHH:mm"（datetime-local）を ISO(Z) に変換して保存
- *   ※サーバ側の比較がブレないようにする（ここが③の肝）
+ * - ISO文字列はそのまま通す
  */
 const normalizePublishAtForSave = (v: any): string | null => {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
   if (!s) return null;
 
-  // datetime-local 形式なら ISO へ（ローカル時刻として解釈）
-  // 例: "2026-01-27T11:30"
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) {
-    const ms = Date.parse(s); // ブラウザローカルの解釈
+    const ms = Date.parse(s);
     if (!Number.isFinite(ms)) return null;
-    return new Date(ms).toISOString(); // "....Z"
+    return new Date(ms).toISOString();
   }
 
-  // すでにISO/Z/offset等ならそのまま（パースできないならnull）
   const ms = Date.parse(s);
   if (!Number.isFinite(ms)) return null;
   return s;
+};
+
+/**
+ * ✅ datetime-local 表示用
+ * - null/"" => ""
+ * - ISO/Z/offset付き => ローカル日時の "YYYY-MM-DDTHH:mm" に変換
+ * - すでに datetime-local 形式ならそのまま
+ */
+const toDatetimeLocalValue = (v: any): string => {
+  if (v === null || v === undefined) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return s;
+
+  const ms = Date.parse(s);
+  if (!Number.isFinite(ms)) return "";
+
+  const d = new Date(ms);
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${MM}-${dd}T${hh}:${mm}`;
 };
 
 const createEmptyNews = (initial: Partial<News> = {}): News => {
@@ -123,7 +145,7 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     tags: normalizeTags(merged.tags),
     bizId: String(merged.bizId ?? ""),
     brandId: normalizeBrandId(merged.brandId),
-    // 画面表示用は「datetime-local」形式も許容のまま保持
+    publishAt: merged.publishAt ?? null,
   } as News;
 };
 
@@ -223,7 +245,7 @@ function ScopeBadge({ scope }: { scope?: ViewScope }) {
 
 function BrandBadge({ brandId }: { brandId?: string }) {
   const b = normalizeBrandId(brandId);
-  if (b === "ALL") return null; // 混乱防止：ALLは出さない（必要なら「全ブランド」に変更可）
+  if (b === "ALL") return null;
   return <span className="kb-brand-badge">{b}</span>;
 }
 
@@ -370,6 +392,10 @@ export default function AdminNewsPage() {
       setForm((p) => ({ ...p, brandId: normalizeBrandId(value) }));
       return;
     }
+    if (name === "publishAt") {
+      setForm((p) => ({ ...p, publishAt: value ? value : null }));
+      return;
+    }
 
     setForm((p) => ({ ...p, [name]: value }));
   };
@@ -396,7 +422,6 @@ export default function AdminNewsPage() {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    // ✅ publishAt 正規化（"" -> null / datetime-local -> ISO）
     const normalizedPublishAt = normalizePublishAtForSave(form.publishAt);
 
     const payload: News = {
@@ -405,7 +430,7 @@ export default function AdminNewsPage() {
       brandId: normalizeBrandId(form.brandId),
       tags: finalTags,
       updatedAt: getTodayDate(),
-      publishAt: normalizedPublishAt, // ✅ ここが重要
+      publishAt: normalizedPublishAt,
       viewScope: normalizeViewScope(form.viewScope),
     };
 
@@ -414,6 +439,10 @@ export default function AdminNewsPage() {
 
     try {
       const isNew = !selected;
+
+      console.log("[NEWS_SAVE] raw publishAt =", form.publishAt);
+      console.log("[NEWS_SAVE] normalizedPublishAt =", normalizedPublishAt);
+      console.log("[NEWS_SAVE] isNew =", isNew);
 
       const res = await fetch("/api/news", {
         method: isNew ? "POST" : "PUT",
@@ -430,27 +459,37 @@ export default function AdminNewsPage() {
         throw new Error(msg);
       }
 
-      // ✅ 保存後の通知は「publishAt が空（= 即時）」のときだけ
-      //    publishAt が入っている場合は cron 配信に任せる（即時誤爆防止）
+      // ✅ publishAt が空（= 即時）のときだけ notify 実行
       if (normalizedPublishAt === null) {
-        try {
-          await fetch("/api/news/notify?force=1", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAdminHeaders(),
-            },
-            body: JSON.stringify({ newsId: payload.newsId }),
-          });
-        } catch (e) {
-          console.warn("notify failed (but save ok):", e);
+        console.log("[NEWS_NOTIFY] start immediate notify", { newsId: payload.newsId });
+
+        const notifyRes = await fetch("/api/news/notify?force=1", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...getAdminHeaders(),
+          },
+          body: JSON.stringify({ newsId: payload.newsId }),
+        });
+
+        const notifyJson = await notifyRes.json().catch(() => ({}));
+        console.log("[NEWS_NOTIFY] response =", notifyRes.status, notifyJson);
+
+        if (!notifyRes.ok) {
+          const msg = notifyJson?.detail
+            ? `${notifyJson.error}: ${notifyJson.detail}`
+            : notifyJson?.error || `notify failed: ${notifyRes.status}`;
+          throw new Error(msg);
         }
+      } else {
+        console.log("[NEWS_NOTIFY] skipped because publishAt exists", normalizedPublishAt);
       }
 
       await loadAll();
       setIsEditing(false);
       alert(normalizedPublishAt ? "保存しました（予約配信）" : "保存しました（即時配信）");
     } catch (e: any) {
+      console.error("[NEWS_SAVE_ERROR]", e);
       alert(`保存エラー: ${e?.message || ""}`);
     } finally {
       setSaving(false);
@@ -520,7 +559,6 @@ export default function AdminNewsPage() {
       </div>
 
       <div className="kb-admin-grid-2col">
-        {/* 左：一覧 */}
         <div className="kb-admin-card-large">
           <div className="kb-panel-header-row">
             <div className="kb-admin-head">お知らせ一覧（{loading ? "..." : newsList.length}件）</div>
@@ -573,7 +611,6 @@ export default function AdminNewsPage() {
           </div>
         </div>
 
-        {/* 右：編集 */}
         <div className="kb-admin-card-large">
           <div className="kb-admin-head">
             {isEditing ? (selected ? "お知らせ編集" : "新規お知らせ作成") : selected ? "お知らせ詳細" : "未選択"}
@@ -604,7 +641,6 @@ export default function AdminNewsPage() {
                 />
               </div>
 
-              {/* ✅ 配信ブランド（復活） */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信ブランド</label>
                 <select
@@ -623,7 +659,6 @@ export default function AdminNewsPage() {
                 </div>
               </div>
 
-              {/* ✅ 配信元部署（復活） */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">配信元部署</label>
                 <select
@@ -658,7 +693,6 @@ export default function AdminNewsPage() {
                   <option value="direct">直営のみ（直営 / 本部）</option>
                 </select>
 
-                {/* ✅ 現在値バッジ（編集フォーム側にも表示） */}
                 <div style={{ marginTop: 8 }}>
                   <ScopeBadge scope={form.viewScope} /> <BrandBadge brandId={form.brandId} />
                 </div>
@@ -695,14 +729,13 @@ export default function AdminNewsPage() {
                 </div>
               </div>
 
-              {/* ✅ 配信予約日時 */}
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label">配信予約日時（タイマー設定）</label>
                 <input
                   type="datetime-local"
                   name="publishAt"
                   className="kb-admin-input full"
-                  value={(form.publishAt as any) || ""}
+                  value={toDatetimeLocalValue(form.publishAt)}
                   onChange={handleChange}
                   readOnly={!isEditing}
                   disabled={busy}
@@ -931,7 +964,6 @@ export default function AdminNewsPage() {
           border-color: #fb7185;
         }
 
-        /* ✅ 閲覧範囲バッジ（青で統一） */
         .kb-scope-badge {
           font-size: 11px;
           font-weight: 800;
@@ -942,11 +974,10 @@ export default function AdminNewsPage() {
           line-height: 1;
           white-space: nowrap;
           border: 1px solid rgba(59, 130, 246, 0.28);
-          background: rgba(59, 130, 246, 0.10);
+          background: rgba(59, 130, 246, 0.1);
           color: #1d4ed8;
         }
 
-        /* ✅ ブランドバッジ（控えめ） */
         .kb-brand-badge {
           font-size: 11px;
           font-weight: 800;

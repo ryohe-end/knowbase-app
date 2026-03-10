@@ -1473,6 +1473,7 @@ export default function HomePage() {
                     updatedAt: formatToJST(m.updatedAt),
                     viewScope: normalizeManualViewScope(m.viewScope),
                   }))}
+                  userId={me?.userId ?? ""}
                 />
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
