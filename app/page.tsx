@@ -481,6 +481,15 @@ export default function HomePage() {
       body: JSON.stringify({ newsId, userId: me.userId }),
     }).catch((e) => console.error("Failed to record news log", e));
   };
+  // 📘 マニュアル閲覧ログを送信する関数 (追加)
+  const recordManualViewLog = (manualId: string) => {
+    if (!me?.userId) return;
+    fetch("/api/manuals/view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ manualId, userId: me.userId }),
+    }).catch((e) => console.error("Failed to record manual view log", e));
+  };
 
   /* ========= ユーザー名メニュー（名前クリック） ========= */
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -836,6 +845,11 @@ export default function HomePage() {
   const [loadingNews, setLoadingNews] = useState(true);
 
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
+  useEffect(() => {
+    if (previewManual && previewManual.manualId) {
+      recordManualViewLog(previewManual.manualId);
+    }
+  }, [previewManual]);
 
   const PAGE_SIZE = 5;
   type ManualSortKey = "publish" | "update";
