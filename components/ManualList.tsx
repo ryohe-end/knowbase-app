@@ -92,7 +92,7 @@ const NEW_WINDOW = 3 * DAY; // NEWは3日
 
 // ✅ 追加: 閲覧数カウント用関数 (Fire-and-Forget)
 const incrementReadCount = (manualId: string) => {
-  fetch("/api/manuals/read", {
+  fetch("/api/manuals/view", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ manualId }),
