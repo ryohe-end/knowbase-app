@@ -42,7 +42,10 @@ function requireAdmin(req: Request) {
     };
   }
 
-  if ((headerKey && headerKey === serverKey) || (queryToken && queryToken === serverKey)) {
+  if (
+    (headerKey && headerKey === serverKey) ||
+    (queryToken && queryToken === serverKey)
+  ) {
     return { ok: true as const };
   }
 
@@ -60,7 +63,8 @@ function initSendGrid() {
   const key = process.env.SENDGRID_API_KEY ?? "";
   const from = process.env.SENDGRID_FROM_EMAIL ?? "";
   if (!key) throw new Error("Missing env: SENDGRID_API_KEY");
-  if (!key.startsWith("SG.")) throw new Error("Invalid SENDGRID_API_KEY (must start with 'SG.')");
+  if (!key.startsWith("SG."))
+    throw new Error("Invalid SENDGRID_API_KEY (must start with 'SG.')");
   if (!from) throw new Error("Missing env: SENDGRID_FROM_EMAIL");
   sgMail.setApiKey(key);
   return { from };
@@ -68,7 +72,9 @@ function initSendGrid() {
 
 /* ========= util ========= */
 function normalizeViewScope(v: any): "all" | "direct" {
-  const s = String(v || "").trim().toLowerCase();
+  const s = String(v || "")
+    .trim()
+    .toLowerCase();
   return s === "direct" ? "direct" : "all";
 }
 
@@ -94,7 +100,7 @@ function isValidEmail(s: any) {
  * - null/undefined/"" は null
  * - number(ms) はそのまま
  * - ISO / Z / "+09:00" などは Date.parse
- * - "YYYY-MM-DDTHH:mm"（timezone無し）も Date.parse（※ローカル扱いになるので、保存はISO推奨）
+ * - "YYYY-MM-DDTHH:mm"（timezone無し）も Date.parse
  */
 function toMs(v: any): number | null {
   if (v === null || v === undefined) return null;
@@ -109,7 +115,7 @@ function toMs(v: any): number | null {
 function hasId(userVal: any, id: string) {
   const target = String(id || "").trim();
   if (!target || target === "ALL") return true;
-  const arr = Array.isArray(userVal) ? userVal : (userVal ? [userVal] : []);
+  const arr = Array.isArray(userVal) ? userVal : userVal ? [userVal] : [];
   return arr.map(String).includes(target);
 }
 
@@ -138,12 +144,16 @@ async function processNotification(news: any, allUsers: any[]) {
   const viewScope = normalizeViewScope(news.viewScope);
 
   // isActive !== false かつ email valid
-  const activeUsers = allUsers.filter((u) => u?.isActive !== false && isValidEmail(u?.email));
+  const activeUsers = allUsers.filter(
+    (u) => u?.isActive !== false && isValidEmail(u?.email)
+  );
 
   // ターゲット条件（無ければALL扱い）
   const brandId = String(news.brandId ?? "ALL").trim();
   const deptId = String(news.deptId ?? "ALL").trim();
-  const targetGroupIds = Array.isArray(news.targetGroupIds) ? news.targetGroupIds.map(String) : [];
+  const targetGroupIds = Array.isArray(news.targetGroupIds)
+    ? news.targetGroupIds.map(String)
+    : [];
 
   const targetUsers = activeUsers.filter((user) => {
     const matchBrand = hasId(user.brandIds ?? user.brandId, brandId);
@@ -151,7 +161,8 @@ async function processNotification(news: any, allUsers: any[]) {
 
     const userGroups = toArray(user.groupIds ?? user.groupId);
     const matchGroup =
-      targetGroupIds.length === 0 || targetGroupIds.some((g) => userGroups.includes(String(g)));
+      targetGroupIds.length === 0 ||
+      targetGroupIds.some((g) => userGroups.includes(String(g)));
 
     return matchBrand && matchDept && matchGroup;
   });
@@ -164,14 +175,18 @@ async function processNotification(news: any, allUsers: any[]) {
   );
 
   const sendFranchiseRouting =
-    viewScope === "all" && franchiseTargets.length > 0 && isValidEmail(FRANCHISE_ROUTING_EMAIL);
+    viewScope === "all" &&
+    franchiseTargets.length > 0 &&
+    isValidEmail(FRANCHISE_ROUTING_EMAIL);
 
   if (toNonFranchise.length === 0 && !sendFranchiseRouting) return 0;
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const subject = `【KnowBase】お知らせ：${news.title || ""}`;
   const text = `${news.body || ""}\n\n詳細はKnowBaseにログインして確認してください。\n${appUrl}`;
-  const safeBody = String(news.body || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const safeBody = String(news.body || "")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 
   const html = `
     <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
@@ -210,11 +225,13 @@ async function processNotification(news: any, allUsers: any[]) {
       from: { email: from, name: "KnowBase運営事務局" },
       subject,
       text: `${text}\n\n（フランチャイズ向け通知）`,
-      html: html + `<div style="text-align:center;font-size:12px;color:#94a3b8;">（フランチャイズ向け通知）</div>`,
+      html:
+        html +
+        `<div style="text-align:center;font-size:12px;color:#94a3b8;">（フランチャイズ向け通知）</div>`,
     });
   }
 
-  // ✅ 配信済みフラグ
+  // 配信済みフラグ
   await doc.send(
     new UpdateCommand({
       TableName: NEWS_TABLE,
@@ -231,8 +248,9 @@ async function processNotification(news: any, allUsers: any[]) {
 }
 
 /**
- * GET: cron専用（予約配信のみ）
- * ✅ publishAt が「ある」ものだけ送る（null/"" は送らない）
+ * GET: cron実行用
+ * - publishAt が未来なら送らない
+ * - publishAt が過去、または未設定なら送る
  */
 export async function GET(req: Request) {
   const auth = requireAdmin(req);
@@ -248,14 +266,15 @@ export async function GET(req: Request) {
       const isHidden = !!n.isHidden || !!n.is_hidden;
       const isNotified = !!n.isNotified;
 
+      if (isHidden || isNotified) return false;
+
       const publishMs = toMs(n.publishAt);
 
-      // ✅ 予約が無いなら cron は送らない
-      if (publishMs === null) return false;
+      // publishAt未設定なら即時配信対象
+      if (publishMs === null) return true;
 
-      // ✅ 予約時刻到来
-      const isDue = publishMs <= nowMs;
-      return !isHidden && !isNotified && isDue;
+      // publishAtが過去なら配信対象、未来ならスキップ
+      return publishMs <= nowMs;
     });
 
     let totalEmails = 0;
@@ -274,14 +293,18 @@ export async function GET(req: Request) {
     });
   } catch (error: any) {
     console.error("[NOTIFY_GET_ERROR]", error);
-    return NextResponse.json({ error: error?.message || String(error) }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || String(error) },
+      { status: 500 }
+    );
   }
 }
 
 /**
  * POST: 即時配信（手動ボタン専用）
- * ✅ force=1 のときだけ送る（誤爆防止）
- * ✅ publishAt が未来なら送らない（手動でもスキップ）
+ * - force=1 のときだけ送る（誤爆防止）
+ * - publishAt が未来なら送らない
+ * - publishAt が過去、または未設定なら送る
  */
 export async function POST(req: Request) {
   const auth = requireAdmin(req);
@@ -299,16 +322,22 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const newsId = String(body?.newsId || "").trim();
-    if (!newsId) return NextResponse.json({ error: "newsId required" }, { status: 400 });
+    if (!newsId) {
+      return NextResponse.json({ error: "newsId required" }, { status: 400 });
+    }
 
-    const newsRes = await doc.send(new GetCommand({ TableName: NEWS_TABLE, Key: { newsId } }));
+    const newsRes = await doc.send(
+      new GetCommand({ TableName: NEWS_TABLE, Key: { newsId } })
+    );
     const news = newsRes.Item;
-    if (!news) return NextResponse.json({ error: "NotFound" }, { status: 404 });
+    if (!news) {
+      return NextResponse.json({ error: "NotFound" }, { status: 404 });
+    }
 
     const nowMs = Date.now();
     const publishMs = toMs(news.publishAt);
 
-    // ✅ 予約が未来なら送らない（即時ボタンでもスキップ）
+    // publishAt が未来なら送らない
     if (publishMs !== null && publishMs > nowMs) {
       return NextResponse.json({
         ok: true,
@@ -319,12 +348,16 @@ export async function POST(req: Request) {
       });
     }
 
+    // publishAt が過去、または未設定なら送る
     const allUsers = await scanAll(USERS_TABLE);
     const count = await processNotification(news, allUsers);
 
     return NextResponse.json({ ok: true, count });
   } catch (error: any) {
     console.error("[NOTIFY_POST_ERROR]", error);
-    return NextResponse.json({ error: error?.message || String(error) }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || String(error) },
+      { status: 500 }
+    );
   }
 }
