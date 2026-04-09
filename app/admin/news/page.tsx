@@ -417,15 +417,14 @@ export default function AdminNewsPage() {
     const normalizedPublishAt = normalizePublishAtForSave(form.publishAt);
 
     const payload: News = {
-      ...form,
-      bizId: String(form.bizId ?? ""),
-      deptId: String(form.bizId ?? form.deptId ?? ""),
-      brandId: normalizeBrandId(form.brandId),
-      tags: finalTags,
-      updatedAt: getTodayDate(),
-      publishAt: normalizedPublishAt,
-      viewScope: normalizeViewScope(form.viewScope),
-    };
+  ...form,
+  bizId: String(form.bizId ?? ""),
+  brandId: normalizeBrandId(form.brandId),
+  tags: finalTags,
+  updatedAt: getTodayDate(),
+  publishAt: normalizedPublishAt,
+  viewScope: normalizeViewScope(form.viewScope),
+};
 
     setSaving(true);
     setBusyText(selected ? "保存しています..." : "新規作成しています...");

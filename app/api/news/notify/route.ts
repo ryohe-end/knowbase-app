@@ -162,22 +162,21 @@ async function processNotification(news: any, allUsers: any[]) {
   );
 
   const brandId = String(news.brandId ?? "ALL").trim();
-  const deptId = String(news.deptId ?? news.bizId ?? "ALL").trim();
-  const targetGroupIds = Array.isArray(news.targetGroupIds)
-    ? news.targetGroupIds.map(String)
-    : [];
 
-  const targetUsers = activeUsers.filter((user) => {
-    const matchBrand = hasId(user.brandIds ?? user.brandId, brandId);
-    const matchDept = hasId(user.deptIds ?? user.deptId, deptId);
+const targetGroupIds = Array.isArray(news.targetGroupIds)
+  ? news.targetGroupIds.map(String)
+  : [];
 
-    const userGroups = toArray(user.groupIds ?? user.groupId);
-    const matchGroup =
-      targetGroupIds.length === 0 ||
-      targetGroupIds.some((g) => userGroups.includes(String(g)));
+const targetUsers = activeUsers.filter((user) => {
+  const matchBrand = hasId(user.brandIds ?? user.brandId, brandId);
 
-    return matchBrand && matchDept && matchGroup;
-  });
+  const userGroups = toArray(user.groupIds ?? user.groupId);
+  const matchGroup =
+    targetGroupIds.length === 0 ||
+    targetGroupIds.some((g) => userGroups.includes(String(g)));
+
+  return matchBrand && matchGroup;
+});
 
   const franchiseTargets = targetUsers.filter((u) => isFranchiseUser(u));
   const nonFranchiseTargets = targetUsers.filter((u) => !isFranchiseUser(u));
