@@ -195,7 +195,6 @@ const targetUsers = activeUsers.filter((user) => {
     title: news.title,
     viewScope,
     brandId,
-    deptId,
     targetGroupIds,
     allUsers: allUsers.length,
     activeUsers: activeUsers.length,
@@ -217,7 +216,6 @@ const targetUsers = activeUsers.filter((user) => {
       newsId: news.newsId,
       title: news.title,
       brandId,
-      deptId,
       targetGroupIds,
     });
     return {
