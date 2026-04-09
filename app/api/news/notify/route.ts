@@ -33,6 +33,7 @@ function requireAdmin(req: Request) {
     (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
 
   if (!serverKey) {
+    console.error("[NOTIFY_AUTH_ERROR] Missing server env: KB_ADMIN_API_KEY");
     return {
       ok: false as const,
       res: NextResponse.json(
@@ -49,6 +50,7 @@ function requireAdmin(req: Request) {
     return { ok: true as const };
   }
 
+  console.error("[NOTIFY_AUTH_ERROR] Invalid admin key or token");
   return {
     ok: false as const,
     res: NextResponse.json(
@@ -62,10 +64,12 @@ function requireAdmin(req: Request) {
 function initSendGrid() {
   const key = process.env.SENDGRID_API_KEY ?? "";
   const from = process.env.SENDGRID_FROM_EMAIL ?? "";
+
   if (!key) throw new Error("Missing env: SENDGRID_API_KEY");
   if (!key.startsWith("SG."))
     throw new Error("Invalid SENDGRID_API_KEY (must start with 'SG.')");
   if (!from) throw new Error("Missing env: SENDGRID_FROM_EMAIL");
+
   sgMail.setApiKey(key);
   return { from };
 }
@@ -96,11 +100,7 @@ function isValidEmail(s: any) {
 }
 
 /**
- * publishAt を「確実に」ms化する
- * - null/undefined/"" は null
- * - number(ms) はそのまま
- * - ISO / Z / "+09:00" などは Date.parse
- * - "YYYY-MM-DDTHH:mm"（timezone無し）も Date.parse
+ * publishAt を ms に変換
  */
 function toMs(v: any): number | null {
   if (v === null || v === undefined) return null;
@@ -124,13 +124,27 @@ function isFranchiseUser(user: any): boolean {
   return gids.includes(FRANCHISE_GROUP_ID);
 }
 
+function summarizeSendGridError(error: any) {
+  return {
+    message: error?.message || String(error),
+    code: error?.code,
+    responseBody: error?.response?.body ?? null,
+    responseHeaders: error?.response?.headers ?? null,
+  };
+}
+
 /* ========= Scan All ========= */
 async function scanAll(TableName: string) {
   let items: any[] = [];
   let ExclusiveStartKey: any = undefined;
 
   do {
-    const res = await doc.send(new ScanCommand({ TableName, ExclusiveStartKey }));
+    const res = await doc.send(
+      new ScanCommand({
+        TableName,
+        ExclusiveStartKey,
+      })
+    );
     items = items.concat(res.Items || []);
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
@@ -143,14 +157,12 @@ async function processNotification(news: any, allUsers: any[]) {
   const { from } = initSendGrid();
   const viewScope = normalizeViewScope(news.viewScope);
 
-  // isActive !== false かつ email valid
   const activeUsers = allUsers.filter(
     (u) => u?.isActive !== false && isValidEmail(u?.email)
   );
 
-  // ターゲット条件（無ければALL扱い）
   const brandId = String(news.brandId ?? "ALL").trim();
-  const deptId = String(news.deptId ?? "ALL").trim();
+  const deptId = String(news.deptId ?? news.bizId ?? "ALL").trim();
   const targetGroupIds = Array.isArray(news.targetGroupIds)
     ? news.targetGroupIds.map(String)
     : [];
@@ -179,11 +191,49 @@ async function processNotification(news: any, allUsers: any[]) {
     franchiseTargets.length > 0 &&
     isValidEmail(FRANCHISE_ROUTING_EMAIL);
 
-  if (toNonFranchise.length === 0 && !sendFranchiseRouting) return 0;
+  console.log("[NOTIFY_DEBUG] processNotification:start", {
+    newsId: news.newsId,
+    title: news.title,
+    viewScope,
+    brandId,
+    deptId,
+    targetGroupIds,
+    allUsers: allUsers.length,
+    activeUsers: activeUsers.length,
+    targetUsers: targetUsers.length,
+    franchiseTargets: franchiseTargets.length,
+    nonFranchiseTargets: nonFranchiseTargets.length,
+    toNonFranchiseCount: toNonFranchise.length,
+    toNonFranchise,
+    sendFranchiseRouting,
+    franchiseRoutingEmail: FRANCHISE_ROUTING_EMAIL,
+    fromEmail: from,
+    publishAt: news.publishAt ?? null,
+    isHidden: !!news.isHidden || !!news.is_hidden,
+    isNotified: !!news.isNotified,
+  });
+
+  if (toNonFranchise.length === 0 && !sendFranchiseRouting) {
+    console.warn("[NOTIFY_DEBUG] no recipients matched", {
+      newsId: news.newsId,
+      title: news.title,
+      brandId,
+      deptId,
+      targetGroupIds,
+    });
+    return {
+      sentCount: 0,
+      skipped: true,
+      reason: "no_recipients",
+    };
+  }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const subject = `【KnowBase】お知らせ：${news.title || ""}`;
   const text = `${news.body || ""}\n\n詳細はKnowBaseにログインして確認してください。\n${appUrl}`;
+  const safeTitle = String(news.title || "")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
   const safeBody = String(news.body || "")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
@@ -194,7 +244,7 @@ async function processNotification(news: any, allUsers: any[]) {
         <h1 style="margin: 0; font-size: 20px;">KnowBase お知らせ通知</h1>
       </div>
       <div style="padding: 24px; color: #1e293b;">
-        <h2 style="margin-top: 0; color: #0f172a;">${news.title || ""}</h2>
+        <h2 style="margin-top: 0; color: #0f172a;">${safeTitle}</h2>
         <div style="white-space: pre-wrap; line-height: 1.6; color: #475569;">${safeBody}</div>
         <div style="margin-top: 32px; text-align: center;">
           <a href="${appUrl}"
@@ -209,42 +259,90 @@ async function processNotification(news: any, allUsers: any[]) {
     </div>
   `;
 
-  if (toNonFranchise.length > 0) {
-    await sgMail.sendMultiple({
-      to: toNonFranchise,
-      from: { email: from, name: "KnowBase運営事務局" },
-      subject,
-      text,
-      html,
+  try {
+    if (toNonFranchise.length > 0) {
+      console.log("[NOTIFY_DEBUG] sendMultiple:before", {
+        newsId: news.newsId,
+        recipients: toNonFranchise,
+        count: toNonFranchise.length,
+      });
+
+      const res = await sgMail.sendMultiple({
+        to: toNonFranchise,
+        from: { email: from, name: "KnowBase運営事務局" },
+        subject,
+        text,
+        html,
+      });
+
+      console.log("[NOTIFY_DEBUG] sendMultiple:success", {
+        newsId: news.newsId,
+        responseCount: Array.isArray(res) ? res.length : 0,
+      });
+    }
+
+    if (sendFranchiseRouting) {
+      console.log("[NOTIFY_DEBUG] sendFranchiseRouting:before", {
+        newsId: news.newsId,
+        to: FRANCHISE_ROUTING_EMAIL,
+      });
+
+      const res = await sgMail.send({
+        to: FRANCHISE_ROUTING_EMAIL,
+        from: { email: from, name: "KnowBase運営事務局" },
+        subject,
+        text: `${text}\n\n（フランチャイズ向け通知）`,
+        html:
+          html +
+          `<div style="text-align:center;font-size:12px;color:#94a3b8;">（フランチャイズ向け通知）</div>`,
+      });
+
+      console.log("[NOTIFY_DEBUG] sendFranchiseRouting:success", {
+        newsId: news.newsId,
+        responseCount: Array.isArray(res) ? res.length : 0,
+      });
+    }
+  } catch (error: any) {
+    const detail = summarizeSendGridError(error);
+    console.error("[NOTIFY_SENDGRID_ERROR]", {
+      newsId: news.newsId,
+      title: news.title,
+      detail,
     });
+    throw new Error(
+      `SendGrid send failed: ${JSON.stringify(detail)}`
+    );
   }
 
-  if (sendFranchiseRouting) {
-    await sgMail.send({
-      to: FRANCHISE_ROUTING_EMAIL,
-      from: { email: from, name: "KnowBase運営事務局" },
-      subject,
-      text: `${text}\n\n（フランチャイズ向け通知）`,
-      html:
-        html +
-        `<div style="text-align:center;font-size:12px;color:#94a3b8;">（フランチャイズ向け通知）</div>`,
+  try {
+    await doc.send(
+      new UpdateCommand({
+        TableName: NEWS_TABLE,
+        Key: { newsId: news.newsId },
+        UpdateExpression: "SET isNotified = :val, notifiedAt = :at",
+        ExpressionAttributeValues: {
+          ":val": true,
+          ":at": new Date().toISOString(),
+        },
+      })
+    );
+
+    console.log("[NOTIFY_DEBUG] marked notified", {
+      newsId: news.newsId,
     });
+  } catch (error: any) {
+    console.error("[NOTIFY_DDB_UPDATE_ERROR]", {
+      newsId: news.newsId,
+      message: error?.message || String(error),
+    });
+    throw error;
   }
 
-  // 配信済みフラグ
-  await doc.send(
-    new UpdateCommand({
-      TableName: NEWS_TABLE,
-      Key: { newsId: news.newsId },
-      UpdateExpression: "SET isNotified = :val, notifiedAt = :at",
-      ExpressionAttributeValues: {
-        ":val": true,
-        ":at": new Date().toISOString(),
-      },
-    })
-  );
-
-  return toNonFranchise.length + (sendFranchiseRouting ? 1 : 0);
+  return {
+    sentCount: toNonFranchise.length + (sendFranchiseRouting ? 1 : 0),
+    skipped: false,
+    reason: null,
+  };
 }
 
 /**
@@ -259,30 +357,77 @@ export async function GET(req: Request) {
   try {
     const nowMs = Date.now();
 
+    console.log("[NOTIFY_GET] start", {
+      now: new Date(nowMs).toISOString(),
+      region,
+      NEWS_TABLE,
+      USERS_TABLE,
+      hasSendGridKey: !!process.env.SENDGRID_API_KEY,
+      fromEmail: process.env.SENDGRID_FROM_EMAIL || null,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL || null,
+    });
+
     const allNews = await scanAll(NEWS_TABLE);
     const allUsers = await scanAll(USERS_TABLE);
+
+    console.log("[NOTIFY_GET] scan results", {
+      newsCount: allNews.length,
+      userCount: allUsers.length,
+    });
 
     const targets = allNews.filter((n) => {
       const isHidden = !!n.isHidden || !!n.is_hidden;
       const isNotified = !!n.isNotified;
-
-      if (isHidden || isNotified) return false;
-
       const publishMs = toMs(n.publishAt);
 
-      // publishAt未設定なら即時配信対象
-      if (publishMs === null) return true;
+      const shouldSend =
+        !isHidden &&
+        !isNotified &&
+        (publishMs === null || publishMs <= nowMs);
 
-      // publishAtが過去なら配信対象、未来ならスキップ
-      return publishMs <= nowMs;
+      console.log("[NOTIFY_GET] evaluate news", {
+        newsId: n.newsId,
+        title: n.title,
+        isHidden,
+        isNotified,
+        publishAt: n.publishAt ?? null,
+        publishMs,
+        nowMs,
+        shouldSend,
+      });
+
+      return shouldSend;
     });
 
     let totalEmails = 0;
     let processedNews = 0;
+    const details: any[] = [];
 
     for (const news of targets) {
-      totalEmails += await processNotification(news, allUsers);
-      processedNews += 1;
+      try {
+        const result = await processNotification(news, allUsers);
+        totalEmails += result.sentCount;
+        processedNews += result.skipped ? 0 : 1;
+        details.push({
+          newsId: news.newsId,
+          title: news.title,
+          ok: true,
+          ...result,
+        });
+      } catch (error: any) {
+        console.error("[NOTIFY_GET_PROCESS_ERROR]", {
+          newsId: news.newsId,
+          title: news.title,
+          message: error?.message || String(error),
+        });
+
+        details.push({
+          newsId: news.newsId,
+          title: news.title,
+          ok: false,
+          error: error?.message || String(error),
+        });
+      }
     }
 
     return NextResponse.json({
@@ -290,9 +435,15 @@ export async function GET(req: Request) {
       checkedAt: new Date(nowMs).toISOString(),
       processedNews,
       totalEmails,
+      targetNewsCount: targets.length,
+      details,
     });
   } catch (error: any) {
-    console.error("[NOTIFY_GET_ERROR]", error);
+    console.error("[NOTIFY_GET_ERROR]", {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+    });
+
     return NextResponse.json(
       { error: error?.message || String(error) },
       { status: 500 }
@@ -312,6 +463,7 @@ export async function POST(req: Request) {
 
   const url = new URL(req.url);
   const force = url.searchParams.get("force") === "1";
+
   if (!force) {
     return NextResponse.json({
       ok: true,
@@ -320,24 +472,69 @@ export async function POST(req: Request) {
   }
 
   try {
+    console.log("[NOTIFY_POST] start", {
+      region,
+      NEWS_TABLE,
+      USERS_TABLE,
+      hasSendGridKey: !!process.env.SENDGRID_API_KEY,
+      fromEmail: process.env.SENDGRID_FROM_EMAIL || null,
+      appUrl: process.env.NEXT_PUBLIC_APP_URL || null,
+    });
+
     const body = await req.json().catch(() => ({}));
     const newsId = String(body?.newsId || "").trim();
+
+    console.log("[NOTIFY_POST] request body", { newsId });
+
     if (!newsId) {
       return NextResponse.json({ error: "newsId required" }, { status: 400 });
     }
 
     const newsRes = await doc.send(
-      new GetCommand({ TableName: NEWS_TABLE, Key: { newsId } })
+      new GetCommand({
+        TableName: NEWS_TABLE,
+        Key: { newsId },
+      })
     );
+
     const news = newsRes.Item;
+
     if (!news) {
       return NextResponse.json({ error: "NotFound" }, { status: 404 });
     }
 
+    const isHidden = !!news.isHidden || !!news.is_hidden;
+    const isNotified = !!news.isNotified;
     const nowMs = Date.now();
     const publishMs = toMs(news.publishAt);
 
-    // publishAt が未来なら送らない
+    console.log("[NOTIFY_POST] loaded news", {
+      newsId: news.newsId,
+      title: news.title,
+      isHidden,
+      isNotified,
+      publishAt: news.publishAt ?? null,
+      publishMs,
+      now: new Date(nowMs).toISOString(),
+      nowMs,
+    });
+
+    if (isHidden) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        message: "非表示ニュースのため通知をスキップしました",
+      });
+    }
+
+    if (isNotified) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        message: "すでに通知済みです",
+      });
+    }
+
     if (publishMs !== null && publishMs > nowMs) {
       return NextResponse.json({
         ok: true,
@@ -348,13 +545,25 @@ export async function POST(req: Request) {
       });
     }
 
-    // publishAt が過去、または未設定なら送る
     const allUsers = await scanAll(USERS_TABLE);
-    const count = await processNotification(news, allUsers);
 
-    return NextResponse.json({ ok: true, count });
+    console.log("[NOTIFY_POST] users loaded", {
+      userCount: allUsers.length,
+    });
+
+    const result = await processNotification(news, allUsers);
+
+    return NextResponse.json({
+      ok: true,
+      newsId,
+      ...result,
+    });
   } catch (error: any) {
-    console.error("[NOTIFY_POST_ERROR]", error);
+    console.error("[NOTIFY_POST_ERROR]", {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+    });
+
     return NextResponse.json(
       { error: error?.message || String(error) },
       { status: 500 }

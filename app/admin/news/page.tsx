@@ -18,23 +18,23 @@ type News = {
   body?: string | null;
   updatedAt?: string;
 
-  startDate?: string; // YYYY-MM-DD
-  endDate?: string; // YYYY-MM-DD
+  startDate?: string;
+  endDate?: string;
 
   tags?: string[];
   url?: string;
 
-  // ✅ 閲覧権限
   viewScope?: ViewScope;
 
-  // ✅ 配信元部署
+  // 画面上の部署選択
   bizId?: string;
 
-  // ✅ 配信ブランド
-  brandId?: string; // "JOYFIT" | "FIT365" | "ALL"
+  // 通知API互換
+  deptId?: string;
 
-  // API互換
-  publishAt?: string | null; // datetime-local or ISO or null
+  brandId?: string;
+
+  publishAt?: string | null;
   createdAt?: string;
   isHidden?: boolean;
 };
@@ -76,12 +76,6 @@ const normalizeBrandId = (v: any): string => {
   return "ALL";
 };
 
-/**
- * ✅ 保存用に publishAt を正規化
- * - "" / null / undefined => null
- * - "YYYY-MM-DDTHH:mm"（datetime-local）を ISO(Z) に変換して保存
- * - ISO文字列はそのまま通す
- */
 const normalizePublishAtForSave = (v: any): string | null => {
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
@@ -98,12 +92,6 @@ const normalizePublishAtForSave = (v: any): string | null => {
   return s;
 };
 
-/**
- * ✅ datetime-local 表示用
- * - null/"" => ""
- * - ISO/Z/offset付き => ローカル日時の "YYYY-MM-DDTHH:mm" に変換
- * - すでに datetime-local 形式ならそのまま
- */
 const toDatetimeLocalValue = (v: any): string => {
   if (v === null || v === undefined) return "";
   const s = String(v).trim();
@@ -135,6 +123,7 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     publishAt: null,
     viewScope: "all",
     bizId: "",
+    deptId: "",
     brandId: "ALL",
     ...initial,
   } as any;
@@ -144,12 +133,13 @@ const createEmptyNews = (initial: Partial<News> = {}): News => {
     viewScope: normalizeViewScope(merged.viewScope),
     tags: normalizeTags(merged.tags),
     bizId: String(merged.bizId ?? ""),
+    deptId: String(merged.deptId ?? merged.bizId ?? ""),
     brandId: normalizeBrandId(merged.brandId),
     publishAt: merged.publishAt ?? null,
-  } as News;
+  };
 };
 
-/* ========= ✅ 統一ローディング ========= */
+/* ========= UI ========= */
 
 function BusyOverlay({ text }: { text: string }) {
   return (
@@ -236,8 +226,6 @@ function BusyOverlay({ text }: { text: string }) {
   );
 }
 
-/* ========= バッジ ========= */
-
 function ScopeBadge({ scope }: { scope?: ViewScope }) {
   const sc = normalizeViewScope(scope);
   return <span className="kb-scope-badge">{sc === "direct" ? "直営のみ" : "すべて"}</span>;
@@ -268,7 +256,6 @@ export default function AdminNewsPage() {
 
   const busy = loading || saving;
 
-  /** ✅ admin-key（/api/news, /api/news/notify で必須） */
   const getAdminHeaders = useCallback((): HeadersInit => {
     const k = (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
     return k ? { "x-kb-admin-key": k } : {};
@@ -320,7 +307,8 @@ export default function AdminNewsPage() {
         viewScope: normalizeViewScope(n.viewScope),
         createdAt: n.createdAt || "",
         isHidden: !!n.isHidden,
-        bizId: String(n.bizId ?? ""),
+        bizId: String(n.bizId ?? n.deptId ?? ""),
+        deptId: String(n.deptId ?? n.bizId ?? ""),
         brandId: normalizeBrandId(n.brandId),
       }));
 
@@ -351,7 +339,7 @@ export default function AdminNewsPage() {
       const id = (n.newsId || "").toLowerCase().includes(kw);
       const tag = (n.tags || []).some((x) => (x || "").toLowerCase().includes(kw));
       const body = (n.body || "").toLowerCase().includes(kw);
-      const deptName = (deptMap[n.bizId || ""]?.name || "").toLowerCase().includes(kw);
+      const deptName = (deptMap[n.bizId || n.deptId || ""]?.name || "").toLowerCase().includes(kw);
       const brand = (normalizeBrandId(n.brandId) || "").toLowerCase().includes(kw);
       return t || id || tag || body || deptName || brand;
     });
@@ -385,7 +373,11 @@ export default function AdminNewsPage() {
       return;
     }
     if (name === "bizId") {
-      setForm((p) => ({ ...p, bizId: String(value || "") }));
+      setForm((p) => ({
+        ...p,
+        bizId: String(value || ""),
+        deptId: String(value || ""),
+      }));
       return;
     }
     if (name === "brandId") {
@@ -427,6 +419,7 @@ export default function AdminNewsPage() {
     const payload: News = {
       ...form,
       bizId: String(form.bizId ?? ""),
+      deptId: String(form.bizId ?? form.deptId ?? ""),
       brandId: normalizeBrandId(form.brandId),
       tags: finalTags,
       updatedAt: getTodayDate(),
@@ -443,6 +436,7 @@ export default function AdminNewsPage() {
       console.log("[NEWS_SAVE] raw publishAt =", form.publishAt);
       console.log("[NEWS_SAVE] normalizedPublishAt =", normalizedPublishAt);
       console.log("[NEWS_SAVE] isNew =", isNew);
+      console.log("[NEWS_SAVE] payload =", payload);
 
       const res = await fetch("/api/news", {
         method: isNew ? "POST" : "PUT",
@@ -454,14 +448,18 @@ export default function AdminNewsPage() {
       });
 
       const json = await res.json().catch(() => ({}));
+      console.log("[NEWS_SAVE] response =", res.status, json);
+
       if (!res.ok) {
         const msg = json?.detail ? `${json.error}: ${json.detail}` : json?.error || "save failed";
         throw new Error(msg);
       }
 
-      // ✅ publishAt が空（= 即時）のときだけ notify 実行
       if (normalizedPublishAt === null) {
-        console.log("[NEWS_NOTIFY] start immediate notify", { newsId: payload.newsId });
+        console.log("[NEWS_NOTIFY] start immediate notify", {
+          newsId: payload.newsId,
+          payload,
+        });
 
         const notifyRes = await fetch("/api/news/notify?force=1", {
           method: "POST",
@@ -473,13 +471,32 @@ export default function AdminNewsPage() {
         });
 
         const notifyJson = await notifyRes.json().catch(() => ({}));
-        console.log("[NEWS_NOTIFY] response =", notifyRes.status, notifyJson);
+        console.log("[NEWS_NOTIFY] response =", {
+          status: notifyRes.status,
+          ok: notifyRes.ok,
+          body: notifyJson,
+        });
 
         if (!notifyRes.ok) {
           const msg = notifyJson?.detail
             ? `${notifyJson.error}: ${notifyJson.detail}`
             : notifyJson?.error || `notify failed: ${notifyRes.status}`;
           throw new Error(msg);
+        }
+
+        if (notifyJson?.skipped) {
+          throw new Error(`notify skipped: ${notifyJson?.message || "unknown reason"}`);
+        }
+
+        const sentCount =
+          typeof notifyJson?.sentCount === "number"
+            ? notifyJson.sentCount
+            : typeof notifyJson?.count === "number"
+            ? notifyJson.count
+            : null;
+
+        if (sentCount === 0) {
+          throw new Error("通知APIは成功したが、送信対象が0件です");
         }
       } else {
         console.log("[NEWS_NOTIFY] skipped because publishAt exists", normalizedPublishAt);
@@ -532,7 +549,10 @@ export default function AdminNewsPage() {
       {busy && <BusyOverlay text={busyText || "処理中..."} />}
 
       <div className="kb-topbar">
-        <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: 20, textDecoration: "none" }}>
+        <Link
+          href="/admin"
+          style={{ display: "flex", alignItems: "center", gap: 20, textDecoration: "none" }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <img
               src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
@@ -586,7 +606,7 @@ export default function AdminNewsPage() {
             {!loading &&
               filtered.map((n) => {
                 const isSel = selected?.newsId === n.newsId;
-                const deptName = deptMap[n.bizId || ""]?.name || "未設定";
+                const deptName = deptMap[n.bizId || n.deptId || ""]?.name || "未設定";
 
                 return (
                   <div
@@ -603,7 +623,8 @@ export default function AdminNewsPage() {
                       </div>
                     </div>
                     <div className="kb-item-meta">
-                      部署: {deptName} / 更新日: {n.updatedAt || "未設定"} / 公開: {n.startDate || "-"} 〜 {n.endDate || "-"}
+                      部署: {deptName} / 更新日: {n.updatedAt || "未設定"} / 公開: {n.startDate || "-"} 〜{" "}
+                      {n.endDate || "-"}
                     </div>
                   </div>
                 );
@@ -664,7 +685,7 @@ export default function AdminNewsPage() {
                 <select
                   name="bizId"
                   className="kb-admin-select full"
-                  value={form.bizId || ""}
+                  value={form.bizId || form.deptId || ""}
                   onChange={handleChange}
                   disabled={!isEditing || busy}
                 >
@@ -676,7 +697,7 @@ export default function AdminNewsPage() {
                   ))}
                 </select>
                 <div className="kb-subnote full" style={{ marginTop: 6 }}>
-                  ※ お知らせの「配信元」として表示したい部署を設定します
+                  ※ お知らせの配信元部署です。通知APIにも同じ値を deptId として送ります
                 </div>
               </div>
 
@@ -698,7 +719,7 @@ export default function AdminNewsPage() {
                 </div>
 
                 <div className="kb-subnote full" style={{ marginTop: 6 }}>
-                  ※「直営のみ」は <b>直営店舗</b> と <b>本部</b> のみ表示されます（FCは非表示）
+                  ※「直営のみ」は 直営店舗 と 本部 のみ表示されます（FCは非表示）
                 </div>
               </div>
 
@@ -852,7 +873,6 @@ export default function AdminNewsPage() {
         .kb-logout-btn:hover {
           background: #e2e8f0;
         }
-
         .kb-admin-grid-2col {
           display: grid;
           grid-template-columns: 2fr 3fr;
@@ -871,7 +891,6 @@ export default function AdminNewsPage() {
           display: flex;
           flex-direction: column;
         }
-
         .kb-panel-header-row {
           display: flex;
           justify-content: space-between;
@@ -883,19 +902,7 @@ export default function AdminNewsPage() {
           font-weight: 800;
           color: #1e293b;
         }
-        .kb-admin-input {
-          width: 100%;
-          padding: 10px 14px;
-          border: 1px solid #cbd5e1;
-          border-radius: 10px;
-          font-size: 14px;
-          transition: 0.2s;
-        }
-        .kb-admin-input:focus {
-          outline: none;
-          border-color: #3b82f6;
-          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
+        .kb-admin-input,
         .kb-admin-select,
         .kb-admin-textarea {
           width: 100%;
@@ -905,6 +912,13 @@ export default function AdminNewsPage() {
           font-size: 14px;
           background: #fff;
         }
+        .kb-admin-input:focus,
+        .kb-admin-select:focus,
+        .kb-admin-textarea:focus {
+          outline: none;
+          border-color: #3b82f6;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
         .kb-admin-textarea {
           resize: vertical;
           min-height: 120px;
@@ -913,7 +927,6 @@ export default function AdminNewsPage() {
           font-size: 12px;
           color: #94a3b8;
         }
-
         .kb-primary-btn {
           background: #3b82f6;
           color: #fff;
@@ -922,18 +935,10 @@ export default function AdminNewsPage() {
           border: none;
           font-weight: 700;
           cursor: pointer;
-          transition: 0.2s;
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
-        }
-        .kb-primary-btn:hover {
-          background: #2563eb;
-          transform: translateY(-1px);
         }
         .kb-primary-btn:disabled {
           background: #94a3b8;
           cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
         }
         .kb-secondary-btn {
           background: #fff;
@@ -943,11 +948,6 @@ export default function AdminNewsPage() {
           border-radius: 999px;
           font-weight: 700;
           cursor: pointer;
-          transition: 0.2s;
-        }
-        .kb-secondary-btn:hover {
-          background: #f8fafc;
-          border-color: #94a3b8;
         }
         .kb-delete-btn {
           background: #fff1f2;
@@ -957,13 +957,7 @@ export default function AdminNewsPage() {
           border: 1px solid #fecaca;
           font-weight: 700;
           cursor: pointer;
-          transition: 0.2s;
         }
-        .kb-delete-btn:hover {
-          background: #ffe4e6;
-          border-color: #fb7185;
-        }
-
         .kb-scope-badge {
           font-size: 11px;
           font-weight: 800;
@@ -977,7 +971,6 @@ export default function AdminNewsPage() {
           background: rgba(59, 130, 246, 0.1);
           color: #1d4ed8;
         }
-
         .kb-brand-badge {
           font-size: 11px;
           font-weight: 800;
@@ -991,7 +984,6 @@ export default function AdminNewsPage() {
           background: rgba(2, 132, 199, 0.08);
           color: #0369a1;
         }
-
         .kb-list-scroll {
           flex: 1;
           overflow-y: auto;
@@ -1008,12 +1000,10 @@ export default function AdminNewsPage() {
         }
         .kb-item:hover {
           background: #f1f5f9;
-          transform: translateY(-1px);
         }
         .kb-item.selected {
           background: #eff6ff;
           border-color: #3b82f6;
-          box-shadow: 0 4px 12px rgba(59, 130, 246, 0.08);
         }
         .kb-item-title {
           font-size: 14px;
@@ -1021,13 +1011,14 @@ export default function AdminNewsPage() {
           color: #1e293b;
           display: flex;
           align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
         }
         .kb-item-meta {
           font-size: 12px;
           color: #64748b;
           margin-top: 6px;
         }
-
         .kb-form-scroll {
           flex: 1;
           overflow-y: auto;
@@ -1039,34 +1030,32 @@ export default function AdminNewsPage() {
         .kb-admin-form-row.two-col {
           display: grid;
           grid-template-columns: 1fr 1fr;
-          gap: 20px;
+          gap: 14px;
         }
         .kb-admin-label {
+          display: block;
           font-size: 13px;
           font-weight: 700;
-          color: #475569;
+          color: #334155;
           margin-bottom: 8px;
-          display: block;
         }
-
+        .full {
+          width: 100%;
+        }
         .kb-form-actions {
           display: flex;
-          justify-content: flex-end;
-          gap: 12px;
-          margin-top: 24px;
-          padding-top: 18px;
-          border-top: 1px dashed #e2e8f0;
+          gap: 10px;
+          align-items: center;
+          padding-top: 12px;
         }
-
-        ::-webkit-scrollbar {
-          width: 6px;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
-          border-radius: 10px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: #94a3b8;
+        @media (max-width: 1100px) {
+          .kb-admin-grid-2col {
+            grid-template-columns: 1fr;
+          }
+          .kb-admin-card-large {
+            height: auto;
+            min-height: 480px;
+          }
         }
       `}</style>
     </div>
