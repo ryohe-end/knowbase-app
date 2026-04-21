@@ -16,36 +16,38 @@ const LoginPage = () => {
   
   const router = useRouter();
 
-  // 24時間経過チェック
+  // 24時間経過チェック: HttpOnly Cookie は JS で消せないのでサーバーに依頼する
   useEffect(() => {
     const loginTime = localStorage.getItem("kb_login_time");
-    if (loginTime) {
-      const now = new Date().getTime();
-      const twentyFourHours = 24 * 60 * 60 * 1000;
-      if (now - parseInt(loginTime) > twentyFourHours) {
-        localStorage.removeItem("kb_login_time");
-        document.cookie = "kb_user=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        document.cookie = "kb_admin=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      }
+    if (!loginTime) return;
+    const now = new Date().getTime();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+    if (now - parseInt(loginTime) > twentyFourHours) {
+      localStorage.removeItem("kb_login_time");
+      fetch("/api/logout", { method: "POST", credentials: "include" }).catch(() => {});
     }
   }, []);
 
   /**
-   * クッキー設定ヘルパー
+   * 認証 Cookie はサーバー (/api/login) が HttpOnly + HMAC 署名付きで発行する。
+   * クライアント側での書き換えはしない (上書きすると middleware の署名検証が失敗する)。
+   * localStorage は 24 時間タイマー用のフラグだけに使う。
    */
-  const setAuthSession = (emailValue: string, isAdmin: boolean) => {
-    document.cookie = `kb_user=${emailValue}; path=/; samesite=lax; secure`;
-    if (isAdmin) {
-      document.cookie = `kb_admin=1; path=/; samesite=lax; secure`;
-    }
+  const markLoggedIn = () => {
     localStorage.setItem("kb_login_time", new Date().getTime().toString());
   };
 
   async function handleSkipLogin() {
     setIsSkipping(true);
     setError("");
-    setAuthSession("admin@example.com", true);
-    router.push('/');
+    try {
+      await fetch("/api/dev-skip", { method: "POST", credentials: "include" });
+      markLoggedIn();
+      router.push("/");
+    } catch {
+      setError("開発用スキップに失敗しました");
+      setIsSkipping(false);
+    }
   }
 
   async function handleLogin(e: React.FormEvent) {
@@ -59,13 +61,14 @@ const LoginPage = () => {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email, pass }),
       });
 
       const json = await res.json();
 
       if (json.ok) {
-        setAuthSession(json.user.email, json.user.role === "admin");
+        markLoggedIn();
         router.push("/");
       } else {
         setError(json.error || "ログインに失敗しました");
@@ -96,13 +99,14 @@ const LoginPage = () => {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ email: userEmail }),
       });
 
       const json = await res.json();
 
       if (json.ok) {
-        setAuthSession(json.user.email, json.user.role === "admin");
+        markLoggedIn();
         router.push("/");
       } else {
         setError(json.error || "このメールアドレスでのログインは許可されていません。");
