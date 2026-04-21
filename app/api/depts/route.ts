@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient, ScanCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
 import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
+import { isAdminRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -10,16 +11,6 @@ const client = new DynamoDBClient({
 });
 
 const TABLE_NAME = process.env.DYNAMO_DEPTS_TABLE || "yamauchi-Depts";
-
-/**
- * ✅ 管理者判定（フロントから送られてくる合言葉をチェック）
- */
-function isAdminRequest(req: Request) {
-  const KB_ADMIN_API_KEY = (process.env.KB_ADMIN_API_KEY || "").trim();
-  if (!KB_ADMIN_API_KEY) return false;
-  const key = (req.headers.get("x-kb-admin-key") || "").trim();
-  return key && key === KB_ADMIN_API_KEY;
-}
 
 /**
  * ✅ GET: 部署一覧の取得
@@ -33,19 +24,12 @@ export async function GET() {
     const result = await client.send(command);
     const depts = (result.Items || []).map((item) => unmarshall(item));
 
-    // ソート順（sortOrder）がある場合は並び替え
     depts.sort((a, b) => (a.sortOrder || 999) - (b.sortOrder || 999));
 
     return NextResponse.json({ depts });
-  } catch (err: any) {
-    console.error("Failed to fetch depts:", err);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch depts",
-        detail: err?.message ?? String(err),
-      },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Failed to fetch depts:", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to fetch depts" }, { status: 500 });
   }
 }
 
@@ -54,12 +38,8 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
-    // 1. 管理者合言葉のチェック
-    if (!isAdminRequest(req)) {
-      return NextResponse.json(
-        { error: "Forbidden: admin key required" },
-        { status: 403 }
-      );
+    if (!(await isAdminRequest(req))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     // 2. リクエストボディの解析
@@ -91,14 +71,8 @@ export async function POST(req: Request) {
     );
 
     return NextResponse.json({ ok: true, deptId });
-  } catch (err: any) {
-    console.error("Failed to save dept:", err);
-    return NextResponse.json(
-      {
-        error: "Failed to save dept",
-        detail: err?.message ?? String(err),
-      },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Failed to save dept:", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to save dept" }, { status: 500 });
   }
 }

@@ -83,10 +83,7 @@ function PasswordPageContent() {
     try {
       const res = await fetch("/api/account/password", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ currentPassword, newPassword, newPassword2 }),
       });
@@ -104,9 +101,6 @@ function PasswordPageContent() {
 
       const meRes = await fetch("/api/me", {
         cache: "no-store",
-        headers: {
-          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "",
-        },
         credentials: "include",
       });
 

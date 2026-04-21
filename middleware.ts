@@ -1,34 +1,34 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { readVerifiedSession } from "@/lib/auth";
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const url = req.nextUrl.clone();
   const path = req.nextUrl.pathname;
 
-  // ✅ API は middleware で触らない
+  // APIは各ルートで認可する
   if (path.startsWith("/api")) {
     return NextResponse.next();
   }
 
-  // Cookie
-  const user = req.cookies.get("kb_user")?.value;
-  const isAdmin = req.cookies.get("kb_admin")?.value === "1";
-
-  // ✅ 修正ポイント：ここを "/login/forgot-password" も許可するように書き換えます
   const publicPaths = ["/login", "/login/forgot-password"];
-
   if (publicPaths.includes(path)) {
     return NextResponse.next();
   }
 
-  // 未ログイン → /login へ
-  if (!user) {
+  const session = await readVerifiedSession({
+    get: (n) => {
+      const c = req.cookies.get(n);
+      return c ? { value: c.value } : undefined;
+    },
+  });
+
+  if (!session) {
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // /admin は admin のみ
-  if (path.startsWith("/admin") && !isAdmin) {
+  if (path.startsWith("/admin") && !session.isAdmin) {
     url.pathname = "/";
     return NextResponse.redirect(url);
   }

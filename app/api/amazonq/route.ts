@@ -2,6 +2,7 @@
 import { QBusinessClient, ChatCommand } from "@aws-sdk/client-qbusiness";
 import fs from "node:fs";
 import path from "node:path";
+import { verifySignedValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,22 +69,20 @@ function mustEnv(name: string, runtimeEnv: Record<string, string>): string {
 }
 
 /* =========================
-   userId の抽出
+   userId の抽出（署名済み kb_user Cookie を検証して email を返す）
 ========================= */
-function pickUserId(req: Request): string | undefined {
-  const h = req.headers.get("x-kb-user");
-  if (h) return h.slice(0, 128);
-
+async function pickUserId(req: Request): Promise<string | undefined> {
   const cookie = req.headers.get("cookie") || "";
   const m = cookie.match(/(?:^|;\s*)kb_user=([^;]+)/);
-  if (m?.[1]) {
-    try {
-      return decodeURIComponent(m[1]).slice(0, 128);
-    } catch {
-      return m[1].slice(0, 128);
-    }
+  if (!m?.[1]) return undefined;
+  let raw = m[1];
+  try {
+    raw = decodeURIComponent(raw);
+  } catch {
+    /* ignore */
   }
-  return undefined;
+  const verified = await verifySignedValue(raw);
+  return verified ? verified.slice(0, 128) : undefined;
 }
 
 function isAnonymousUserIdValidation(err: any): boolean {
@@ -254,7 +253,7 @@ export async function POST(req: Request) {
           const qRegion = getEnv("QBUSINESS_REGION", runtimeEnv) || awsRegion;
 
           const client = getClient(qRegion);
-          const userId = pickUserId(req);
+          const userId = await pickUserId(req);
 
           const sendChatStream = async (opts: { includeUserId: boolean }) => {
             const input: any = {

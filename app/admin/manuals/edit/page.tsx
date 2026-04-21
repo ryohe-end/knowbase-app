@@ -120,10 +120,8 @@ export default function ManualEditLanding() {
 
       const res = await fetch("/api/manuals", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
-        },
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
 
@@ -158,11 +156,8 @@ export default function ManualEditLanding() {
       if (fileId) {
         const res = await fetch("/api/drive/trash", {
           method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            // ✅ ここにも追加しておくと確実です
-            "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
-          },
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
           body: JSON.stringify({ fileId }),
         });
         const json = await res.json().catch(() => ({} as any));

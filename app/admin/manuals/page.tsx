@@ -248,11 +248,8 @@ export default function AdminManuals() {
 
   const busy = loading || saving || copying;
 
-  /** ✅ 管理画面用：admin-key を毎回付ける */
-  const getAdminHeaders = useCallback((): HeadersInit => {
-    const adminKey = (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
-    return adminKey ? { "x-kb-admin-key": adminKey } : {};
-  }, []);
+  /** 管理画面用：認可は HttpOnly Cookie で行う（fetch に credentials: "include" を付ける） */
+  const getAdminHeaders = useCallback((): HeadersInit => ({}), []);
 
   const loadAllData = useCallback(async () => {
     setLoading(true);

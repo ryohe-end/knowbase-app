@@ -67,7 +67,6 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    console.log("[API] POST /store-settings/basic - Received data:", body);
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
     const updatedConfig = {
@@ -77,8 +76,7 @@ export async function POST(req: Request) {
     };
 
     return NextResponse.json({ ok: true, config: updatedConfig });
-  } catch (e: any) {
-    console.error(e);
+  } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 }

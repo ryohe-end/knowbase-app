@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
+import { verifySignedValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,9 +17,9 @@ const TABLE = "yamauchi-LoginLogs";
 export async function POST() {
   try {
     const c = await cookies();
-
-    // ✅ kb_uid を優先（なければ旧 kb_user も一応見る）
-    const userId = c.get("kb_uid")?.value || c.get("kb_user")?.value;
+    const userId =
+      (await verifySignedValue(c.get("kb_uid")?.value)) ||
+      (await verifySignedValue(c.get("kb_user")?.value));
     if (!userId) {
       return NextResponse.json({ ok: false, error: "NOT_LOGGED_IN" }, { status: 401 });
     }
@@ -35,8 +36,8 @@ export async function POST() {
     );
 
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    console.error("LoginLog error:", e);
-    return NextResponse.json({ ok: false, error: e?.message || "FAILED" }, { status: 500 });
+  } catch (e) {
+    console.error("LoginLog error:", (e as Error)?.name);
+    return NextResponse.json({ ok: false, error: "FAILED" }, { status: 500 });
   }
 }

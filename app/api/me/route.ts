@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { signValue, verifySignedValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,8 @@ function normalizeStringArray(raw: any): string[] {
 
 export async function GET() {
   const cookieStore = await cookies();
-  const email = (cookieStore.get("kb_user")?.value ?? "").trim();
+  const rawUser = cookieStore.get("kb_user")?.value ?? "";
+  const email = (await verifySignedValue(rawUser)) ?? "";
 
   if (!email) {
     return NextResponse.json({ ok: false, error: "Not logged in" }, { status: 401 });
@@ -100,12 +102,16 @@ export async function GET() {
       },
     });
 
-    res.cookies.set("kb_user", String(user.email ?? email).trim(), cookieOptions());
-    res.cookies.set("kb_userid", String(user.userId ?? "").trim(), cookieOptions());
+    const freshEmail = String(user.email ?? email).trim();
+    const freshUid = String(user.userId ?? "").trim();
+    res.cookies.set("kb_user", await signValue(freshEmail), cookieOptions());
+    if (freshUid) {
+      res.cookies.set("kb_uid", await signValue(freshUid), cookieOptions());
+    }
 
     return res;
-  } catch (error: any) {
-    console.error("API Me Error:", error?.name, error?.message);
+  } catch (error) {
+    console.error("API Me Error:", (error as Error)?.name);
     return NextResponse.json({ ok: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

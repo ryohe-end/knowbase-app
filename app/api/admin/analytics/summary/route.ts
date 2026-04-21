@@ -17,6 +17,7 @@ const docClient = DynamoDBDocumentClient.from(ddbClient);
 // === Table Names (必要なら env 化してください) ===
 const USERS_TABLE = "yamauchi-Users";
 const MANUALS_TABLE = "yamauchi-Manuals";
+const NEWS_TABLE = process.env.NEWS_TABLE_NAME || "yamauchi-News";
 const SEARCH_LOGS_TABLE = "yamauchi-SearchLogs";
 const MANUAL_VIEW_LOGS_TABLE = "yamauchi-ManualViewLogs";
 const NEWS_VIEW_LOGS_TABLE = "yamauchi-NewsViewLogs";
@@ -190,10 +191,19 @@ export async function GET(req: Request) {
     const totalManualViews = allManuals.reduce((sum, m) => sum + (m.views || 0), 0);
 
     // 6) お知らせ閲覧（NewsViewLogs）
-    // newsId / newsTitle / viewedAt を想定。titleが無ければ newsId を表示
-    const newsViewLogs = await scanAll(NEWS_VIEW_LOGS_TABLE);
+    // newsId で集計し、表示タイトルは News テーブルから解決する。
+    const [newsViewLogs, newsItems] = await Promise.all([
+      scanAll(NEWS_VIEW_LOGS_TABLE),
+      scanAll(NEWS_TABLE).catch(() => [] as any[]),
+    ]);
 
-    // 集計：newsKey(title or id) -> {views, viewers[]}
+    const newsTitleMap = new Map<string, string>();
+    for (const n of newsItems) {
+      const id = String(n.newsId ?? n.news_id ?? "").trim();
+      const title = String(n.title ?? n.newsTitle ?? "").trim();
+      if (id && title) newsTitleMap.set(id, title);
+    }
+
     const newsAgg = new Map<
       string,
       { title: string; views: number; viewers: { name: string; email: string; viewedAt: string }[] }
@@ -206,10 +216,13 @@ export async function GET(req: Request) {
         if (atMs < startMs) continue;
       }
 
-      const title = String(item.title ?? item.newsTitle ?? item.news_title ?? "").trim();
-      const newsId = String(item.newsId ?? item.news_id ?? "");
-      const key = title || newsId;
+      const newsId = String(item.newsId ?? item.news_id ?? "").trim();
+      const logTitle = String(item.title ?? item.newsTitle ?? item.news_title ?? "").trim();
+      const key = newsId || logTitle;
       if (!key) continue;
+
+      const displayTitle =
+        (newsId && newsTitleMap.get(newsId)) || logTitle || newsId || "(タイトル不明)";
 
       const uid = String(item.userId ?? item.uid ?? "");
       const u = uid ? userMap.get(uid) : null;
@@ -222,10 +235,12 @@ export async function GET(req: Request) {
 
       const cur = newsAgg.get(key);
       if (!cur) {
-        newsAgg.set(key, { title: title || key, views: 1, viewers: [viewer] });
+        newsAgg.set(key, { title: displayTitle, views: 1, viewers: [viewer] });
       } else {
         cur.views += 1;
         cur.viewers.push(viewer);
+        // News テーブル解決できた場合は最新の title で上書き
+        if (newsId && newsTitleMap.has(newsId)) cur.title = newsTitleMap.get(newsId)!;
       }
     }
 
@@ -234,7 +249,6 @@ export async function GET(req: Request) {
       .map((n) => ({
         title: n.title,
         views: n.views,
-        // 表示が重い場合は slice(0, 200) とかで制限してもOK
         viewers: n.viewers.sort((a, b) => safeDateMs(b.viewedAt) - safeDateMs(a.viewedAt)),
       }));
 

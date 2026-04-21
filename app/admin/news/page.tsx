@@ -256,10 +256,7 @@ export default function AdminNewsPage() {
 
   const busy = loading || saving;
 
-  const getAdminHeaders = useCallback((): HeadersInit => {
-    const k = (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
-    return k ? { "x-kb-admin-key": k } : {};
-  }, []);
+  const getAdminHeaders = useCallback((): HeadersInit => ({}), []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);

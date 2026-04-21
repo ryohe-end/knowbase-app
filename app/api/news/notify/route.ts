@@ -8,6 +8,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
+import { isAdminRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,41 +23,14 @@ const FRANCHISE_GROUP_ID = "g002";
 const ddb = new DynamoDBClient({ region });
 const doc = DynamoDBDocumentClient.from(ddb);
 
-/* ========= 認証 ========= */
-function requireAdmin(req: Request) {
-  const url = new URL(req.url);
-  const headerKey = (req.headers.get("x-kb-admin-key") || "").trim();
-  const queryToken = (url.searchParams.get("token") || "").trim();
-
-  const serverKey =
-    (process.env.KB_ADMIN_API_KEY || "").trim() ||
-    (process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || "").trim();
-
-  if (!serverKey) {
-    console.error("[NOTIFY_AUTH_ERROR] Missing server env: KB_ADMIN_API_KEY");
-    return {
-      ok: false as const,
-      res: NextResponse.json(
-        { error: "Forbidden", detail: "Missing server env: KB_ADMIN_API_KEY" },
-        { status: 403 }
-      ),
-    };
-  }
-
-  if (
-    (headerKey && headerKey === serverKey) ||
-    (queryToken && queryToken === serverKey)
-  ) {
-    return { ok: true as const };
-  }
-
-  console.error("[NOTIFY_AUTH_ERROR] Invalid admin key or token");
+/* ========= 認証 =========
+ * 共通 isAdminRequest に委譲。署名 Cookie / x-kb-admin-key / ?token= のどれかを受け付ける。
+ */
+async function requireAdmin(req: Request) {
+  if (await isAdminRequest(req)) return { ok: true as const };
   return {
     ok: false as const,
-    res: NextResponse.json(
-      { error: "Forbidden", detail: "Invalid admin key or token" },
-      { status: 403 }
-    ),
+    res: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
   };
 }
 
@@ -190,9 +164,9 @@ const targetUsers = activeUsers.filter((user) => {
     franchiseTargets.length > 0 &&
     isValidEmail(FRANCHISE_ROUTING_EMAIL);
 
-  console.log("[NOTIFY_DEBUG] processNotification:start", {
+  // PII (recipient emails) を本番ログに残さない。件数のみ記録する。
+  console.log("[NOTIFY] processNotification:start", {
     newsId: news.newsId,
-    title: news.title,
     viewScope,
     brandId,
     targetGroupIds,
@@ -202,19 +176,14 @@ const targetUsers = activeUsers.filter((user) => {
     franchiseTargets: franchiseTargets.length,
     nonFranchiseTargets: nonFranchiseTargets.length,
     toNonFranchiseCount: toNonFranchise.length,
-    toNonFranchise,
     sendFranchiseRouting,
-    franchiseRoutingEmail: FRANCHISE_ROUTING_EMAIL,
-    fromEmail: from,
-    publishAt: news.publishAt ?? null,
     isHidden: !!news.isHidden || !!news.is_hidden,
     isNotified: !!news.isNotified,
   });
 
   if (toNonFranchise.length === 0 && !sendFranchiseRouting) {
-    console.warn("[NOTIFY_DEBUG] no recipients matched", {
+    console.warn("[NOTIFY] no recipients matched", {
       newsId: news.newsId,
-      title: news.title,
       brandId,
       targetGroupIds,
     });
@@ -258,9 +227,8 @@ const targetUsers = activeUsers.filter((user) => {
 
   try {
     if (toNonFranchise.length > 0) {
-      console.log("[NOTIFY_DEBUG] sendMultiple:before", {
+      console.log("[NOTIFY] sendMultiple", {
         newsId: news.newsId,
-        recipients: toNonFranchise,
         count: toNonFranchise.length,
       });
 
@@ -279,10 +247,7 @@ const targetUsers = activeUsers.filter((user) => {
     }
 
     if (sendFranchiseRouting) {
-      console.log("[NOTIFY_DEBUG] sendFranchiseRouting:before", {
-        newsId: news.newsId,
-        to: FRANCHISE_ROUTING_EMAIL,
-      });
+      console.log("[NOTIFY] sendFranchiseRouting", { newsId: news.newsId });
 
       const res = await sgMail.send({
         to: FRANCHISE_ROUTING_EMAIL,
@@ -348,7 +313,7 @@ const targetUsers = activeUsers.filter((user) => {
  * - publishAt が過去、または未設定なら送る
  */
 export async function GET(req: Request) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.res;
 
   try {
@@ -455,7 +420,7 @@ export async function GET(req: Request) {
  * - publishAt が過去、または未設定なら送る
  */
 export async function POST(req: Request) {
-  const auth = requireAdmin(req);
+  const auth = await requireAdmin(req);
   if (!auth.ok) return auth.res;
 
   const url = new URL(req.url);

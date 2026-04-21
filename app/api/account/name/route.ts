@@ -6,6 +6,7 @@ import {
   PutCommand,
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { verifySignedValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,9 +32,10 @@ const TABLE_NAME = "yamauchi-Users";
 const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-function getCurrentUserEmail(req: NextRequest) {
-  const email = req.cookies.get("kb_user")?.value ?? "";
-  return email.trim();
+async function getCurrentUserEmail(req: NextRequest): Promise<string> {
+  const raw = req.cookies.get("kb_user")?.value;
+  const email = await verifySignedValue(raw);
+  return (email ?? "").trim();
 }
 
 // email -> user を取得（※ email がキーじゃない前提なので scan）
@@ -57,7 +59,7 @@ function normalizeName(name: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const email = getCurrentUserEmail(req);
+    const email = await getCurrentUserEmail(req);
     if (!email) {
       return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
     }
@@ -103,15 +105,8 @@ export async function POST(req: NextRequest) {
     delete responseUser.passwordHash;
 
     return NextResponse.json({ ok: true, user: responseUser });
-  } catch (err: any) {
-    console.error("POST /api/account/name error:", {
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack,
-    });
-    return NextResponse.json(
-      { error: "Failed to update name", detail: err?.message },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("POST /api/account/name error:", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to update name" }, { status: 500 });
   }
 }

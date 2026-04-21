@@ -10,6 +10,8 @@ import {
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
+import { hashPassword, validateNewPassword } from "@/lib/password";
+import { verifySignedValue } from "@/lib/auth";
 
 export type KbUserRole = "admin" | "editor" | "viewer";
 
@@ -36,20 +38,24 @@ const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
 /**
- * ★ パスワードハッシュ生成（モック）
- * 本番では bcrypt.hash に置き換える
- */
-const mockHash = (password: string): string => `hashed_${password}`;
-
-/**
- * ✅ 一時パスワード自動生成
- * - 記号が嫌なら chars から消してOK
+ * 一時パスワード自動生成（英字+数字を少なくとも1文字ずつ含む）
  */
 function generateTempPassword(len = 12) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  let out = "";
-  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
-  return out;
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%";
+  const all = letters + digits + symbols;
+  const picks: string[] = [
+    letters[Math.floor(Math.random() * letters.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+  ];
+  for (let i = picks.length; i < len; i++) picks.push(all[Math.floor(Math.random() * all.length)]);
+  // shuffle
+  for (let i = picks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [picks[i], picks[j]] = [picks[j], picks[i]];
+  }
+  return picks.join("");
 }
 
 /**
@@ -176,7 +182,7 @@ export async function GET() {
       new ScanCommand({
         TableName: TABLE_NAME,
         ProjectionExpression:
-           "userId, #n, email, #r, brandIds, deptIds, groupIds, isActive, mustChangePassword, createdAt, updatedAt",
+           "userId, #n, email, #r, brandIds, deptIds, groupIds, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
@@ -188,16 +194,9 @@ export async function GET() {
     users.sort((a, b) => a.userId.localeCompare(b.userId));
 
     return NextResponse.json({ users });
-  } catch (err: any) {
-    console.error("GET /api/users error:", {
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack,
-    });
-    return NextResponse.json(
-      { error: "Failed to fetch users", detail: err?.message },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("GET /api/users error:", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to fetch users" }, { status: 500 });
   }
 }
 
@@ -271,7 +270,7 @@ export async function POST(req: NextRequest) {
         const putItem: KbUser = {
           ...existing,
           updatedAt: now,
-          passwordHash: mockHash(temp),
+          passwordHash: hashPassword(temp),
           mustChangePassword: true,
         };
 
@@ -304,7 +303,8 @@ export async function POST(req: NextRequest) {
 
     // --- UPDATE-PASSWORD (一般ユーザー自らの変更) ---
     if (mode === "update-password") {
-      const currentUserEmail = req.cookies.get("kb_user")?.value;
+      const rawCookie = req.cookies.get("kb_user")?.value;
+      const currentUserEmail = await verifySignedValue(rawCookie);
       if (!currentUserEmail) return NextResponse.json({ error: "認証が必要です" }, { status: 401 });
 
       if (!user.userId) return NextResponse.json({ error: "userIdが必要です" }, { status: 400 });
@@ -319,8 +319,9 @@ export async function POST(req: NextRequest) {
       }
 
       const newPass = body.newPassword;
-      if (!newPass || newPass.length < 4) {
-        return NextResponse.json({ error: "パスワードは4文字以上で入力してください" }, { status: 400 });
+      const pwError = validateNewPassword(newPass);
+      if (pwError) {
+        return NextResponse.json({ error: pwError }, { status: 400 });
       }
 
       await docClient.send(
@@ -328,7 +329,8 @@ export async function POST(req: NextRequest) {
           TableName: TABLE_NAME,
           Item: {
             ...existing,
-            passwordHash: mockHash(newPass),
+            passwordHash: hashPassword(newPass),
+            mustChangePassword: false,
             updatedAt: new Date().toISOString(),
           },
         })
@@ -363,8 +365,7 @@ export async function POST(req: NextRequest) {
 
     if (shouldIssuePassword) {
       plainTempPassword = generateTempPassword(12);
-      passwordHashToSave = mockHash(plainTempPassword);
-      console.log(`[Users API] Temp password issued for ${user.userId}`);
+      passwordHashToSave = hashPassword(plainTempPassword);
     }
 
    const mustChangePassword =
@@ -418,15 +419,8 @@ const putItem: KbUser = {
     delete responseUser.passwordHash;
 
     return NextResponse.json({ ok: true, user: responseUser });
-  } catch (err: any) {
-    console.error("POST /api/users error:", {
-      name: err?.name,
-      message: err?.message,
-      stack: err?.stack,
-    });
-    return NextResponse.json(
-      { error: "Failed to save user", detail: err?.message, name: err?.name },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("POST /api/users error:", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to save user" }, { status: 500 });
   }
 }

@@ -13,6 +13,7 @@ type UserData = {
   email: string;
   isActive: boolean;
   lastLoginAt?: string;
+  createdAt?: string;
 };
 
 // 掘り下げ用の詳細データ型
@@ -119,6 +120,8 @@ export default function AnalyticsPage() {
     }
   };
 
+  // yamauchi-Users.lastLoginAt を基準に休眠判定。
+  // lastLoginAt が null/未設定（＝一度もログインしていない）のアクティブユーザーも休眠に含める。
   const dormantUsers = users.filter(
     (u) => u.isActive && (!u.lastLoginAt || !isWithinDays(u.lastLoginAt, 90))
   );

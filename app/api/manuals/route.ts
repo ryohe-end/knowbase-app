@@ -6,6 +6,7 @@ import {
   PutCommand,
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { isAdminRequest as checkAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -184,11 +185,9 @@ function parseGroupIds(req: Request): { primary?: string; all: string[] } {
   return { primary: all[0], all };
 }
 
-/** 管理者判定（管理画面はこれを必ず付ける運用にする） */
-function isAdminRequest(req: Request) {
-  if (!KB_ADMIN_API_KEY) return false;
-  const key = (req.headers.get("x-kb-admin-key") || "").trim();
-  return !!key && key === KB_ADMIN_API_KEY;
+/** 管理者判定（共通 auth lib に委譲） */
+async function isAdminRequest(req: Request): Promise<boolean> {
+  return checkAdmin(req);
 }
 
 /** 公開期間内かどうか（onlyActive=1 で使う） */
@@ -345,7 +344,7 @@ function buildDbItem(input: any): any {
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
-    const isAdmin = isAdminRequest(req);
+    const isAdmin = await isAdminRequest(req);
 
     const debug = url.searchParams.get("debug") === "1";
 
@@ -460,11 +459,8 @@ export async function GET(req: Request) {
 /** POST: /api/manuals 新規登録（管理画面想定） */
 export async function POST(req: Request) {
   try {
-    if (!isAdminRequest(req)) {
-      return Response.json(
-        { error: "Forbidden: admin key required" },
-        { status: 403 }
-      );
+    if (!(await isAdminRequest(req))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json();
@@ -486,26 +482,17 @@ export async function POST(req: Request) {
     );
 
     return Response.json({ ok: true, manualId: item.manualId });
-  } catch (error: any) {
-    console.error("POST /api/manuals error", error);
-    return Response.json(
-      {
-        error: "Failed to create manual",
-        detail: error?.message || String(error),
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("POST /api/manuals error", (error as Error)?.name);
+    return Response.json({ error: "Failed to create manual" }, { status: 500 });
   }
 }
 
 /** PUT: /api/manuals 更新（管理画面想定） */
 export async function PUT(req: Request) {
   try {
-    if (!isAdminRequest(req)) {
-      return Response.json(
-        { error: "Forbidden: admin key required" },
-        { status: 403 }
-      );
+    if (!(await isAdminRequest(req))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const body = await req.json();
@@ -527,26 +514,17 @@ export async function PUT(req: Request) {
     );
 
     return Response.json({ ok: true, manualId: item.manualId });
-  } catch (error: any) {
-    console.error("PUT /api/manuals error", error);
-    return Response.json(
-      {
-        error: "Failed to update manual",
-        detail: error?.message || String(error),
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("PUT /api/manuals error", (error as Error)?.name);
+    return Response.json({ error: "Failed to update manual" }, { status: 500 });
   }
 }
 
 /** DELETE: /api/manuals?manualId=xxxx（管理画面想定） */
 export async function DELETE(req: Request) {
   try {
-    if (!isAdminRequest(req)) {
-      return Response.json(
-        { error: "Forbidden: admin key required" },
-        { status: 403 }
-      );
+    if (!(await isAdminRequest(req))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -567,15 +545,9 @@ export async function DELETE(req: Request) {
     );
 
     return Response.json({ ok: true });
-  } catch (error: any) {
-    console.error("DELETE /api/manuals error", error);
-    return Response.json(
-      {
-        error: "Failed to delete manual",
-        detail: error?.message || String(error),
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("DELETE /api/manuals error", (error as Error)?.name);
+    return Response.json({ error: "Failed to delete manual" }, { status: 500 });
   }
 }
 

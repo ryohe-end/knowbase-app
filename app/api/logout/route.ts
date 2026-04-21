@@ -7,9 +7,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST() {
   const cookieStore = await cookies();
-
   cookieStore.delete("kb_user");
+  cookieStore.delete("kb_uid");
   cookieStore.delete("kb_admin");
-
   return NextResponse.json({ ok: true });
 }

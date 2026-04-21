@@ -21,16 +21,16 @@ export default function MailTextEditPage() {
     mail_normal_body: `$name$ 様\n\n入会番号：$book$\n受付番号: $member$\n\nこの度はFIT365旭川アモールにご入会いただきまして誠にありがとうございました。\n皆様の快適生活をサポートさせていただくことが出来るよう\nスタッフ一同鋭意努力して参りますので今後とも何卒よろしくお願い致します。\n\n$name$ 様のお支払い内容は以下の通りです。\n\nお支払い内容\n$bill$`,
   });
 
-  // プレビュー生成用ヘルパー
-  const generatePreview = (text: string) => {
+  // プレビュー生成用ヘルパー（変数置換のみ。改行は CSS の white-space: pre-wrap に任せるので
+  // HTML 化しない。XSS 対策として dangerouslySetInnerHTML は使わない）
+  const generatePreview = (text: string): string => {
     return text
       .replace(/\$name\$/g, '鈴木 太郎')
       .replace(/\$book\$/g, '12345678')
       .replace(/\$member\$/g, 'M-000123')
       .replace(/\$start_dt\$/g, '2026/04/01')
       .replace(/\$bill\$/g, '----------------------------------\nカード発行料: 5,500円\n月会費: 3,278円\n----------------------------------')
-      .replace(/\$activate_url\$/g, 'http://fit365.jp/activate')
-      .replace(/\n/g, '<br/>');
+      .replace(/\$activate_url\$/g, 'http://fit365.jp/activate');
   };
 
   const handleChange = (key: string, value: string) => {
@@ -155,9 +155,9 @@ export default function MailTextEditPage() {
                     <span className="label">件名:</span>
                     <span className="value">{texts.mail_normal_subject}</span>
                   </div>
-                  <div className="preview-content" 
-                    dangerouslySetInnerHTML={{ __html: generatePreview(texts.mail_normal_body) }} 
-                  />
+                  <div className="preview-content">
+                    {generatePreview(texts.mail_normal_body)}
+                  </div>
                 </div>
               ) : (
                 <div className="web-preview-card">
@@ -165,9 +165,9 @@ export default function MailTextEditPage() {
                     <div className="browser-bar">
                       <div className="dots"><span></span><span></span><span></span></div>
                     </div>
-                    <div className="browser-content"
-                      dangerouslySetInnerHTML={{ __html: generatePreview(texts.complete_normal) }}
-                    />
+                    <div className="browser-content">
+                      {generatePreview(texts.complete_normal)}
+                    </div>
                   </div>
                 </div>
               )}
@@ -247,7 +247,7 @@ export default function MailTextEditPage() {
         .dots span:nth-child(1) { background: #ef4444; }
         .dots span:nth-child(2) { background: #f59e0b; }
         .dots span:nth-child(3) { background: #10b981; }
-        .browser-content { padding: 20px; font-size: 13px; line-height: 1.6; color: #334155; }
+        .browser-content { padding: 20px; font-size: 13px; line-height: 1.6; color: #334155; white-space: pre-wrap; }
 
         .refresh-preview { background: transparent; border: none; color: #94a3b8; cursor: pointer; transition: 0.2s; }
         .refresh-preview:hover { color: #3b82f6; transform: rotate(180deg); }

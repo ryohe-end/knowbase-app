@@ -13,3 +13,10 @@ keys/
 *.pfx
 .env
 .env.local
+
+# data / PII
+*.csv
+
+# tooling / local
+tsconfig.tsbuildinfo
+.claude/

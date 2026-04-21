@@ -8,6 +8,7 @@ import {
   DeleteCommand,
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { isAdminRequest as checkAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,24 +29,15 @@ const doc = DynamoDBDocumentClient.from(ddb);
 
 /** =========================
  * Admin-Key Guard (for write / admin read)
+ * 共通ヘルパーに統合済み。署名済み Cookie か x-kb-admin-key を受け入れる。
  * ========================= */
-function isAdminRequest(req: NextRequest): boolean {
-  const expected = (process.env.KB_ADMIN_API_KEY || "").trim();
-  if (!expected) return true; // 開発用：未設定なら admin 扱い（ガードなし）
-  const got = (req.headers.get("x-kb-admin-key") || "").trim();
-  return !!got && got === expected;
+async function isAdminRequest(req: NextRequest): Promise<boolean> {
+  return checkAdmin(req);
 }
 
-function requireAdmin(req: NextRequest) {
-  if (isAdminRequest(req)) return null;
-  return NextResponse.json(
-    {
-      error: "Forbidden",
-      detail:
-        "x-kb-admin-key が不正、または KB_ADMIN_API_KEY が未設定/不一致です",
-    },
-    { status: 403 }
-  );
+async function requireAdmin(req: NextRequest) {
+  if (await isAdminRequest(req)) return null;
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 }
 
 /** =========================
@@ -339,14 +331,14 @@ export async function GET(req: NextRequest) {
 
     // ✅ 重要：一般画面が onlyActive を付け忘れても「adminじゃなければ一般扱い」に落とす
     const qsOnlyActive = url.searchParams.get("onlyActive") === "true";
-    const admin = isAdminRequest(req);
+    const admin = await isAdminRequest(req);
     const onlyActive = qsOnlyActive || !admin;
 
     const debug = url.searchParams.get("debug") === "true";
 
     // admin で onlyActive=false のときのみ admin guard
     if (!onlyActive) {
-      const forbidden = requireAdmin(req);
+      const forbidden = await requireAdmin(req);
       if (forbidden) return forbidden;
     }
 
@@ -412,7 +404,7 @@ export async function GET(req: NextRequest) {
  * POST（新規作成）
  * ========================= */
 export async function POST(req: NextRequest) {
-  const forbidden = requireAdmin(req);
+  const forbidden = await requireAdmin(req);
   if (forbidden) return forbidden;
 
   try {
@@ -434,12 +426,9 @@ export async function POST(req: NextRequest) {
     );
 
     return NextResponse.json({ news: toApiNews(dbItem) }, { status: 201 });
-  } catch (err: any) {
-    console.error("[api/news POST] error", err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to create news" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("[api/news POST] error", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to create news" }, { status: 500 });
   }
 }
 
@@ -447,7 +436,7 @@ export async function POST(req: NextRequest) {
  * PUT（更新）
  * ========================= */
 export async function PUT(req: NextRequest) {
-  const forbidden = requireAdmin(req);
+  const forbidden = await requireAdmin(req);
   if (forbidden) return forbidden;
 
   try {
@@ -492,12 +481,9 @@ export async function PUT(req: NextRequest) {
     );
 
     return NextResponse.json({ news: toApiNews(dbItem) }, { status: 200 });
-  } catch (err: any) {
-    console.error("[api/news PUT] error", err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to update news" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("[api/news PUT] error", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to update news" }, { status: 500 });
   }
 }
 
@@ -505,7 +491,7 @@ export async function PUT(req: NextRequest) {
  * DELETE（削除）
  * ========================= */
 export async function DELETE(req: NextRequest) {
-  const forbidden = requireAdmin(req);
+  const forbidden = await requireAdmin(req);
   if (forbidden) return forbidden;
 
   try {
@@ -523,11 +509,8 @@ export async function DELETE(req: NextRequest) {
     );
 
     return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (err: any) {
-    console.error("[api/news DELETE] error", err);
-    return NextResponse.json(
-      { error: err?.message || "Failed to delete news" },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("[api/news DELETE] error", (err as Error)?.name);
+    return NextResponse.json({ error: "Failed to delete news" }, { status: 500 });
   }
 }

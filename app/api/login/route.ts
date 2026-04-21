@@ -8,27 +8,16 @@ import {
   PutCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
+import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
+import { makeAdminCookiePayload, signValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ====================================================================
-// ★ 重要: パスワード検証のモック関数
-// ====================================================================
-const mockCompare = (password: string, hash: string): boolean => {
-  const result = hash === `hashed_${password}`;
-  console.log(
-    `[AUTH-LOG] Mock Compare Check: Input Pass='${password}', DB Hash='${hash}'. Result: ${result}`
-  );
-  return result;
-};
-
-// DynamoDBのユーザー型定義
 type KbUser = {
-  userId?: string; // ← 実データ揺れに備えて optional
+  userId?: string;
   user_id?: string;
   uid?: string;
-
   name: string;
   email: string;
   role: "admin" | "editor" | "viewer";
@@ -47,15 +36,16 @@ const region = process.env.AWS_REGION || "us-east-1";
 const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
 
-/**
- * ユーザー認証
- */
 async function authenticateUser(
   email: string,
   isExternalLogin: boolean,
   pass?: string
 ): Promise<KbUser | null> {
-  if (!isExternalLogin && email === ADMIN_EMAIL_FALLBACK && pass === ADMIN_PASS_FALLBACK) {
+  if (
+    !isExternalLogin &&
+    email === ADMIN_EMAIL_FALLBACK &&
+    pass === ADMIN_PASS_FALLBACK
+  ) {
     return {
       userId: "ADMIN_FALLBACK",
       email: ADMIN_EMAIL_FALLBACK,
@@ -66,33 +56,45 @@ async function authenticateUser(
   }
 
   try {
-    const params = {
-      TableName: TABLE_USERS,
-      IndexName: EMAIL_GSI_NAME,
-      KeyConditionExpression: "email = :email",
-      ExpressionAttributeValues: { ":email": email },
-      Limit: 1,
-    };
-    const result = await docClient.send(new QueryCommand(params));
+    const result = await docClient.send(
+      new QueryCommand({
+        TableName: TABLE_USERS,
+        IndexName: EMAIL_GSI_NAME,
+        KeyConditionExpression: "email = :email",
+        ExpressionAttributeValues: { ":email": email },
+        Limit: 1,
+      })
+    );
     const user = (result.Items?.[0] as KbUser) || null;
 
     if (!user || user.isActive === false) return null;
     if (isExternalLogin) return user;
 
-    if (pass && user.passwordHash && mockCompare(pass, user.passwordHash)) {
+    if (pass && verifyPassword(pass, user.passwordHash)) {
       return user;
     }
     return null;
   } catch (error) {
-    console.error("[AUTH-LOG] DynamoDB Error", error);
+    console.error("[login] DynamoDB error:", (error as Error)?.name);
     return null;
   }
 }
 
+function cookieOptions() {
+  const isProd = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7,
+  };
+}
+
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({} as any));
-  const email = String(body?.email ?? "").trim();
-  const passRaw = body?.pass;
+  const body = await req.json().catch(() => ({} as Record<string, unknown>));
+  const email = String((body as any)?.email ?? "").trim();
+  const passRaw = (body as any)?.pass;
   const pass = typeof passRaw === "string" ? passRaw : undefined;
   const isExternalLogin = !pass;
 
@@ -101,20 +103,42 @@ export async function POST(req: Request) {
   }
 
   const authenticatedUser = await authenticateUser(email, isExternalLogin, pass);
-
   if (!authenticatedUser) {
     return NextResponse.json({ ok: false, error: "認証に失敗しました" }, { status: 401 });
   }
 
-  // ✅ userIdの揺れ吸収（ここが超重要）
   const uid =
-    String(authenticatedUser.userId ?? authenticatedUser.user_id ?? authenticatedUser.uid ?? "").trim()
-    || `EMAIL:${authenticatedUser.email}`; // 最悪でも空にしない
+    String(
+      authenticatedUser.userId ?? authenticatedUser.user_id ?? authenticatedUser.uid ?? ""
+    ).trim() || `EMAIL:${authenticatedUser.email}`;
 
   const nowIso = new Date().toISOString();
 
-  // ✅ lastLoginAt 更新（Keyが userId の前提。違うならここは後で合わせる）
-  // 失敗してもログインは通す
+  // Opportunistic rehash to upgrade legacy "hashed_<plain>" entries.
+  if (
+    !isExternalLogin &&
+    pass &&
+    uid !== "ADMIN_FALLBACK" &&
+    !uid.startsWith("EMAIL:") &&
+    needsRehash(authenticatedUser.passwordHash)
+  ) {
+    try {
+      await docClient.send(
+        new UpdateCommand({
+          TableName: TABLE_USERS,
+          Key: { userId: uid },
+          UpdateExpression: "set passwordHash = :h, updatedAt = :u",
+          ExpressionAttributeValues: {
+            ":h": hashPassword(pass),
+            ":u": nowIso,
+          },
+        })
+      );
+    } catch {
+      // Non-fatal: user still logs in with legacy hash.
+    }
+  }
+
   if (uid !== "ADMIN_FALLBACK" && !uid.startsWith("EMAIL:")) {
     try {
       await docClient.send(
@@ -125,12 +149,11 @@ export async function POST(req: Request) {
           ExpressionAttributeValues: { ":now": nowIso },
         })
       );
-    } catch (err) {
-      console.error("Failed to update lastLoginAt", err);
+    } catch {
+      /* non-fatal */
     }
   }
 
-  // ✅ ログインログを記録（失敗してもログインは通す）
   if (uid !== "ADMIN_FALLBACK") {
     try {
       await docClient.send(
@@ -143,37 +166,21 @@ export async function POST(req: Request) {
           },
         })
       );
-    } catch (err) {
-      console.error("Failed to write login log", err);
+    } catch {
+      /* non-fatal */
     }
   }
 
   const cookieStore = await cookies();
   const isAdmin = authenticatedUser.role === "admin";
 
-  // ✅ 互換維持：kb_user は “email” のまま
-  cookieStore.set("kb_user", authenticatedUser.email, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-  });
+  const opts = cookieOptions();
 
-  // ✅ 追加：ログ用途の userId
-  cookieStore.set("kb_uid", uid, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-  });
+  cookieStore.set("kb_user", await signValue(authenticatedUser.email), opts);
+  cookieStore.set("kb_uid", await signValue(uid), opts);
 
   if (isAdmin) {
-    cookieStore.set("kb_admin", "1", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
+    cookieStore.set("kb_admin", await makeAdminCookiePayload(authenticatedUser.email), opts);
   } else {
     cookieStore.delete("kb_admin");
   }

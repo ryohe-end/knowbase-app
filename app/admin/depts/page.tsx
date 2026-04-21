@@ -24,10 +24,7 @@ export default function AdminDeptsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/depts", {
-        headers: {
-          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
-        },
-        credentials: "include"
+        credentials: "include",
       });
       const json = await res.json();
       setDepts(json.depts || []);
@@ -58,12 +55,7 @@ export default function AdminDeptsPage() {
     try {
       const res = await fetch("/api/depts", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          // ✅ バックエンドが求める管理者キーを追加
-          "x-kb-admin-key": process.env.NEXT_PUBLIC_KB_ADMIN_API_KEY || ""
-        },
-        // ✅ ログイン情報を送信（誰が保存したか特定させるため）
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(payload),
       });
