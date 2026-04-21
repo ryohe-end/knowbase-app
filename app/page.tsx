@@ -1397,7 +1397,12 @@ export default function HomePage() {
                 const id = n.newsId ? String(n.newsId) : `temp-key-${idx}`;
                 const isExpanded = !!expandedNews[id];
                 const brandName = n.brandId === "ALL" ? "全社共通" : brandMap[n.brandId || ""]?.name || "ブランド未設定";
-                const deptName = n.deptId === "ALL" ? "全部署" : deptMap[n.deptId || ""]?.name || "部署未設定";
+                // yamauchi-News の deptId / bizId から yamauchi-Depts.name を解決
+                const newsDeptId = (n as any).bizId || n.deptId || "";
+                const deptName =
+                  newsDeptId === "ALL" ? "全部署" :
+                  newsDeptId ? (deptMap[newsDeptId]?.name || "部署未設定") :
+                  "部署未設定";
                 const displayDate = formatToJST(n.updatedAt || n.fromDate || "");
 
                 return (
