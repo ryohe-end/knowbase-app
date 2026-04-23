@@ -912,9 +912,11 @@
   }
 
   .app-menu-icon {
-    width: 30px; height: 30px;
+    width: 38px; height: 38px;
     margin: 0 auto 4px;
     display: flex; align-items: center; justify-content: center;
+    border-radius: 10px;
+    font-size: 20px;
   }
 
   .app-menu-icon img { max-width: 28px; max-height: 28px; }
@@ -1181,7 +1183,7 @@
     <li>
       <a href="#home-tab" data-section="home-tab">
         <span class="toc-icon" style="background:#f0e6ff;color:#6c5ce7;">&#127968;</span>
-        ホーム画面・タブ
+        TOPページへの行き方
       </a>
     </li>
     <li>
@@ -1201,12 +1203,13 @@
     <li>
       <a href="#use-ticket" data-section="use-ticket">
         <span class="toc-icon" style="background:#e3f2fd;color:#1565c0;">&#128247;</span>
-        チケット使用（QR）
+        チケット使用
         <span class="arrow">&#9654;</span>
       </a>
       <ul class="toc-sub">
-        <li><a href="#use-scan">QRスキャンで入場</a></li>
-        <li><a href="#use-myqr">マイQRコード</a></li>
+        <li><a href="#use-scan">A. QRスキャン型</a></li>
+        <li><a href="#use-multi">B. 複数枚利用型</a></li>
+        <li><a href="#use-myqr">C. マイQRコード型</a></li>
       </ul>
     </li>
     <li>
@@ -1281,12 +1284,12 @@
       <div class="feature-card">
         <div class="feat-icon" style="background:#fff3ed;color:#ff6b35;">&#128247;</div>
         <h4>チケット使用</h4>
-        <p>QRスキャンでチケットを使用</p>
+        <p>機器のQRを読み取って使用</p>
       </div>
       <div class="feature-card">
-        <div class="feat-icon" style="background:#e3f2fd;color:#1565c0;">&#128290;</div>
+        <div class="feat-icon" style="background:#e3f2fd;color:#1565c0;">&#128246;</div>
         <h4>マイQRコード</h4>
-        <p>スタッフ提示用QRを表示</p>
+        <p>プロテインサーバー等で使用</p>
       </div>
       <div class="feature-card">
         <div class="feat-icon" style="background:#f3e5f5;color:#7b1fa2;">&#127903;</div>
@@ -1310,24 +1313,44 @@
   <section id="home-tab">
     <h2>
       <span class="section-icon" style="background:#f0e6ff;color:#6c5ce7;">&#127968;</span>
-      ホーム画面・タブ切り替え
+      TOPページへの行き方
     </h2>
+    <p>オプション都度利用のTOPページは、JOYFITアプリのサービスメニューから表示します。</p>
+
+    <div class="flow">
+      <span class="flow-step">アプリ起動</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">右上サービスメニュー</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">オプション都度利用を選択</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step success">TOPページ表示</span>
+    </div>
+
     <div class="card">
-      <div class="card-title">&#128204; オプション都度利用タブへのアクセス</div>
+      <div class="card-title">&#128204; オプション都度利用TOPページへのアクセス手順</div>
       <ol class="steps">
         <li>
-          <div class="step-title">ホーム画面を表示</div>
-          <div class="step-desc">アプリにアクセスすると、最初にホーム画面が表示されます。上部にチケットのカルーセル、下部にタブとメニューがあります。</div>
+          <div class="step-title">アプリ右上の「サービスメニュー」をタップ</div>
+          <div class="step-desc">JOYFITアプリのホーム画面右上にある<strong>サービスメニューアイコン（⋮⋮）</strong>をタップします。</div>
         </li>
         <li>
-          <div class="step-title">「オプション都度利用」タブをタップ</div>
-          <div class="step-desc">画面下部のタブ切り替えエリアで<strong>「オプション都度利用」</strong>をタップします。このタブは会員の方にのみ表示されます。</div>
+          <div class="step-title">「オプション都度利用」を選択</div>
+          <div class="step-desc">サービス一覧の中から<strong>「オプション都度利用」</strong>をタップします。オプショナルメニューの区画にあります。</div>
         </li>
         <li>
-          <div class="step-title">メニューから操作を選択</div>
-          <div class="step-desc">オプション都度利用専用のメニューが表示されます。各ボタンをタップして操作を行います。</div>
+          <div class="step-title">TOPページが表示される</div>
+          <div class="step-desc">オプション都度利用のTOPページ（デジタルチケット画面）が表示されます。</div>
         </li>
       </ol>
+    </div>
+
+    <div class="callout callout-warning">
+      <span class="callout-icon">&#9888;&#65039;</span>
+      <div>
+        <strong>必ず「オプション都度利用」タブを選択してください</strong><br>
+        TOPページの上部には<strong>「WellnessPass」</strong>と<strong>「オプション都度利用」</strong>の2つのタブがあります。チケットの種類が複数あるため、オプション都度利用をご利用の際は必ず<strong>「オプション都度利用」タブ</strong>を選択してください。
+      </div>
     </div>
 
     <!-- Screen: Home Tab -->
@@ -1358,15 +1381,15 @@
               <div class="app-tab-content">
                 <div class="app-tab-banner">施設ご利用中の方が購入できるオプション都度利用チケット</div>
                 <div class="app-menu-grid">
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/qr.svg" alt="QR"></div>チケット使用</div>
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/buyOption.svg" alt="購入"></div>オプション購入</div>
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/story.svg" alt="一覧"></div>チケット一覧</div>
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/myqr.svg" alt="QR"></div>マイQRコード</div>
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/history.svg" alt="履歴"></div>購入・入手履歴</div>
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/privacy.svg" alt="方法"></div>ご利用方法</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#fff3ed;color:#ff6b35;font-size:22px;">&#128247;</div>チケット使用</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#e8f5e9;color:#2e7d32;font-size:22px;">&#128179;</div>オプション購入</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#f3e5f5;color:#7b1fa2;font-size:22px;">&#127903;</div>チケット一覧</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#e3f2fd;color:#1565c0;font-size:22px;">&#128246;</div>マイQRコード</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#efebe9;color:#5d4037;font-size:22px;">&#128203;</div>購入・入手履歴</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#e8eaf6;color:#3f51b5;font-size:22px;">&#128220;</div>ご利用方法</div>
                 </div>
                 <div class="app-menu-grid" style="padding-top:0;">
-                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/term.svg" alt="規約"></div>利用規約</div>
+                  <div class="app-menu-item"><div class="app-menu-icon" style="background:#fef8ec;color:#f5a623;font-size:22px;">&#128196;</div>利用規約</div>
                 </div>
               </div>
             </div>
@@ -1384,10 +1407,10 @@
             <tr><th>ボタン</th><th>機能</th><th>説明</th></tr>
           </thead>
           <tbody>
-            <tr><td>&#128247; チケット使用</td><td>QRスキャン</td><td>施設のQRコードを読み取って入場</td></tr>
+            <tr><td>&#128247; チケット使用</td><td>QR読取</td><td>機器のQRを読み取ってチケットを使用</td></tr>
             <tr><td>&#128179; オプション購入</td><td>購入画面</td><td>オプションチケットの購入</td></tr>
             <tr><td>&#127903; チケット一覧</td><td>一覧画面</td><td>保有チケットの確認</td></tr>
-            <tr><td>&#128290; マイQRコード</td><td>QR表示</td><td>スタッフ提示用QRの表示</td></tr>
+            <tr><td>&#128246; マイQRコード</td><td>QR表示</td><td>プロテインサーバー等に読み取らせるQRを表示</td></tr>
             <tr><td>&#128203; 購入・入手履歴</td><td>履歴画面</td><td>過去の購入履歴を確認</td></tr>
             <tr><td>&#128220; ご利用方法</td><td>PDF表示</td><td>ご利用方法のPDFを表示</td></tr>
             <tr><td>&#128220; 利用規約</td><td>PDF表示</td><td>利用規約のPDFを表示</td></tr>
@@ -1615,12 +1638,16 @@
           <div class="step-desc">確認ダイアログ内の「購入する」ボタンをタップします（規約同意前はグレーでタップ不可）。</div>
         </li>
         <li>
-          <div class="step-title">決済画面で支払い</div>
-          <div class="step-desc">外部決済サイト（SBPS）に遷移します。画面の指示に従い決済情報を入力して決済を完了してください。</div>
+          <div class="step-title">決済画面で支払い情報を入力</div>
+          <div class="step-desc">外部決済サイト（SBPS）に遷移します。<strong>カード番号・有効期限・セキュリティコード</strong>を入力します。</div>
+        </li>
+        <li>
+          <div class="step-title">画像認証を入力</div>
+          <div class="step-desc">表示されている<strong>画像認証（数字）</strong>を読み取って入力欄に入力し、「確認」をタップします。不正防止のための確認ステップです。</div>
         </li>
         <li>
           <div class="step-title">購入完了</div>
-          <div class="step-desc">決済成功後、自動的にアプリに戻り完了画面が表示されます。チケットがアカウントに追加されます。</div>
+          <div class="step-desc">決済成功後、自動的にアプリに戻り「ご購入ありがとうございます」の完了画面が表示されます。チケットがアカウントに追加されます。</div>
         </li>
       </ol>
     </div>
@@ -1714,7 +1741,55 @@
         <div class="screen-caption"><span class="num">4</span>確認ダイアログ</div>
       </div>
 
-      <!-- Screen 5: Success -->
+      <!-- Screen 5: Payment -->
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header">&#127947; デジタルチケット</div>
+          <div class="phone-body">
+            <div style="padding:20px 16px;background:#fff;">
+              <div style="text-align:center;margin-bottom:16px;">
+                <div style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1.5px solid #999;border-radius:10px;margin-bottom:8px;">&#128221;</div>
+                <div style="font-size:13px;font-weight:700;color:#333;">支払い情報を入力してください</div>
+              </div>
+              <div style="height:1px;background:#e5e5ea;margin:12px 0;"></div>
+              <div style="display:flex;gap:6px;justify-content:center;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+                <div style="border:1px solid #e5e5ea;border-radius:4px;padding:3px 6px;font-size:9px;font-weight:800;color:#1a1f71;">VISA</div>
+                <div style="border:1px solid #e5e5ea;border-radius:4px;padding:3px 6px;font-size:9px;font-weight:800;color:#d32f2f;">MC</div>
+                <div style="border:1px solid #e5e5ea;border-radius:4px;padding:3px 6px;font-size:9px;font-weight:800;color:#003a70;">JCB</div>
+                <div style="border:1px solid #e5e5ea;border-radius:4px;padding:3px 6px;font-size:9px;font-weight:800;color:#2e7d32;">AMEX</div>
+                <div style="border:1px solid #e5e5ea;border-radius:4px;padding:3px 6px;font-size:9px;font-weight:800;color:#444;">Diners</div>
+              </div>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:11px;color:#333;margin-bottom:4px;">カード番号</div>
+                <div style="border-bottom:1.5px solid #4e8ef7;padding:4px 0;font-size:12px;color:#999;">&#9679;&#9679;&#9679;&#9679; &#9679;&#9679;&#9679;&#9679; &#9679;&#9679;&#9679;&#9679; &#9679;&#9679;&#9679;&#9679;</div>
+              </div>
+              <div style="display:flex;gap:12px;margin-bottom:12px;">
+                <div style="flex:1;">
+                  <div style="font-size:11px;color:#333;margin-bottom:4px;">有効期限</div>
+                  <div style="border-bottom:1px solid #ccc;padding:4px 0;font-size:11px;color:#bbb;">月　年</div>
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:11px;color:#333;margin-bottom:4px;">セキュリティコード</div>
+                  <div style="border-bottom:1px solid #ccc;padding:4px 0;font-size:11px;color:#bbb;">123　&#10067;</div>
+                </div>
+              </div>
+              <div style="margin-bottom:12px;">
+                <div style="font-size:11px;color:#333;margin-bottom:4px;">画像認証</div>
+                <div style="display:flex;gap:10px;align-items:center;">
+                  <div style="border-bottom:1px solid #ccc;padding:4px 0;font-size:11px;color:#bbb;flex:1;">12345</div>
+                  <div style="background:#e8e8e8;padding:6px 14px;border-radius:4px;font-family:'Courier New',monospace;font-size:16px;font-weight:800;letter-spacing:3px;color:#333;font-style:italic;">90944</div>
+                </div>
+                <div style="font-size:9px;color:#666;margin-top:6px;">上記画像に表示された文字を入力してください</div>
+              </div>
+              <div style="background:#ccc;color:#fff;text-align:center;padding:10px;border-radius:6px;font-size:13px;font-weight:700;margin-top:16px;">確認</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">5</span>決済画面（支払い・画像認証）</div>
+      </div>
+
+      <!-- Screen 6: Success -->
       <div class="screen-item">
         <div class="phone"><div class="phone-inner">
           <div class="phone-notch"></div>
@@ -1727,7 +1802,7 @@
             </div>
           </div>
         </div></div>
-        <div class="screen-caption"><span class="num">5</span>購入完了</div>
+        <div class="screen-caption"><span class="num">6</span>購入完了</div>
       </div>
     </div>
   </section>
@@ -1738,31 +1813,45 @@
       <span class="section-icon" style="background:#e3f2fd;color:#1565c0;">&#128247;</span>
       チケット使用
     </h2>
-    <p>購入したオプションチケットを施設で使用する方法です。</p>
+    <p>購入したオプションチケットを施設で使用する方法です。<strong>オプションの種類によって使用方法が異なります。</strong></p>
 
-    <h3 id="use-scan">&#128248; QRスキャンで入場</h3>
+    <div class="callout callout-info">
+      <span class="callout-icon">&#128161;</span>
+      <div>
+        <strong>3つの使用パターン</strong><br>
+        オプションの種類によって、以下のいずれかの方法でご利用ください。
+        <ul style="margin-top:8px;padding-left:20px;">
+          <li><strong>A. QRスキャン型</strong>：水素水・コラーゲン・シャワー・体組成計など</li>
+          <li><strong>B. 複数枚利用型</strong>：タンニングなど、一度に複数枚を使用する場合</li>
+          <li><strong>C. マイQRコード型</strong>：プロテインサーバーなど、機器にQRを読み取らせる場合</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Pattern A: QR Scan -->
+    <h3 id="use-scan">&#128248; A. QRスキャンで使用（水素水・コラーゲン・シャワー・体組成計編）</h3>
     <div class="card">
-      <div class="card-title">施設のQRコードを読み取って利用する</div>
+      <div class="card-title">機器に設置されたQRコードをアプリで読み取って使用する</div>
       <ol class="steps">
         <li>
-          <div class="step-title">「チケット使用」をタップ</div>
-          <div class="step-desc">オプション都度利用タブのメニューから「チケット使用」をタップします。カメラが起動します。</div>
+          <div class="step-title">TOPページメニュー内の「チケット使用」を選択</div>
+          <div class="step-desc">オプション都度利用のTOPページで<strong>「チケット使用」</strong>をタップします。QRコード読み取り画面が起動します。</div>
         </li>
         <li>
-          <div class="step-title">カメラの許可</div>
-          <div class="step-desc">初回はブラウザからカメラの使用許可を求められます。「許可」をタップしてください。</div>
+          <div class="step-title">カメラの使用を許可する</div>
+          <div class="step-desc">初回はブラウザからカメラの使用許可を求められます。<strong>「許可」をタップしてください</strong>。<br><span style="color:#ff3b30;font-weight:600;">※許可をしないとご利用できません。</span></div>
         </li>
         <li>
-          <div class="step-title">QRコードをスキャン</div>
-          <div class="step-desc">施設に掲示されているQRコードにカメラをかざします。自動で読み取りが行われます。</div>
+          <div class="step-title">機器のQRコードを読み取る</div>
+          <div class="step-desc">カメラが起動するので、<strong>使用したい機器に設置されているQRコード</strong>にカメラをかざします。自動で読み取りが行われます。</div>
         </li>
         <li>
-          <div class="step-title">利用枚数の選択（複数保有時）</div>
-          <div class="step-desc">対象のチケットが複数ある場合は、チケット詳細画面が表示されます。使用枚数を選んで「使用する」をタップします。</div>
+          <div class="step-title">「使用する」をタップ</div>
+          <div class="step-desc">オプション名と「ご利用は使い切りとなりますがよろしいですか？」の確認が表示されます。<strong>「使用する」</strong>をタップします。</div>
         </li>
         <li>
           <div class="step-title">利用完了</div>
-          <div class="step-desc">完了画面が表示され、使用したチケットの枚数が確認できます。</div>
+          <div class="step-desc">「利用しました。」と表示されたら完了です。</div>
         </li>
       </ol>
     </div>
@@ -1770,21 +1859,13 @@
     <div class="flow">
       <span class="flow-step">チケット使用</span>
       <span class="flow-arrow">&#10132;</span>
-      <span class="flow-step">カメラ起動</span>
+      <span class="flow-step">カメラ許可</span>
       <span class="flow-arrow">&#10132;</span>
       <span class="flow-step highlight">QR読み取り</span>
       <span class="flow-arrow">&#10132;</span>
-      <span class="flow-step">枚数選択</span>
+      <span class="flow-step">使用する</span>
       <span class="flow-arrow">&#10132;</span>
       <span class="flow-step success">利用完了</span>
-    </div>
-
-    <div class="callout callout-danger">
-      <span class="callout-icon">&#128680;</span>
-      <div>
-        <strong>使い切り制です</strong><br>
-        チケットは使用すると消費され、元に戻すことはできません。利用枚数を確認のうえ「使用する」をタップしてください。
-      </div>
     </div>
 
     <!-- Screen: QR Scan & Use -->
@@ -1828,11 +1909,7 @@
             <div style="padding:16px;">
               <div class="app-modal-overlay" style="min-height:0;background:none;padding:0;">
                 <div class="app-modal-box" style="box-shadow:none;border:1px solid #eee;">
-                  <div class="app-modal-text" style="font-weight:700;">水素水 オプションを使用します。<br>ご使用になるチケットの枚数を選んでください。</div>
-                  <div style="text-align:center;margin:12px 0;">
-                    <div class="app-qty-dropdown">1枚</div>
-                  </div>
-                  <div class="app-modal-text" style="font-size:11px;color:#888;">ご利用は使い切りとなりますがよろしいですか？</div>
+                  <div class="app-modal-text" style="font-weight:700;">水素水（1回）を使用します。<br>ご利用は使い切りとなりますがよろしいですか？</div>
                   <div class="app-modal-btns">
                     <div class="app-modal-btn cancel">キャンセル</div>
                     <div class="app-modal-btn confirm">使用する</div>
@@ -1842,7 +1919,7 @@
             </div>
           </div>
         </div></div>
-        <div class="screen-caption"><span class="num">2</span>枚数選択ダイアログ</div>
+        <div class="screen-caption"><span class="num">2</span>確認ダイアログ</div>
       </div>
 
       <div class="screen-item">
@@ -1852,8 +1929,8 @@
           <div class="phone-body">
             <div class="app-success-screen">
               <div class="app-success-icon">&#10003;</div>
-              <div class="app-success-msg">チケットを使用しました</div>
-              <div class="app-success-sub">水素水 オプション &times; 1枚</div>
+              <div class="app-success-msg">利用しました。</div>
+              <div class="app-success-sub"><a href="#" style="color:#ff6b35;text-decoration:underline;">トップページに戻る</a></div>
             </div>
           </div>
         </div></div>
@@ -1861,35 +1938,104 @@
       </div>
     </div>
 
-    <h3 id="use-myqr">&#128290; マイQRコード</h3>
+    <!-- Pattern B: Multiple tickets -->
+    <h3 id="use-multi">&#128290; B. 複数枚を一度に使用（タンニング等・複数枚ご購入されている方編）</h3>
     <div class="card">
-      <div class="card-title">スタッフに提示してチケットを使用する</div>
-      <p>パートナーチケットなど、QRコード提示型のチケットはマイQRコード機能を使います。</p>
+      <div class="card-title">QRを読み取り、使用枚数を選択して使用する</div>
+      <p>タンニングなど、一度の利用で<strong>複数枚のチケットを消費するオプション</strong>や、同じオプションを複数枚まとめて使用する場合の手順です。</p>
       <ol class="steps">
         <li>
-          <div class="step-title">「マイQRコード」をタップ</div>
-          <div class="step-desc">対象チケット一覧が表示されます。QR表示に対応したチケットのみ表示されます。</div>
+          <div class="step-title">TOPページメニュー内の「チケット使用」を選択</div>
+          <div class="step-desc">オプション都度利用のTOPページで<strong>「チケット使用」</strong>をタップします。</div>
         </li>
         <li>
-          <div class="step-title">チケットを選択</div>
-          <div class="step-desc">使用したいチケットをタップします。</div>
+          <div class="step-title">カメラの使用を許可する</div>
+          <div class="step-desc">カメラの使用許可を求められたら<strong>「許可」</strong>をタップします。<br><span style="color:#ff3b30;font-weight:600;">※許可をしないとご利用できません。</span></div>
         </li>
         <li>
-          <div class="step-title">確認ダイアログで「使用する」をタップ</div>
-          <div class="step-desc">「30秒間だけ表示され、失効します」という注意が表示されます。確認後「使用する」をタップします。</div>
+          <div class="step-title">機器のQRコードを読み取る</div>
+          <div class="step-desc">カメラが起動するので、使用したい機器に設置されているQRコードを読み取ります。</div>
         </li>
         <li>
-          <div class="step-title">QRコードをスタッフに提示</div>
-          <div class="step-desc">画面にQRコードと<strong>30秒のカウントダウン</strong>が表示されます。制限時間内にスタッフまたはQRリーダーに提示してください。</div>
+          <div class="step-title">使用する枚数を選択する</div>
+          <div class="step-desc">「ご使用になるチケットの枚数を選んでください」と表示されます。<strong>ドロップダウンから使用枚数を選択</strong>し、<strong>「使用する」</strong>をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">利用完了</div>
+          <div class="step-desc">「利用しました。」と表示されたら完了です。</div>
         </li>
       </ol>
+    </div>
 
-      <div class="callout callout-warning">
-        <span class="callout-icon">&#9203;</span>
-        <div>
-          <strong>30秒の制限時間</strong><br>
-          QRコードは30秒で自動的に失効し、チケットが消費されます。事前にスタッフの準備ができてから「使用する」をタップすることをおすすめします。
-        </div>
+    <div class="callout callout-danger">
+      <span class="callout-icon">&#128680;</span>
+      <div>
+        <strong>使い切り制です</strong><br>
+        チケットは使用すると消費され、元に戻すことはできません。利用枚数を確認のうえ「使用する」をタップしてください。
+      </div>
+    </div>
+
+    <!-- Screen: Multi Use -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> チケット使用</div>
+          <div class="phone-body">
+            <div style="padding:16px;">
+              <div class="app-modal-overlay" style="min-height:0;background:none;padding:0;">
+                <div class="app-modal-box" style="box-shadow:none;border:1px solid #eee;">
+                  <div class="app-modal-text" style="font-weight:700;">タンニング（1回）を使用します<br>ご使用になるチケットの枚数を選んでください</div>
+                  <div style="text-align:center;margin:12px 0;">
+                    <div class="app-qty-dropdown">2枚 &#9660;</div>
+                  </div>
+                  <div class="app-modal-btns">
+                    <div class="app-modal-btn cancel">キャンセル</div>
+                    <div class="app-modal-btn confirm">使用する</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">&#128290;</span>枚数選択ダイアログ</div>
+      </div>
+    </div>
+
+    <!-- Pattern C: My QR Code (Protein Server) -->
+    <h3 id="use-myqr">&#128246; C. マイQRコードで使用（プロテインサーバー編）</h3>
+    <div class="card">
+      <div class="card-title">アプリのQRコードをプロテインサーバーに読み取らせて使用する</div>
+      <p><strong>プロテインサーバー</strong>など、<strong>機器側にQRコードリーダーが付いている</strong>オプションの使用方法です。アプリに表示されるQRコードを機器にかざして使用します。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">TOPページメニュー内の「マイQRコード」を選択</div>
+          <div class="step-desc">オプション都度利用のTOPページで<strong>「マイQRコード」</strong>をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">「使用する」を選択</div>
+          <div class="step-desc">「チケットを使用しますか？」というダイアログが表示されます。注意書きを確認のうえ<strong>「使用する」</strong>をタップします。<br><span style="color:#ff3b30;font-weight:600;">※表示されるQRコードは30秒間だけ表示され、失効します。</span></div>
+        </li>
+        <li>
+          <div class="step-title">プロテインサーバーにQRコードを読み取らせる</div>
+          <div class="step-desc">表示されたQRコードを、<strong>30秒以内</strong>にプロテインサーバー備え付けのQRコードリーダーにかざします。</div>
+        </li>
+        <li>
+          <div class="step-title">商品を選択する</div>
+          <div class="step-desc">QRコードの読み取りが完了すると、プロテインサーバー側で商品が選択できるようになります。</div>
+        </li>
+        <li>
+          <div class="step-title">コップを設置して商品を選択</div>
+          <div class="step-desc">コップをサーバーに設置し、お好みの商品ボタンを押すと<strong>プロテインが抽出されます</strong>。</div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="callout callout-warning">
+      <span class="callout-icon">&#9203;</span>
+      <div>
+        <strong>30秒の制限時間にご注意ください</strong><br>
+        「使用する」を押した後に表示されるQRコードは<strong>30秒間だけ表示され、失効します</strong>。30秒以内に機器備え付けのQRコードリーダーにQR表示画面をかざしてご使用ください。
       </div>
     </div>
 
@@ -1900,10 +2046,32 @@
           <div class="phone-notch"></div>
           <div class="phone-header"><span class="back-arrow">&#8249;</span> マイQRコード</div>
           <div class="phone-body">
+            <div style="padding:16px;">
+              <div class="app-modal-overlay" style="min-height:0;background:none;padding:0;">
+                <div class="app-modal-box" style="box-shadow:none;border:1px solid #eee;">
+                  <div class="app-modal-text" style="font-weight:700;">チケットを使用しますか？</div>
+                  <div class="app-modal-text" style="font-size:11px;color:#666;margin-top:8px;">使用するを押した後に表示されるQRコードは30秒間だけ表示され、失効します。30秒以内に機器備え付けのQRコードリーダーにQR表示画面をかざしてご使用ください。</div>
+                  <div class="app-modal-btns">
+                    <div class="app-modal-btn cancel">キャンセル</div>
+                    <div class="app-modal-btn confirm">使用する</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">1</span>使用確認ダイアログ</div>
+      </div>
+
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header">&#127947; デジタルチケット</div>
+          <div class="phone-body">
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;padding:24px;">
-              <div style="font-size:13px;font-weight:700;margin-bottom:16px;">QRコードをリーダーにかざしてください</div>
-              <div style="width:160px;height:160px;background:#f9f9f9;border:2px solid #333;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
-                <svg width="120" height="120" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <div style="font-size:13px;font-weight:700;margin-bottom:16px;">QRコードをかざしてください</div>
+              <div style="width:180px;height:180px;background:#fff;border:2px solid #333;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+                <svg width="140" height="140" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M12 8V12H8V8H12ZM13 7H7V13H13V7Z" fill="#333"/>
                   <path d="M24 8V12H20V8H24ZM25 7H19V13H25V7Z" fill="#333"/>
                   <path d="M12 20V24H8V20H12ZM13 19H7V25H13V19Z" fill="#333"/>
@@ -1918,20 +2086,11 @@
                   <path d="M25 23H23V25H25V23Z" fill="#333"/>
                 </svg>
               </div>
-              <div style="position:relative;width:120px;height:120px;margin-bottom:12px;">
-                <svg viewBox="0 0 120 120" width="120" height="120">
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="#eee" stroke-width="8"/>
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="#FFB600" stroke-width="8"
-                    stroke-dasharray="260 340" stroke-dashoffset="-85"
-                    stroke-linecap="round" transform="rotate(-90 60 60)"/>
-                </svg>
-                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:32px;font-weight:700;color:#333;">24</div>
-              </div>
-              <div style="font-size:11px;color:#888;">残り時間</div>
+              <div style="font-size:11px;color:#888;">30秒以内にリーダーにかざしてください</div>
             </div>
           </div>
         </div></div>
-        <div class="screen-caption"><span class="num">&#128290;</span>マイQRコード表示</div>
+        <div class="screen-caption"><span class="num">2</span>マイQRコード表示（30秒）</div>
       </div>
     </div>
   </section>
@@ -2237,6 +2396,16 @@
       </div>
       <div class="faq-answer">
         <p>はい、オプション都度利用に対応している店舗であれば、在籍店舗以外のオプションも購入可能です。「エリアから探す」または「近くの店舗を探す」で店舗を選択してください。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 決済方法は？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>現在は<strong>クレジットカード決済のみ</strong>ご利用いただけます。近日中にその他の決済方法（PayPay等）を追加予定です。</p>
       </div>
     </div>
 
