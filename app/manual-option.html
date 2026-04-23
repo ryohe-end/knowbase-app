@@ -1,0 +1,2375 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JOYFIT オプション都度利用 操作マニュアル</title>
+<style>
+  :root {
+    --primary: #4e8ef7;
+    --primary-dark: #3a6fd8;
+    --primary-light: #e8f0fe;
+    --accent: #ff6b35;
+    --accent-light: #fff3ed;
+    --success: #34c759;
+    --success-light: #eafbef;
+    --warning: #f5a623;
+    --warning-light: #fef8ec;
+    --danger: #ff3b30;
+    --danger-light: #ffeceb;
+    --text: #1d1d1f;
+    --text-secondary: #6e6e73;
+    --bg: #f5f5f7;
+    --card: #ffffff;
+    --border: #e5e5ea;
+    --sidebar-w: 260px;
+    --header-h: 64px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: calc(var(--header-h) + 24px);
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.8;
+    font-size: 15px;
+  }
+
+  /* ── Header ── */
+  .header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--header-h);
+    background: linear-gradient(135deg, #ff6b35 0%, #e85d26 50%, #d4501c 100%);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+    z-index: 1000;
+    box-shadow: 0 2px 20px rgba(255, 107, 53, .3);
+  }
+
+  .header-logo {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-logo .icon {
+    width: 36px; height: 36px;
+    background: rgba(255,255,255,.2);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+
+  .header-badge {
+    margin-left: auto;
+    font-size: 11px;
+    background: rgba(255,255,255,.18);
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+
+  .hamburger {
+    display: none;
+    background: none; border: none;
+    color: #fff; font-size: 24px;
+    cursor: pointer; margin-right: 16px; padding: 4px;
+  }
+
+  /* ── Sidebar TOC ── */
+  .sidebar {
+    position: fixed;
+    top: var(--header-h); left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 20px 0;
+    z-index: 900;
+    transition: transform .3s cubic-bezier(.4,0,.2,1);
+  }
+
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .toc-title {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--text-secondary);
+    padding: 0 20px; margin-bottom: 12px;
+  }
+
+  .toc-list { list-style: none; }
+
+  .toc-list a {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 20px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 13px; font-weight: 500;
+    transition: all .2s;
+    border-left: 3px solid transparent;
+  }
+
+  .toc-list a:hover {
+    color: var(--accent);
+    background: var(--accent-light);
+  }
+
+  .toc-list a.active {
+    color: var(--accent);
+    background: var(--accent-light);
+    border-left-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .toc-list a .toc-icon {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+  }
+
+  .toc-sub {
+    list-style: none;
+    max-height: 0; overflow: hidden;
+    transition: max-height .35s cubic-bezier(.4,0,.2,1);
+  }
+
+  .toc-list li.expanded .toc-sub { max-height: 500px; }
+
+  .toc-sub a {
+    padding-left: 56px;
+    font-size: 12px; font-weight: 400;
+  }
+
+  .toc-list a .arrow {
+    margin-left: auto; font-size: 10px;
+    transition: transform .2s; opacity: .5;
+  }
+
+  .toc-list li.expanded > a .arrow { transform: rotate(90deg); }
+
+  /* ── Main ── */
+  .main {
+    margin-left: var(--sidebar-w);
+    margin-top: var(--header-h);
+    padding: 40px 48px 80px;
+    max-width: 880px;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, #ff6b35 0%, #ff8f5e 40%, #ffb088 100%);
+    color: #fff;
+    border-radius: 20px;
+    padding: 44px 48px;
+    margin-bottom: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    top: -40%; right: -15%;
+    width: 280px; height: 280px;
+    background: rgba(255,255,255,.1);
+    border-radius: 50%;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    bottom: -25%; left: 8%;
+    width: 180px; height: 180px;
+    background: rgba(255,255,255,.06);
+    border-radius: 50%;
+  }
+
+  .hero h1 {
+    font-size: 28px; font-weight: 800;
+    margin-bottom: 8px; position: relative;
+  }
+
+  .hero p {
+    font-size: 14px; opacity: .9;
+    position: relative; line-height: 1.7;
+  }
+
+  .hero .badge-row {
+    display: flex; gap: 8px; margin-top: 16px; position: relative;
+  }
+
+  .hero .badge-row span {
+    background: rgba(255,255,255,.18);
+    padding: 4px 14px; border-radius: 20px;
+    font-size: 11px; font-weight: 600;
+  }
+
+  /* ── Sections ── */
+  section { margin-bottom: 48px; }
+
+  h2 {
+    font-size: 22px; font-weight: 800;
+    margin-bottom: 20px; padding-bottom: 12px;
+    border-bottom: 2px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+
+  h2 .section-icon {
+    width: 38px; height: 38px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+
+  h3 {
+    font-size: 17px; font-weight: 700;
+    margin: 24px 0 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  p { margin-bottom: 14px; }
+
+  /* ── Card ── */
+  .card {
+    background: var(--card);
+    border-radius: 16px; padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.03);
+    border: 1px solid var(--border);
+    transition: box-shadow .2s;
+  }
+
+  .card:hover {
+    box-shadow: 0 2px 6px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.06);
+  }
+
+  .card-title {
+    font-size: 15px; font-weight: 700;
+    margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  /* ── Steps ── */
+  .steps {
+    counter-reset: step;
+    list-style: none;
+    position: relative;
+    padding-left: 4px;
+  }
+
+  .steps::before {
+    content: '';
+    position: absolute;
+    left: 17px; top: 32px; bottom: 16px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent), var(--accent-light));
+    border-radius: 2px;
+  }
+
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 0 0 22px 52px;
+    min-height: 48px;
+  }
+
+  .steps li:last-child { padding-bottom: 0; }
+
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 6px; top: 2px;
+    width: 24px; height: 24px;
+    background: var(--accent);
+    color: #fff; border-radius: 50%;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(255,107,53,.3);
+  }
+
+  .steps li .step-title {
+    font-weight: 700; font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .steps li .step-desc {
+    font-size: 13px; color: var(--text-secondary);
+    line-height: 1.7;
+  }
+
+  /* ── Callout ── */
+  .callout {
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 16px 0; font-size: 13px;
+    display: flex; gap: 12px;
+    align-items: flex-start; line-height: 1.7;
+  }
+
+  .callout .callout-icon { font-size: 18px; flex-shrink: 0; margin-top: 2px; }
+
+  .callout-info { background: var(--primary-light); border: 1px solid rgba(78,142,247,.2); color: var(--primary-dark); }
+  .callout-warning { background: var(--warning-light); border: 1px solid rgba(245,166,35,.2); color: #8a6200; }
+  .callout-success { background: var(--success-light); border: 1px solid rgba(52,199,89,.2); color: #1a7a32; }
+  .callout-danger { background: var(--danger-light); border: 1px solid rgba(255,59,48,.2); color: #c0271e; }
+
+  /* ── Flow ── */
+  .flow {
+    display: flex; align-items: center;
+    flex-wrap: wrap; gap: 0;
+    margin: 16px 0; padding: 18px 20px;
+    background: var(--card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+
+  .flow-step {
+    background: var(--accent-light);
+    color: #d4501c;
+    padding: 7px 14px; border-radius: 8px;
+    font-size: 12.5px; font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .flow-arrow { color: var(--text-secondary); font-size: 16px; padding: 0 5px; }
+
+  .flow-step.highlight { background: var(--accent); color: #fff; }
+
+  .flow-step.success { background: var(--success-light); color: #1a7a32; }
+
+  /* ── Mockup ── */
+  .mockup-frame {
+    background: #1d1d1f;
+    border-radius: 28px;
+    padding: 12px;
+    max-width: 300px;
+    margin: 20px auto;
+    box-shadow: 0 8px 40px rgba(0,0,0,.15);
+  }
+
+  .mockup-screen {
+    background: var(--card);
+    border-radius: 18px;
+    overflow: hidden;
+    min-height: 400px;
+  }
+
+  .mockup-statusbar {
+    background: linear-gradient(135deg, #ff6b35, #e85d26);
+    padding: 8px 16px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .mockup-body { padding: 16px; }
+
+  .mockup-body .mock-title {
+    font-size: 14px; font-weight: 700;
+    text-align: center;
+    margin-bottom: 14px;
+    color: var(--text);
+  }
+
+  .mock-dropdown {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .mock-dropdown.selected { color: var(--text); font-weight: 600; border-color: var(--accent); }
+
+  .mock-dropdown .chevron { font-size: 10px; opacity: .5; }
+
+  .mock-radio {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mock-radio:last-child { border: none; }
+
+  .mock-radio .dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .mock-radio .dot.active {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: inset 0 0 0 3px #fff;
+  }
+
+  .mock-summary {
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 14px;
+    font-size: 11px;
+  }
+
+  .mock-summary .row {
+    display: flex; justify-content: space-between;
+    padding: 4px 0;
+  }
+
+  .mock-summary .row .label { color: var(--text-secondary); }
+  .mock-summary .row .val { font-weight: 700; }
+
+  .mock-btn {
+    display: block; width: 100%;
+    background: var(--accent);
+    color: #fff; border: none;
+    padding: 10px; border-radius: 10px;
+    font-size: 13px; font-weight: 700;
+    margin-top: 14px;
+    cursor: default;
+    text-align: center;
+  }
+
+  .mock-btn.disabled {
+    background: #ccc; color: #999;
+  }
+
+  /* ── Feature Grid ── */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px; margin: 20px 0;
+  }
+
+  .feature-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    text-align: center;
+    transition: all .2s;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,.08);
+  }
+
+  .feature-card .feat-icon {
+    width: 48px; height: 48px;
+    border-radius: 13px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; margin: 0 auto 10px;
+  }
+
+  .feature-card h4 { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .feature-card p { font-size: 11.5px; color: var(--text-secondary); margin: 0; line-height: 1.5; }
+
+  /* ── Table ── */
+  .table-wrap {
+    overflow-x: auto; margin: 16px 0;
+    border-radius: 12px; border: 1px solid var(--border);
+  }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    background: var(--card); font-size: 13px;
+  }
+
+  thead { background: var(--bg); }
+
+  th {
+    padding: 10px 14px; text-align: left;
+    font-weight: 700; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-secondary);
+    border-bottom: 2px solid var(--border);
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--accent-light); }
+
+  kbd {
+    display: inline-block;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 12px; font-family: inherit; font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0,0,0,.05);
+  }
+
+  /* ── Comparison ── */
+  .compare-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+
+  .compare-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+  }
+
+  .compare-card h4 {
+    font-size: 14px; font-weight: 700;
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+
+  .compare-card ul {
+    margin: 0; padding-left: 18px;
+    font-size: 13px; color: var(--text-secondary);
+    line-height: 1.8;
+  }
+
+  /* ── Phone Mockup ── */
+  .phone {
+    width: 280px;
+    background: #1a1a1a;
+    border-radius: 32px;
+    padding: 10px;
+    box-shadow: 0 12px 48px rgba(0,0,0,.18), 0 2px 8px rgba(0,0,0,.08);
+    flex-shrink: 0;
+  }
+
+  .phone-inner {
+    background: #fff;
+    border-radius: 24px;
+    overflow: hidden;
+    min-height: 480px;
+  }
+
+  .phone-notch {
+    background: #1a1a1a;
+    height: 28px;
+    border-radius: 0 0 16px 16px;
+    width: 120px;
+    margin: 0 auto;
+    position: relative;
+    top: -1px;
+  }
+
+  .phone-header {
+    background: #FF4D27;
+    color: #fff;
+    padding: 0 16px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 700;
+    gap: 8px;
+    margin-top: -1px;
+  }
+
+  .phone-header .back-arrow {
+    font-size: 18px;
+    opacity: .8;
+  }
+
+  .phone-body {
+    padding: 0;
+    font-size: 12px;
+    color: #333;
+  }
+
+  /* App-specific mockup elements */
+  .app-bg-red { background: #FF4D27; padding: 0 12px 16px; }
+
+  .app-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 10px;
+    position: relative;
+  }
+
+  .app-icon-circle {
+    width: 48px; height: 48px;
+    background: #FFCC00;
+    border-radius: 50%;
+    margin: -28px auto 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+
+  .app-card-title {
+    text-align: center;
+    font-size: 13px; font-weight: 700;
+    margin-bottom: 10px;
+  }
+
+  .app-label {
+    font-size: 11px; font-weight: 700;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+
+  .app-label-left {
+    font-size: 11px;
+    text-align: left;
+    color: #666;
+    margin-bottom: 4px;
+  }
+
+  .app-dropdown {
+    background: #fff;
+    border: 1px solid #D3D3D3;
+    border-radius: 5px;
+    padding: 8px 32px 8px 12px;
+    font-size: 12px;
+    margin-bottom: 8px;
+    color: #333;
+    position: relative;
+    width: 100%;
+  }
+
+  .app-dropdown::after {
+    content: '\25BC';
+    position: absolute;
+    right: 10px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 8px;
+    color: #999;
+  }
+
+  .app-dropdown.placeholder { color: #999; }
+
+  .app-search-btn {
+    border: 1px solid #FF4D27;
+    color: #FF4D27;
+    border-radius: 25px;
+    padding: 8px;
+    font-size: 11px;
+    text-align: center;
+    margin: 8px 0 4px;
+    font-weight: 600;
+  }
+
+  .app-radio-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0;
+    font-size: 12px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .app-radio-row:last-child { border: none; }
+
+  .app-radio {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 2px solid #D3D3D3;
+    flex-shrink: 0;
+  }
+
+  .app-radio.on {
+    border-color: #FF4D27;
+    background: #FF4D27;
+    box-shadow: inset 0 0 0 3px #fff;
+  }
+
+  .app-radio-row.disabled { color: #ccc; }
+  .app-radio-row.disabled .app-radio { border-color: #e5e5e5; }
+
+  .app-qty-dropdown {
+    background: #fff;
+    border: 1px solid #D3D3D3;
+    border-radius: 5px;
+    padding: 6px 28px 6px 12px;
+    font-size: 12px;
+    display: inline-block;
+    position: relative;
+  }
+
+  .app-qty-dropdown::after {
+    content: '\25BC';
+    position: absolute;
+    right: 8px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 8px;
+    color: #999;
+  }
+
+  .app-confirm-bar {
+    background: #FFCC00;
+    color: #fff;
+    text-align: center;
+    padding: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .app-confirm-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: 11px;
+  }
+
+  .app-confirm-row .label { color: #888; }
+  .app-confirm-row .val { font-weight: 700; font-size: 13px; }
+
+  .app-hr { height: 1px; background: #D3D3D3; margin: 4px 0; }
+
+  .app-notice {
+    font-size: 10px;
+    color: #333;
+    line-height: 1.5;
+    margin-top: 6px;
+  }
+
+  .app-purchase-btn {
+    background: #FF4D27;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    padding: 12px;
+    width: 100%;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 12px 0 8px;
+    gap: 8px;
+  }
+
+  .app-purchase-btn.disabled {
+    background: #EAEAEA;
+    color: #fff;
+  }
+
+  .app-back-link {
+    text-align: center;
+    color: #888;
+    font-size: 11px;
+    text-decoration: underline;
+    margin-bottom: 8px;
+  }
+
+  /* Modal mockup */
+  .app-modal-overlay {
+    background: rgba(0,0,0,.15);
+    padding: 24px 16px;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .app-modal-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    width: 100%;
+    box-shadow: 0 4px 20px rgba(0,0,0,.15);
+  }
+
+  .app-modal-close {
+    text-align: right;
+    font-size: 16px;
+    color: #999;
+    margin-bottom: 8px;
+  }
+
+  .app-modal-text {
+    font-size: 12px;
+    text-align: center;
+    line-height: 1.8;
+    margin-bottom: 12px;
+  }
+
+  .app-modal-btns {
+    display: flex; gap: 8px;
+  }
+
+  .app-modal-btn {
+    flex: 1;
+    padding: 10px;
+    border-radius: 5px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .app-modal-btn.cancel { border: 1px solid #D3D3D3; color: #666; }
+  .app-modal-btn.confirm { background: #FF4D27; color: #fff; }
+  .app-modal-btn.grey { background: #EAEAEA; color: #fff; }
+
+  .app-checkbox-row {
+    display: flex; align-items: center; gap: 6px;
+    justify-content: center;
+    margin: 8px 0;
+    font-size: 11px;
+  }
+
+  .app-checkbox {
+    width: 16px; height: 16px;
+    border: 2px solid #D3D3D3;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .app-checkbox.checked {
+    border-color: #FF4D27;
+    background: #FF4D27;
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px;
+  }
+
+  .app-term-link {
+    color: #4e8ef7;
+    text-decoration: underline;
+  }
+
+  /* Home tab mockup */
+  .app-tabs {
+    display: flex; gap: 1px;
+    margin-bottom: 0;
+  }
+
+  .app-tab {
+    flex: 1;
+    background: #FEE9DE;
+    color: #333;
+    text-align: center;
+    padding: 6px 4px;
+    font-size: 10px;
+    font-weight: 600;
+    border-radius: 5px 5px 0 0;
+  }
+
+  .app-tab.active {
+    background: #ff5a2c;
+    color: #fff;
+  }
+
+  .app-tab-content {
+    border: 4px solid #ff5a2c;
+    padding: 0;
+    min-height: 240px;
+  }
+
+  .app-tab-banner {
+    background: #ff5a2c;
+    color: #fff;
+    font-size: 10px;
+    padding: 6px 10px;
+    margin: -1px -1px 8px;
+    line-height: 1.5;
+  }
+
+  .app-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    padding: 4px 8px 8px;
+  }
+
+  .app-menu-item {
+    text-align: center;
+    padding: 6px 2px;
+    font-size: 8px;
+    font-weight: 600;
+    color: #333;
+  }
+
+  .app-menu-icon {
+    width: 30px; height: 30px;
+    margin: 0 auto 4px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .app-menu-icon img { max-width: 28px; max-height: 28px; }
+
+  /* Ticket card mockup */
+  .app-ticket-card {
+    background: #FF4D27;
+    color: #fff;
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin: 8px 12px;
+    min-height: 100px;
+  }
+
+  .app-ticket-badge {
+    display: inline-block;
+    background: #fff;
+    color: #FF4D27;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 10px;
+    border-radius: 10px;
+    margin-bottom: 6px;
+  }
+
+  .app-ticket-name {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+
+  .app-ticket-info {
+    font-size: 10px;
+    opacity: .85;
+    display: flex;
+    gap: 12px;
+  }
+
+  /* QR screen mockup */
+  .app-qr-screen {
+    background: #222;
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+  }
+
+  .app-qr-frame {
+    width: 180px; height: 180px;
+    border: 3px solid #fff;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 12px;
+    position: relative;
+  }
+
+  .app-qr-corner {
+    position: absolute;
+    width: 20px; height: 20px;
+    border: 3px solid #FF4D27;
+  }
+
+  .app-qr-corner.tl { top: -3px; left: -3px; border-right: none; border-bottom: none; }
+  .app-qr-corner.tr { top: -3px; right: -3px; border-left: none; border-bottom: none; }
+  .app-qr-corner.bl { bottom: -3px; left: -3px; border-right: none; border-top: none; }
+  .app-qr-corner.br { bottom: -3px; right: -3px; border-left: none; border-top: none; }
+
+  .app-qr-text { font-size: 11px; opacity: .8; }
+
+  /* Success screen mockup */
+  .app-success-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    padding: 24px;
+  }
+
+  .app-success-icon {
+    width: 64px; height: 64px;
+    background: #34c759;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px; color: #fff;
+    margin-bottom: 16px;
+  }
+
+  .app-success-msg {
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 6px;
+  }
+
+  .app-success-sub {
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+  }
+
+  /* Screen gallery */
+  .screen-gallery {
+    display: flex;
+    gap: 24px;
+    overflow-x: auto;
+    padding: 16px 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .screen-gallery::-webkit-scrollbar { height: 6px; }
+  .screen-gallery::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .screen-item {
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .screen-caption {
+    margin-top: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .screen-caption .num {
+    display: inline-block;
+    width: 20px; height: 20px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 10px;
+    line-height: 20px;
+    text-align: center;
+    margin-right: 4px;
+  }
+
+  /* ── FAQ ── */
+  .faq-answer {
+    max-height: 0; overflow: hidden;
+    transition: max-height .35s cubic-bezier(.4,0,.2,1);
+    padding: 0;
+  }
+
+  .card.faq-open .faq-answer {
+    max-height: 200px; padding-top: 8px;
+  }
+
+  .card.faq-open .card-title span:last-child {
+    transform: rotate(180deg);
+    display: inline-block;
+  }
+
+  /* ── Back to Top ── */
+  .back-to-top {
+    position: fixed;
+    bottom: 32px; right: 32px;
+    width: 44px; height: 44px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 50%;
+    font-size: 20px; cursor: pointer;
+    box-shadow: 0 4px 16px rgba(255,107,53,.35);
+    opacity: 0; transform: translateY(20px);
+    transition: all .3s;
+    z-index: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .back-to-top.visible { opacity: 1; transform: translateY(0); }
+  .back-to-top:hover { background: #e85d26; transform: translateY(-2px); }
+
+  /* ── Progress ── */
+  .progress-bar {
+    position: fixed;
+    top: var(--header-h); left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--warning), var(--accent));
+    z-index: 999;
+    transition: width .15s ease-out;
+    border-radius: 0 2px 2px 0;
+  }
+
+  /* ── Overlay ── */
+  .sidebar-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.4);
+    z-index: 850;
+  }
+
+  /* ── Search ── */
+  .search-box { padding: 10px 20px; margin-bottom: 4px; }
+
+  .search-input {
+    width: 100%; padding: 8px 12px 8px 32px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 12.5px; font-family: inherit; outline: none;
+    transition: border-color .2s;
+    background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%236e6e73' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E") no-repeat 10px center;
+  }
+
+  .search-input:focus { border-color: var(--accent); background-color: #fff; }
+  .search-input::placeholder { color: #aaa; }
+
+  /* ── Print ── */
+  @media print {
+    .sidebar, .header, .back-to-top, .progress-bar, .hamburger, .sidebar-overlay { display: none !important; }
+    .main { margin-left: 0; margin-top: 0; padding: 0; max-width: 100%; }
+    body { font-size: 12px; }
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .hamburger { display: block; }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.1); }
+    .sidebar-overlay.open { display: block; }
+    .main { margin-left: 0; padding: 24px 20px 60px; }
+    .hero { padding: 32px 24px; }
+    .hero h1 { font-size: 22px; }
+    .feature-grid { grid-template-columns: repeat(2, 1fr); }
+    .compare-row { grid-template-columns: 1fr; }
+    .flow { flex-wrap: wrap; gap: 6px; }
+  }
+
+  @media (max-width: 480px) {
+    .feature-grid { grid-template-columns: 1fr; }
+    .header-badge { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- Header -->
+<header class="header">
+  <button class="hamburger" id="hamburger" aria-label="メニュー">&#9776;</button>
+  <div class="header-logo">
+    <span class="icon">&#127947;</span>
+    JOYFIT オプション都度利用
+  </div>
+  <span class="header-badge">操作マニュアル</span>
+</header>
+
+<!-- Overlay -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- Sidebar -->
+<nav class="sidebar" id="sidebar">
+  <div class="search-box">
+    <input type="text" class="search-input" id="tocSearch" placeholder="セクションを検索...">
+  </div>
+  <div class="toc-title">目次</div>
+  <ul class="toc-list" id="tocList">
+    <li>
+      <a href="#overview" data-section="overview">
+        <span class="toc-icon" style="background:#fff3ed;color:#ff6b35;">&#128214;</span>
+        オプション都度利用とは
+      </a>
+    </li>
+    <li>
+      <a href="#home-tab" data-section="home-tab">
+        <span class="toc-icon" style="background:#f0e6ff;color:#6c5ce7;">&#127968;</span>
+        ホーム画面・タブ
+      </a>
+    </li>
+    <li>
+      <a href="#purchase" data-section="purchase">
+        <span class="toc-icon" style="background:#e8f5e9;color:#2e7d32;">&#128179;</span>
+        オプション購入
+        <span class="arrow">&#9654;</span>
+      </a>
+      <ul class="toc-sub">
+        <li><a href="#purchase-club">店舗の選択</a></li>
+        <li><a href="#purchase-nearby">近くの店舗を探す</a></li>
+        <li><a href="#purchase-option">オプションの選択</a></li>
+        <li><a href="#purchase-qty">枚数の選択</a></li>
+        <li><a href="#purchase-confirm">内容確認・決済</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#use-ticket" data-section="use-ticket">
+        <span class="toc-icon" style="background:#e3f2fd;color:#1565c0;">&#128247;</span>
+        チケット使用（QR）
+        <span class="arrow">&#9654;</span>
+      </a>
+      <ul class="toc-sub">
+        <li><a href="#use-scan">QRスキャンで入場</a></li>
+        <li><a href="#use-myqr">マイQRコード</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#ticket-list" data-section="ticket-list">
+        <span class="toc-icon" style="background:#f3e5f5;color:#7b1fa2;">&#127903;</span>
+        チケット一覧
+      </a>
+    </li>
+    <li>
+      <a href="#history" data-section="history">
+        <span class="toc-icon" style="background:#efebe9;color:#5d4037;">&#128203;</span>
+        購入・入手履歴
+      </a>
+    </li>
+    <li>
+      <a href="#terms" data-section="terms">
+        <span class="toc-icon" style="background:#e8eaf6;color:#3f51b5;">&#128220;</span>
+        ご利用方法・利用規約
+      </a>
+    </li>
+    <li>
+      <a href="#errors" data-section="errors">
+        <span class="toc-icon" style="background:#ffeceb;color:#ff3b30;">&#9888;</span>
+        エラーと対処法
+      </a>
+    </li>
+    <li>
+      <a href="#faq" data-section="faq">
+        <span class="toc-icon" style="background:#fef8ec;color:#f5a623;">&#10067;</span>
+        よくある質問
+      </a>
+    </li>
+  </ul>
+</nav>
+
+<!-- Main -->
+<main class="main" id="mainContent">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>&#127947; オプション都度利用<br>操作マニュアル</h1>
+    <p>施設ご利用中の会員様が購入できるオプション都度利用チケットの<br>購入から利用までの操作方法をご案内します。</p>
+    <div class="badge-row">
+      <span>会員限定機能</span>
+      <span>Ver 1.0 &mdash; 2026年4月</span>
+    </div>
+  </div>
+
+  <!-- Overview -->
+  <section id="overview">
+    <h2>
+      <span class="section-icon" style="background:#fff3ed;color:#ff6b35;">&#128214;</span>
+      オプション都度利用とは
+    </h2>
+    <p>「オプション都度利用」は、JOYFIT<strong>会員様限定</strong>の機能です。施設ご利用中に、通常の会員プランには含まれないオプションサービスを都度購入してご利用いただけます。</p>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">&#128161;</span>
+      <div>
+        <strong>WellnessPass（法人チケット）との違い</strong><br>
+        WellnessPassは法人向けに配布されるクーポン経由の利用チケットです。オプション都度利用は、会員様がアプリ上でオプションを直接購入してご利用いただくサービスです。
+      </div>
+    </div>
+
+    <h3>&#128204; オプション都度利用タブで使える機能</h3>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#e8f5e9;color:#2e7d32;">&#128179;</div>
+        <h4>オプション購入</h4>
+        <p>店舗を選んでオプションを購入</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#fff3ed;color:#ff6b35;">&#128247;</div>
+        <h4>チケット使用</h4>
+        <p>QRスキャンでチケットを使用</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#e3f2fd;color:#1565c0;">&#128290;</div>
+        <h4>マイQRコード</h4>
+        <p>スタッフ提示用QRを表示</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#f3e5f5;color:#7b1fa2;">&#127903;</div>
+        <h4>チケット一覧</h4>
+        <p>保有チケットを確認</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#efebe9;color:#5d4037;">&#128203;</div>
+        <h4>購入・入手履歴</h4>
+        <p>過去の購入履歴を確認</p>
+      </div>
+      <div class="feature-card">
+        <div class="feat-icon" style="background:#e8eaf6;color:#3f51b5;">&#128220;</div>
+        <h4>ご利用方法・利用規約</h4>
+        <p>規約の確認</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Home Tab -->
+  <section id="home-tab">
+    <h2>
+      <span class="section-icon" style="background:#f0e6ff;color:#6c5ce7;">&#127968;</span>
+      ホーム画面・タブ切り替え
+    </h2>
+    <div class="card">
+      <div class="card-title">&#128204; オプション都度利用タブへのアクセス</div>
+      <ol class="steps">
+        <li>
+          <div class="step-title">ホーム画面を表示</div>
+          <div class="step-desc">アプリにアクセスすると、最初にホーム画面が表示されます。上部にチケットのカルーセル、下部にタブとメニューがあります。</div>
+        </li>
+        <li>
+          <div class="step-title">「オプション都度利用」タブをタップ</div>
+          <div class="step-desc">画面下部のタブ切り替えエリアで<strong>「オプション都度利用」</strong>をタップします。このタブは会員の方にのみ表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">メニューから操作を選択</div>
+          <div class="step-desc">オプション都度利用専用のメニューが表示されます。各ボタンをタップして操作を行います。</div>
+        </li>
+      </ol>
+    </div>
+
+    <!-- Screen: Home Tab -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header">&#127947; デジタルチケット</div>
+          <div class="phone-body">
+            <!-- Ticket carousel -->
+            <div style="background:linear-gradient(180deg,#f0e0d6 0%,#fff 100%);padding:12px;">
+              <div class="app-ticket-card">
+                <div class="app-ticket-badge">未使用</div>
+                <div class="app-ticket-name">水素水 オプション</div>
+                <div class="app-ticket-info">
+                  <span>2026 04.22</span>
+                  <span>(水)まで有効</span>
+                </div>
+                <div style="text-align:right;font-size:10px;margin-top:8px;opacity:.8;">チケットを見る &#10132;</div>
+              </div>
+            </div>
+            <!-- Tabs -->
+            <div style="padding:0 12px;">
+              <div class="app-tabs">
+                <div class="app-tab">WellnessPass</div>
+                <div class="app-tab active">オプション都度利用</div>
+              </div>
+              <div class="app-tab-content">
+                <div class="app-tab-banner">施設ご利用中の方が購入できるオプション都度利用チケット</div>
+                <div class="app-menu-grid">
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/qr.svg" alt="QR"></div>チケット使用</div>
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/buyOption.svg" alt="購入"></div>オプション購入</div>
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/story.svg" alt="一覧"></div>チケット一覧</div>
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/myqr.svg" alt="QR"></div>マイQRコード</div>
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/history.svg" alt="履歴"></div>購入・入手履歴</div>
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/privacy.svg" alt="方法"></div>ご利用方法</div>
+                </div>
+                <div class="app-menu-grid" style="padding-top:0;">
+                  <div class="app-menu-item"><div class="app-menu-icon"><img src="assets/img/term.svg" alt="規約"></div>利用規約</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">&#127968;</span>ホーム画面（オプション都度利用タブ）</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">&#128196; メニューボタン一覧</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ボタン</th><th>機能</th><th>説明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>&#128247; チケット使用</td><td>QRスキャン</td><td>施設のQRコードを読み取って入場</td></tr>
+            <tr><td>&#128179; オプション購入</td><td>購入画面</td><td>オプションチケットの購入</td></tr>
+            <tr><td>&#127903; チケット一覧</td><td>一覧画面</td><td>保有チケットの確認</td></tr>
+            <tr><td>&#128290; マイQRコード</td><td>QR表示</td><td>スタッフ提示用QRの表示</td></tr>
+            <tr><td>&#128203; 購入・入手履歴</td><td>履歴画面</td><td>過去の購入履歴を確認</td></tr>
+            <tr><td>&#128220; ご利用方法</td><td>PDF表示</td><td>ご利用方法のPDFを表示</td></tr>
+            <tr><td>&#128220; 利用規約</td><td>PDF表示</td><td>利用規約のPDFを表示</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Purchase -->
+  <section id="purchase">
+    <h2>
+      <span class="section-icon" style="background:#e8f5e9;color:#2e7d32;">&#128179;</span>
+      オプション購入
+    </h2>
+    <p>オプション都度利用チケットを購入する手順を説明します。購入は<strong>店舗選択 → オプション選択 → 枚数選択 → 内容確認 → 決済</strong>の流れで行います。</p>
+
+    <div class="flow">
+      <span class="flow-step">ホーム</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">店舗選択</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">オプション選択</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">枚数選択</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step highlight">確認・決済</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step success">購入完了</span>
+    </div>
+
+    <!-- Club Selection -->
+    <h3 id="purchase-club">&#127970; 店舗の選択</h3>
+    <div class="card">
+      <div class="card-title">エリアから店舗を探す</div>
+      <p>店舗は<strong>地域 → 都道府県 → 店舗</strong>の3段階で選択します。各選択肢が1件しかない場合は自動的に選択されます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">「地域選択」をタップ</div>
+          <div class="step-desc">ドロップダウンが開き、地域一覧（関東、関西、北海道・東北など）が表示されます。利用したい地域をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">「都道府県選択」をタップ</div>
+          <div class="step-desc">選択した地域内の都道府県一覧が表示されます。都道府県をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">「店舗選択」をタップ</div>
+          <div class="step-desc">都道府県内の利用可能な店舗が表示されます。利用する店舗をタップします。</div>
+        </li>
+      </ol>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">&#128161;</span>
+        <div>
+          <strong>自動選択について</strong><br>
+          地域内に都道府県が1つ、または都道府県内に店舗が1つしかない場合は、自動的にその項目が選択されます。すべての選択を手動で行う必要はありません。
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: Store Selection -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> オプション購入</div>
+          <div class="phone-body">
+            <div class="app-bg-red" style="padding-top:16px;">
+              <div class="app-card" style="margin-top:24px;">
+                <div class="app-icon-circle">&#127903;</div>
+                <div class="app-card-title">オプション購入</div>
+                <div style="padding:0 8px;">
+                  <div class="app-label">ご利用可能店舗検索</div>
+                  <div class="app-label-left">エリアから探す</div>
+                  <div class="app-dropdown placeholder">地域選択</div>
+                  <div style="margin:12px 0 0;"><div class="app-search-btn">&#128269; 近くの店舗を探す</div></div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:12px 16px;">
+              <div class="app-purchase-btn disabled">購入 &#10132;</div>
+              <div class="app-back-link">前のページに戻る</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">1</span>初期画面</div>
+      </div>
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> オプション購入</div>
+          <div class="phone-body">
+            <div class="app-bg-red" style="padding-top:16px;">
+              <div class="app-card" style="margin-top:24px;">
+                <div class="app-icon-circle">&#127903;</div>
+                <div class="app-card-title">オプション購入</div>
+                <div style="padding:0 8px;">
+                  <div class="app-label">ご利用可能店舗検索</div>
+                  <div class="app-label-left">エリアから探す</div>
+                  <div class="app-dropdown" style="border-color:#FFB600;">関東</div>
+                  <div class="app-dropdown" style="border-color:#FFB600;">東京都</div>
+                  <div class="app-dropdown" style="border-color:#FFB600;">JOYFIT24 新宿新都心</div>
+                  <div class="app-hr" style="margin:10px 0;"></div>
+                  <div class="app-search-btn">&#128269; 近くの店舗を探す</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">2</span>店舗を選択した状態</div>
+      </div>
+    </div>
+
+    <!-- Nearby -->
+    <h3 id="purchase-nearby">&#128205; 近くの店舗を探す</h3>
+    <div class="card">
+      <div class="card-title">位置情報で自動選択</div>
+      <p>手動で店舗を探す代わりに、現在地から近い店舗を自動検索できます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">「近くの店舗を探す」ボタンをタップ</div>
+          <div class="step-desc">画面の店舗検索エリアにある検索ボタンをタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">位置情報の許可</div>
+          <div class="step-desc">初回はブラウザから位置情報へのアクセス許可を求められます。「許可」をタップしてください。</div>
+        </li>
+        <li>
+          <div class="step-title">自動で店舗が選択される</div>
+          <div class="step-desc">半径10km以内で最寄りの利用可能店舗が自動的に選択され、地域・都道府県・店舗が一括で設定されます。</div>
+        </li>
+      </ol>
+
+      <div class="callout callout-warning">
+        <span class="callout-icon">&#9888;&#65039;</span>
+        <div>
+          <strong>「近くに利用可能な店舗がありません」と表示された場合</strong><br>
+          半径10km以内にオプション対応の店舗がない場合に表示されます。「エリアから探す」で手動選択してください。
+        </div>
+      </div>
+    </div>
+
+    <!-- Option Selection -->
+    <h3 id="purchase-option">&#127903; オプションの選択</h3>
+    <div class="card">
+      <div class="card-title">オプション種別を選ぶ</div>
+      <p>店舗を選択すると、その店舗で利用可能なオプション一覧がラジオボタン形式で表示されます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">オプション一覧の表示</div>
+          <div class="step-desc">店舗の選択が完了すると「オプションの選択」セクションが表示されます。各オプションの名称が表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">オプションをタップして選択</div>
+          <div class="step-desc">利用したいオプションのラジオボタンをタップします。選択すると料金が下部に表示されます。</div>
+        </li>
+      </ol>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">&#128161;</span>
+        <div>
+          <strong>グレーアウト表示のオプション</strong><br>
+          一部のオプションはグレーアウトされタップできない場合があります。これは現在その店舗で提供されていないオプションを示します。
+        </div>
+      </div>
+    </div>
+
+    <!-- Quantity -->
+    <h3 id="purchase-qty">&#128290; 購入枚数の選択</h3>
+    <div class="card">
+      <div class="card-title">枚数を選ぶ（1〜6枚）</div>
+      <p>オプションを選択すると「購入枚数の選択」が表示されます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">枚数ドロップダウンをタップ</div>
+          <div class="step-desc">初期値は「1枚」です。変更する場合はドロップダウンをタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">枚数を選択</div>
+          <div class="step-desc">1枚〜6枚から選択します。合計金額が自動で更新されます。</div>
+        </li>
+      </ol>
+      <div class="callout callout-success">
+        <span class="callout-icon">&#128176;</span>
+        <div>
+          <strong>合計金額の計算</strong><br>
+          合計金額 = オプション単価 &times; 枚数 で自動計算されます。金額は税込で表示されます。
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirm & Pay -->
+    <h3 id="purchase-confirm">&#128179; 内容確認・決済</h3>
+    <div class="card">
+      <div class="card-title">購入内容を確認して決済する</div>
+      <p>オプションと枚数を選択すると、画面下部に「内容のご確認」セクションが表示されます。</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>表示項目</th><th>内容</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>オプション</strong></td><td>選択したオプション名 &times; 枚数</td></tr>
+            <tr><td><strong>ご請求額</strong></td><td>合計金額（税込）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <ol class="steps">
+        <li>
+          <div class="step-title">購入内容を確認</div>
+          <div class="step-desc">「内容のご確認」セクションでオプション名、枚数、合計金額を確認します。</div>
+        </li>
+        <li>
+          <div class="step-title">「購入」ボタンをタップ</div>
+          <div class="step-desc">画面最下部のオレンジ色の「購入」ボタンをタップします。ボタンがグレーの場合は選択が不完全です。</div>
+        </li>
+        <li>
+          <div class="step-title">確認ダイアログで規約に同意</div>
+          <div class="step-desc">ポップアップが表示されます。<strong>利用規約へのリンクを確認</strong>し、「同意しました」のチェックボックスにチェックを入れます。</div>
+        </li>
+        <li>
+          <div class="step-title">「購入する」をタップ</div>
+          <div class="step-desc">確認ダイアログ内の「購入する」ボタンをタップします（規約同意前はグレーでタップ不可）。</div>
+        </li>
+        <li>
+          <div class="step-title">決済画面で支払い</div>
+          <div class="step-desc">外部決済サイト（SBPS）に遷移します。画面の指示に従い決済情報を入力して決済を完了してください。</div>
+        </li>
+        <li>
+          <div class="step-title">購入完了</div>
+          <div class="step-desc">決済成功後、自動的にアプリに戻り完了画面が表示されます。チケットがアカウントに追加されます。</div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="callout callout-danger">
+      <span class="callout-icon">&#128680;</span>
+      <div>
+        <strong>返金不可</strong><br>
+        理由の如何を問わず、購入したチケットの返金は受け付けておりません。購入内容をよくご確認のうえ決済を行ってください。
+      </div>
+    </div>
+
+    <!-- Screen: Full Purchase Flow -->
+    <h3>&#128241; 画面イメージ（購入の全体フロー）</h3>
+    <div class="screen-gallery">
+      <!-- Screen 3: Option Selected -->
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> オプション購入</div>
+          <div class="phone-body">
+            <div class="app-bg-red" style="padding-top:16px;">
+              <div class="app-card" style="margin-top:24px;">
+                <div class="app-icon-circle">&#127903;</div>
+                <div class="app-card-title">オプション購入</div>
+                <div style="padding:0 8px;">
+                  <div class="app-label">ご利用可能店舗検索</div>
+                  <div class="app-label-left">エリアから探す</div>
+                  <div class="app-dropdown">関東</div>
+                  <div class="app-dropdown">東京都</div>
+                  <div class="app-dropdown">JOYFIT24 新宿新都心</div>
+                  <div class="app-hr" style="margin:12px 0;"></div>
+                  <div class="app-search-btn">&#128269; 近くの店舗を探す</div>
+                  <div style="margin-top:16px;">
+                    <div class="app-label">オプションの選択</div>
+                    <div class="app-radio-row"><div class="app-radio on"></div>水素水 オプション</div>
+                    <div class="app-radio-row"><div class="app-radio"></div>タンニング オプション</div>
+                    <div class="app-radio-row disabled"><div class="app-radio"></div><span style="color:#ccc;">コラーゲンマシン</span></div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <div class="app-label">購入枚数の選択</div>
+                    <div class="app-qty-dropdown">1枚</div>
+                  </div>
+                </div>
+              </div>
+              <!-- Confirmation card -->
+              <div class="app-card">
+                <div class="app-confirm-bar">内容のご確認</div>
+                <div style="padding:0 4px;">
+                  <div class="app-confirm-row"><span class="label">オプション</span><span class="val">水素水 オプション &times; 1枚</span></div>
+                  <div class="app-hr"></div>
+                  <div class="app-confirm-row"><span class="label">ご請求額</span><span class="val">1,100円<span style="font-size:10px;font-weight:400;">（税込）</span></span></div>
+                  <div class="app-hr"></div>
+                  <div class="app-notice">理由の如何を問わず、購入チケットの返金は受け付けておりません。</div>
+                </div>
+              </div>
+            </div>
+            <div style="padding:8px 16px;">
+              <div class="app-purchase-btn">購入 &#10132;</div>
+              <div class="app-back-link">前のページに戻る</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">3</span>オプション選択・確認</div>
+      </div>
+
+      <!-- Screen 4: Modal -->
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> オプション購入</div>
+          <div class="phone-body">
+            <div class="app-modal-overlay" style="min-height:420px;">
+              <div class="app-modal-box">
+                <div class="app-modal-close">&times;</div>
+                <div style="font-size:11px;text-align:center;color:#666;margin-bottom:4px;">ご利用に際しての<span class="app-term-link">規約</span>をご確認いただき<br>同意してください。</div>
+                <div class="app-checkbox-row">
+                  <div class="app-checkbox checked">&#10003;</div>
+                  <span style="font-weight:600;">同意しました</span>
+                </div>
+                <div style="height:1px;background:#eee;margin:10px 0;"></div>
+                <div class="app-modal-text">水素水 オプションを購入します。<br>本当によろしいですか？</div>
+                <div class="app-modal-btns">
+                  <div class="app-modal-btn cancel">キャンセル</div>
+                  <div class="app-modal-btn confirm">購入する</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">4</span>確認ダイアログ</div>
+      </div>
+
+      <!-- Screen 5: Success -->
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header">完了</div>
+          <div class="phone-body">
+            <div class="app-success-screen">
+              <div class="app-success-icon">&#10003;</div>
+              <div class="app-success-msg">購入が完了しました</div>
+              <div class="app-success-sub">チケットがアカウントに追加されました。<br>チケット一覧からご確認いただけます。</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">5</span>購入完了</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Use Ticket -->
+  <section id="use-ticket">
+    <h2>
+      <span class="section-icon" style="background:#e3f2fd;color:#1565c0;">&#128247;</span>
+      チケット使用
+    </h2>
+    <p>購入したオプションチケットを施設で使用する方法です。</p>
+
+    <h3 id="use-scan">&#128248; QRスキャンで入場</h3>
+    <div class="card">
+      <div class="card-title">施設のQRコードを読み取って利用する</div>
+      <ol class="steps">
+        <li>
+          <div class="step-title">「チケット使用」をタップ</div>
+          <div class="step-desc">オプション都度利用タブのメニューから「チケット使用」をタップします。カメラが起動します。</div>
+        </li>
+        <li>
+          <div class="step-title">カメラの許可</div>
+          <div class="step-desc">初回はブラウザからカメラの使用許可を求められます。「許可」をタップしてください。</div>
+        </li>
+        <li>
+          <div class="step-title">QRコードをスキャン</div>
+          <div class="step-desc">施設に掲示されているQRコードにカメラをかざします。自動で読み取りが行われます。</div>
+        </li>
+        <li>
+          <div class="step-title">利用枚数の選択（複数保有時）</div>
+          <div class="step-desc">対象のチケットが複数ある場合は、チケット詳細画面が表示されます。使用枚数を選んで「使用する」をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">利用完了</div>
+          <div class="step-desc">完了画面が表示され、使用したチケットの枚数が確認できます。</div>
+        </li>
+      </ol>
+    </div>
+
+    <div class="flow">
+      <span class="flow-step">チケット使用</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">カメラ起動</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step highlight">QR読み取り</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step">枚数選択</span>
+      <span class="flow-arrow">&#10132;</span>
+      <span class="flow-step success">利用完了</span>
+    </div>
+
+    <div class="callout callout-danger">
+      <span class="callout-icon">&#128680;</span>
+      <div>
+        <strong>使い切り制です</strong><br>
+        チケットは使用すると消費され、元に戻すことはできません。利用枚数を確認のうえ「使用する」をタップしてください。
+      </div>
+    </div>
+
+    <!-- Screen: QR Scan & Use -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> チケット使用</div>
+          <div class="phone-body">
+            <div class="app-qr-screen">
+              <div class="app-qr-frame">
+                <div class="app-qr-corner tl"></div>
+                <div class="app-qr-corner tr"></div>
+                <div class="app-qr-corner bl"></div>
+                <div class="app-qr-corner br"></div>
+                <svg width="80" height="80" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:.3;">
+                  <path d="M12 8V12H8V8H12ZM13 7H7V13H13V7Z" fill="white"/>
+                  <path d="M24 8V12H20V8H24ZM25 7H19V13H25V7Z" fill="white"/>
+                  <path d="M12 20V24H8V20H12ZM13 19H7V25H13V19Z" fill="white"/>
+                  <path d="M17 7H15V9H17V7Z" fill="white"/><path d="M17 9H15V11H17V9Z" fill="white"/>
+                  <path d="M17 11H15V13H17V11Z" fill="white"/><path d="M17 15H15V17H17V15Z" fill="white"/>
+                  <path d="M21 15H19V17H21V15Z" fill="white"/><path d="M25 15H23V17H25V15Z" fill="white"/>
+                  <path d="M19 19H17V21H19V19Z" fill="white"/><path d="M17 19H15V21H17V19Z" fill="white"/>
+                  <path d="M25 19H23V21H25V19Z" fill="white"/><path d="M25 21H23V23H25V21Z" fill="white"/>
+                  <path d="M19 21H17V23H19V21Z" fill="white"/><path d="M17 23H15V25H17V23Z" fill="white"/>
+                  <path d="M25 23H23V25H25V23Z" fill="white"/>
+                </svg>
+              </div>
+              <div class="app-qr-text">QRコードをかざしてください</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">1</span>QRスキャン画面</div>
+      </div>
+
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> チケット使用</div>
+          <div class="phone-body">
+            <div style="padding:16px;">
+              <div class="app-modal-overlay" style="min-height:0;background:none;padding:0;">
+                <div class="app-modal-box" style="box-shadow:none;border:1px solid #eee;">
+                  <div class="app-modal-text" style="font-weight:700;">水素水 オプションを使用します。<br>ご使用になるチケットの枚数を選んでください。</div>
+                  <div style="text-align:center;margin:12px 0;">
+                    <div class="app-qty-dropdown">1枚</div>
+                  </div>
+                  <div class="app-modal-text" style="font-size:11px;color:#888;">ご利用は使い切りとなりますがよろしいですか？</div>
+                  <div class="app-modal-btns">
+                    <div class="app-modal-btn cancel">キャンセル</div>
+                    <div class="app-modal-btn confirm">使用する</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">2</span>枚数選択ダイアログ</div>
+      </div>
+
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header">完了</div>
+          <div class="phone-body">
+            <div class="app-success-screen">
+              <div class="app-success-icon">&#10003;</div>
+              <div class="app-success-msg">チケットを使用しました</div>
+              <div class="app-success-sub">水素水 オプション &times; 1枚</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">3</span>利用完了画面</div>
+      </div>
+    </div>
+
+    <h3 id="use-myqr">&#128290; マイQRコード</h3>
+    <div class="card">
+      <div class="card-title">スタッフに提示してチケットを使用する</div>
+      <p>パートナーチケットなど、QRコード提示型のチケットはマイQRコード機能を使います。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">「マイQRコード」をタップ</div>
+          <div class="step-desc">対象チケット一覧が表示されます。QR表示に対応したチケットのみ表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">チケットを選択</div>
+          <div class="step-desc">使用したいチケットをタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">確認ダイアログで「使用する」をタップ</div>
+          <div class="step-desc">「30秒間だけ表示され、失効します」という注意が表示されます。確認後「使用する」をタップします。</div>
+        </li>
+        <li>
+          <div class="step-title">QRコードをスタッフに提示</div>
+          <div class="step-desc">画面にQRコードと<strong>30秒のカウントダウン</strong>が表示されます。制限時間内にスタッフまたはQRリーダーに提示してください。</div>
+        </li>
+      </ol>
+
+      <div class="callout callout-warning">
+        <span class="callout-icon">&#9203;</span>
+        <div>
+          <strong>30秒の制限時間</strong><br>
+          QRコードは30秒で自動的に失効し、チケットが消費されます。事前にスタッフの準備ができてから「使用する」をタップすることをおすすめします。
+        </div>
+      </div>
+    </div>
+
+    <!-- Screen: MyQR -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> マイQRコード</div>
+          <div class="phone-body">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;padding:24px;">
+              <div style="font-size:13px;font-weight:700;margin-bottom:16px;">QRコードをリーダーにかざしてください</div>
+              <div style="width:160px;height:160px;background:#f9f9f9;border:2px solid #333;border-radius:8px;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+                <svg width="120" height="120" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 8V12H8V8H12ZM13 7H7V13H13V7Z" fill="#333"/>
+                  <path d="M24 8V12H20V8H24ZM25 7H19V13H25V7Z" fill="#333"/>
+                  <path d="M12 20V24H8V20H12ZM13 19H7V25H13V19Z" fill="#333"/>
+                  <path d="M17 7H15V9H17V7Z" fill="#333"/><path d="M17 9H15V11H17V9Z" fill="#333"/>
+                  <path d="M17 11H15V13H17V11Z" fill="#333"/><path d="M13 15H11V17H13V15Z" fill="#333"/>
+                  <path d="M17 15H15V17H17V15Z" fill="#333"/><path d="M21 15H19V17H21V15Z" fill="#333"/>
+                  <path d="M25 15H23V17H25V15Z" fill="#333"/><path d="M9 15H7V17H9V15Z" fill="#333"/>
+                  <path d="M19 19H17V21H19V19Z" fill="#333"/><path d="M23 17H21V19H23V17Z" fill="#333"/>
+                  <path d="M17 19H15V21H17V19Z" fill="#333"/><path d="M25 19H23V21H25V19Z" fill="#333"/>
+                  <path d="M25 21H23V23H25V21Z" fill="#333"/><path d="M19 21H17V23H19V21Z" fill="#333"/>
+                  <path d="M17 23H15V25H17V23Z" fill="#333"/><path d="M21 23H19V25H21V23Z" fill="#333"/>
+                  <path d="M25 23H23V25H25V23Z" fill="#333"/>
+                </svg>
+              </div>
+              <div style="position:relative;width:120px;height:120px;margin-bottom:12px;">
+                <svg viewBox="0 0 120 120" width="120" height="120">
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="#eee" stroke-width="8"/>
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="#FFB600" stroke-width="8"
+                    stroke-dasharray="260 340" stroke-dashoffset="-85"
+                    stroke-linecap="round" transform="rotate(-90 60 60)"/>
+                </svg>
+                <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:32px;font-weight:700;color:#333;">24</div>
+              </div>
+              <div style="font-size:11px;color:#888;">残り時間</div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">&#128290;</span>マイQRコード表示</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Ticket List -->
+  <section id="ticket-list">
+    <h2>
+      <span class="section-icon" style="background:#f3e5f5;color:#7b1fa2;">&#127903;</span>
+      チケット一覧
+    </h2>
+    <div class="card">
+      <div class="card-title">&#128196; 保有チケットの確認</div>
+      <p>「チケット一覧」をタップすると、保有するすべてのチケットが表示されます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">チケットカードの確認</div>
+          <div class="step-desc">各チケットがカード形式で表示され、チケット名、ステータス（未使用・利用中・利用済など）、有効期限が一目で確認できます。</div>
+        </li>
+        <li>
+          <div class="step-title">タップして詳細表示</div>
+          <div class="step-desc">チケットをタップすると詳細画面に遷移し、チケット名、利用日、有効期限、利用店舗などの情報が確認できます。</div>
+        </li>
+        <li>
+          <div class="step-title">スクロールで追加読み込み</div>
+          <div class="step-desc">チケットが多い場合は、画面下部まで自動スクロールで次のページが読み込まれます。</div>
+        </li>
+      </ol>
+    </div>
+
+    <!-- Screen: Ticket List -->
+    <div class="screen-gallery">
+      <div class="screen-item">
+        <div class="phone"><div class="phone-inner">
+          <div class="phone-notch"></div>
+          <div class="phone-header"><span class="back-arrow">&#8249;</span> チケット一覧</div>
+          <div class="phone-body">
+            <div style="padding:12px;">
+              <!-- Ticket 1: active -->
+              <div style="background:#FF4D27;color:#fff;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+                <div style="display:inline-block;background:#fff;color:#FF4D27;font-size:9px;font-weight:700;padding:2px 10px;border-radius:10px;margin-bottom:6px;">未使用</div>
+                <div style="font-size:14px;font-weight:700;">水素水 オプション</div>
+                <div style="font-size:10px;opacity:.85;display:flex;gap:8px;margin-top:2px;">
+                  <span>2026</span><span style="font-size:18px;font-weight:600;">04.30</span><span>(木)まで有効</span>
+                </div>
+                <div style="font-size:9px;margin-top:4px;opacity:.8;">ご利用店舗　JOYFIT24 新宿新都心</div>
+                <div style="text-align:right;font-size:10px;margin-top:4px;">チケットを見る &#10132;</div>
+              </div>
+              <!-- Ticket 2: using -->
+              <div style="background:#FEE9DE;color:#FF4D27;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+                <div style="display:inline-block;background:#fff;color:#FF4D27;font-size:9px;font-weight:700;padding:2px 10px;border-radius:10px;margin-bottom:6px;">利用中</div>
+                <div style="font-size:14px;font-weight:700;color:#333;">タンニング オプション</div>
+                <div style="font-size:10px;color:#666;display:flex;gap:8px;margin-top:2px;">
+                  <span>2026</span><span style="font-size:18px;font-weight:600;color:#333;">04.22</span><span>(火)まで有効</span>
+                </div>
+                <div style="font-size:9px;margin-top:4px;color:#888;">ご利用店舗　JOYFIT24 新宿新都心</div>
+                <div style="text-align:right;font-size:10px;margin-top:4px;color:#333;">チケットを見る &#10132;</div>
+              </div>
+              <!-- Ticket 3: finished -->
+              <div style="background:#f5f5f5;color:#999;border-radius:12px;padding:12px 14px;margin-bottom:10px;">
+                <div style="display:inline-block;background:#999;color:#fff;font-size:9px;font-weight:700;padding:2px 10px;border-radius:10px;margin-bottom:6px;">利用済</div>
+                <div style="font-size:14px;font-weight:700;color:#999;">水素水 オプション</div>
+                <div style="font-size:10px;display:flex;gap:8px;margin-top:2px;">
+                  <span>2026</span><span style="font-size:18px;font-weight:600;">04.15</span><span>(火)利用</span>
+                </div>
+                <div style="font-size:9px;margin-top:4px;">ご利用店舗　JOYFIT24 新宿新都心</div>
+                <div style="text-align:right;font-size:10px;margin-top:4px;color:#666;">チケットを見る &#10132;</div>
+              </div>
+            </div>
+          </div>
+        </div></div>
+        <div class="screen-caption"><span class="num">&#127903;</span>チケット一覧画面</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">&#127991; チケットステータスの見方</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>ステータス</th><th>色</th><th>説明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>未使用</strong></td><td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#e8f5e9;vertical-align:middle;"></span> ピンク系カード</td><td>まだ使用されていないチケット。QRスキャンで利用可能</td></tr>
+            <tr><td><strong>利用中</strong></td><td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#e3f2fd;vertical-align:middle;"></span> 通常カード</td><td>現在使用中のチケット</td></tr>
+            <tr><td><strong>利用済</strong></td><td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:#e0e0e0;vertical-align:middle;"></span> グレーカード</td><td>使用が完了したチケット</td></tr>
+            <tr><td><strong>期限切れ</strong></td><td>&#8212;</td><td>有効期限が過ぎたチケット</td></tr>
+            <tr><td><strong>返金済み</strong></td><td>&#8212;</td><td>返金処理されたチケット</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="history">
+    <h2>
+      <span class="section-icon" style="background:#efebe9;color:#5d4037;">&#128203;</span>
+      購入・入手履歴
+    </h2>
+    <div class="card">
+      <div class="card-title">&#128197; 購入履歴の確認</div>
+      <p>「購入・入手履歴」をタップすると、過去のチケット取得履歴がグループ（取引単位）で表示されます。</p>
+      <ol class="steps">
+        <li>
+          <div class="step-title">履歴一覧の表示</div>
+          <div class="step-desc">購入日・取得日ごとにまとまった履歴カードが時系列で表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">履歴カードの内容</div>
+          <div class="step-desc">各カードには取得日、チケット名、枚数が表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">タップで詳細表示</div>
+          <div class="step-desc">カードをタップすると、その取引に含まれるチケットの一覧が表示されます。</div>
+        </li>
+        <li>
+          <div class="step-title">スクロールで追加読み込み</div>
+          <div class="step-desc">履歴が多い場合は下方向にスクロールすると自動で読み込まれます。</div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- Terms -->
+  <section id="terms">
+    <h2>
+      <span class="section-icon" style="background:#e8eaf6;color:#3f51b5;">&#128220;</span>
+      ご利用方法・利用規約
+    </h2>
+    <div class="card">
+      <p>オプション都度利用タブのメニューに「ご利用方法」と「利用規約」のボタンがあります。タップするとPDFファイルが外部ブラウザで表示されます。</p>
+      <div class="callout callout-info">
+        <span class="callout-icon">&#128196;</span>
+        <div>
+          <strong>購入前に必ずご確認ください</strong><br>
+          購入時の確認ダイアログでも規約への同意が求められます。事前にご一読いただくことをおすすめします。
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Errors -->
+  <section id="errors">
+    <h2>
+      <span class="section-icon" style="background:#ffeceb;color:#ff3b30;">&#9888;</span>
+      エラーと対処法
+    </h2>
+
+    <div class="card">
+      <div class="card-title" style="color:#c62828;">&#128179; 購入関連のエラー</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>状況</th><th>原因</th><th>対処法</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>「購入」ボタンがグレーでタップできない</td>
+              <td>店舗・オプション選択が未完了</td>
+              <td>店舗とオプションをすべて選択してください</td>
+            </tr>
+            <tr>
+              <td>確認ダイアログの「購入する」がグレー</td>
+              <td>規約に同意していない</td>
+              <td>「同意しました」のチェックボックスにチェックを入れてください</td>
+            </tr>
+            <tr>
+              <td>決済がキャンセルされました</td>
+              <td>決済画面でキャンセル操作</td>
+              <td>再度購入手続きを行ってください（課金はされていません）</td>
+            </tr>
+            <tr>
+              <td>決済でエラーが発生しました</td>
+              <td>決済処理の失敗</td>
+              <td>時間をおいて再度お試しください</td>
+            </tr>
+            <tr>
+              <td>エラー画面に遷移する</td>
+              <td>通信エラーまたはサーバーエラー</td>
+              <td>ネットワーク環境を確認し、再度お試しください</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="color:#c62828;">&#128247; チケット使用のエラー</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>エラーメッセージ</th><th>原因</th><th>対処法</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>QRの読み取りでエラーが発生しました</td>
+              <td>QRコードの読み取り失敗</td>
+              <td>カメラ位置を調整し、QRコードが画面中央に来るようにしてください</td>
+            </tr>
+            <tr>
+              <td>ご利用可能なチケットが見つかりませんでした</td>
+              <td>利用可能なチケットがない</td>
+              <td>チケット一覧でステータスと有効期限を確認してください</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="color:#c62828;">&#128205; 店舗検索のエラー</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>エラーメッセージ</th><th>原因</th><th>対処法</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>近くに利用可能な店舗がありません</td>
+              <td>10km以内にオプション対応店舗がない</td>
+              <td>「エリアから探す」で手動選択してください</td>
+            </tr>
+            <tr>
+              <td>Permission denied</td>
+              <td>位置情報が許可されていない</td>
+              <td>ブラウザの設定から位置情報の使用を許可してください</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" style="color:#c62828;">&#128274; セッション関連</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>エラーメッセージ</th><th>原因</th><th>対処法</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>URLの有効期限が切れました</td>
+              <td>セッション期限切れ（401エラー）</td>
+              <td>会員ポータルから再度アクセスしてください</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq">
+    <h2>
+      <span class="section-icon" style="background:#fef8ec;color:#f5a623;">&#10067;</span>
+      よくある質問
+    </h2>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; オプション都度利用は非会員でも使えますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>いいえ、オプション都度利用は<strong>会員限定</strong>の機能です。ホーム画面の「オプション都度利用」タブは会員の方にのみ表示されます。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 購入したオプションに有効期限はありますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>はい、チケットには有効期限が設定されています。チケット一覧画面やチケット詳細画面で有効期限を確認できます。期限を過ぎるとチケットは失効し使用できなくなります。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 返金はできますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>理由の如何を問わず、購入済みチケットの返金は受け付けておりません。購入前に内容をよくご確認ください。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 一度に最大何枚まで購入できますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>1回の購入で最大<strong>6枚</strong>まで購入可能です。それ以上必要な場合は、複数回に分けて購入してください。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 他の店舗のオプションも購入できますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>はい、オプション都度利用に対応している店舗であれば、在籍店舗以外のオプションも購入可能です。「エリアから探す」または「近くの店舗を探す」で店舗を選択してください。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; 決済画面でキャンセルした場合、課金されますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>いいえ、決済画面でキャンセルした場合は課金されません。エラー画面が表示されますが、再度購入手続きをやり直すことができます。</p>
+      </div>
+    </div>
+
+    <div class="card" onclick="this.classList.toggle('faq-open')">
+      <div class="card-title" style="cursor:pointer;">
+        &#128172; オプションチケットを他の人に譲渡できますか？
+        <span style="margin-left:auto;font-size:12px;color:var(--text-secondary);">&#9660;</span>
+      </div>
+      <div class="faq-answer">
+        <p>オプション都度利用タブには譲渡メニューがありません。チケット譲渡機能はWellnessPassタブからご利用いただけます。オプションチケットの譲渡可否は、チケットの設定によります。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer style="text-align:center;padding:40px 0 0;color:var(--text-secondary);font-size:12px;border-top:1px solid var(--border);margin-top:48px;">
+    <p>&copy; JOYFIT オプション都度利用 操作マニュアル</p>
+    <p style="margin-top:4px;">最終更新: 2026年4月</p>
+  </footer>
+</main>
+
+<!-- Back to Top -->
+<button class="back-to-top" id="backToTop" aria-label="トップへ戻る">&#8593;</button>
+
+<script>
+(function() {
+  const hamburger = document.getElementById('hamburger');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+
+  hamburger.addEventListener('click', () => {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('open');
+  });
+
+  overlay.addEventListener('click', () => {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('open');
+  });
+
+  sidebar.querySelectorAll('a[href^="#"]').forEach(link => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth <= 900) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('open');
+      }
+    });
+  });
+
+  // TOC active state
+  const tocLinks = document.querySelectorAll('.toc-list > li > a[data-section]');
+  const sections = [];
+
+  tocLinks.forEach(link => {
+    const id = link.getAttribute('data-section');
+    const el = document.getElementById(id);
+    if (el) sections.push({ id, el, link });
+
+    if (link.querySelector('.arrow')) {
+      link.addEventListener('click', () => {
+        link.parentElement.classList.toggle('expanded');
+      });
+    }
+  });
+
+  function updateActiveSection() {
+    const scrollY = window.scrollY + 100;
+    let current = sections[0];
+    for (const s of sections) {
+      if (s.el.offsetTop <= scrollY) current = s;
+    }
+    tocLinks.forEach(l => l.classList.remove('active'));
+    if (current) {
+      current.link.classList.add('active');
+      current.link.parentElement.classList.add('expanded');
+    }
+  }
+
+  // Progress bar
+  const progressBar = document.getElementById('progressBar');
+  function updateProgress() {
+    const scrollTop = window.scrollY;
+    const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+    progressBar.style.width = (docHeight > 0 ? (scrollTop / docHeight) * 100 : 0) + '%';
+  }
+
+  // Back to top
+  const backToTop = document.getElementById('backToTop');
+  function updateBackToTop() {
+    backToTop.classList.toggle('visible', window.scrollY > 400);
+  }
+
+  backToTop.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // Throttled scroll
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        updateActiveSection();
+        updateProgress();
+        updateBackToTop();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  });
+
+  // TOC Search
+  const tocSearch = document.getElementById('tocSearch');
+  const tocListItems = document.querySelectorAll('#tocList > li');
+  tocSearch.addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase();
+    tocListItems.forEach(li => {
+      li.style.display = li.textContent.toLowerCase().includes(query) ? '' : 'none';
+    });
+  });
+
+  updateActiveSection();
+  updateProgress();
+})();
+</script>
+</body>
+</html>

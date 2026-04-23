@@ -50,13 +50,24 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
           const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(c.email)}&su=${encodeURIComponent("[Know Base] お問い合わせ")}`;
 
           // --- 検索ヒット箇所の判定 ---
-          // 名前や部署名以外（role）でヒットしている単語を探す（tagsは含めない）
-          let hitInRole = "";
-          if (searching && typeof c.role === "string") {
-            const roles = c.role.split(/[、,]/);
-            const foundRole = roles.find((r: string) => r.toLowerCase().includes(kw));
-            if (foundRole) {
-              hitInRole = foundRole.trim();
+          // どのフィールドでヒットしたかをラベル付きで表示する
+          const hits: { label: string; value: string }[] = [];
+          if (searching) {
+            if (typeof c.name === "string" && c.name.toLowerCase().includes(kw)) {
+              hits.push({ label: "名前", value: c.name });
+            }
+            if (deptLabel && deptLabel.toLowerCase().includes(kw)) {
+              hits.push({ label: "部署", value: deptLabel });
+            }
+            if (typeof c.role === "string") {
+              const roles = c.role.split(/[、,]/);
+              const foundRole = roles.find((r: string) => r.toLowerCase().includes(kw));
+              if (foundRole) {
+                hits.push({ label: "担当業務", value: foundRole.trim() });
+              }
+            }
+            if (typeof c.email === "string" && c.email.toLowerCase().includes(kw)) {
+              hits.push({ label: "メール", value: c.email });
             }
           }
 
@@ -94,19 +105,24 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
                   {searching ? highlightText(deptLabel, contactSearch) : deptLabel}
                 </div>
 
-                {/* ヒットした「担当業務」の索引表示 */}
-                {hitInRole && (
-                  <div style={{ 
-                    marginTop: '4px', 
-                    fontSize: '10px', 
-                    color: '#0284c7', 
-                    background: '#f0f9ff', 
-                    display: 'inline-block',
-                    padding: '1px 8px',
-                    borderRadius: '4px',
-                    border: '1px solid #e0f2fe'
-                  }}>
-                    <span style={{ fontWeight: 'bold' }}>ヒット:</span> {highlightText(hitInRole, contactSearch)}
+                {/* 検索ヒット箇所の索引表示（ヒットしたフィールドをラベル付きで全て表示） */}
+                {hits.length > 0 && (
+                  <div style={{ marginTop: '4px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {hits.map((h, i) => (
+                      <div
+                        key={i}
+                        style={{
+                          fontSize: '10px',
+                          color: '#0284c7',
+                          background: '#f0f9ff',
+                          padding: '1px 8px',
+                          borderRadius: '4px',
+                          border: '1px solid #e0f2fe'
+                        }}
+                      >
+                        <span style={{ fontWeight: 'bold' }}>[{h.label}]</span> {highlightText(h.value, contactSearch)}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
