@@ -256,7 +256,19 @@ export default function AdminUsersPage() {
       setSelectedUserId(saved.userId);
       setForm(saved);
 
-      alert(isNewCreationMode ? "保存しました（メール送信しました）。" : "更新しました。");
+      if (isNewCreationMode) {
+        if (json.emailSent === false) {
+          alert(`保存しましたが、メール送信に失敗しました。\n理由: ${json.emailError || "不明"}\n\n再送をお試しください。`);
+        } else {
+          alert("保存しました（メール送信しました）。");
+        }
+      } else {
+        if (json.emailSent === false) {
+          alert(`更新しましたが、メール送信に失敗しました。\n理由: ${json.emailError || "不明"}\n\n再送をお試しください。`);
+        } else {
+          alert("更新しました。");
+        }
+      }
     } catch (err) {
       console.error(err);
       alert("保存時にエラーが発生しました。");
@@ -401,11 +413,15 @@ export default function AdminUsersPage() {
       }
 
       await loadAllData();
-      alert(
-        includePasswordInMail
-          ? "送信しました。（一時パスワード同封）"
-          : "送信しました。（URLのみ）"
-      );
+      if (json.emailSent === false) {
+        alert(`パスワードは再発行されましたが、メール送信に失敗しました。\n理由: ${json.emailError || "不明"}\n\n再度お試しください。`);
+      } else {
+        alert(
+          includePasswordInMail
+            ? "送信しました。（一時パスワード同封）"
+            : "送信しました。（URLのみ）"
+        );
+      }
     } catch (err) {
       console.error(err);
       alert("再発行時にエラーが発生しました。");

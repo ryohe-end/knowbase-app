@@ -86,7 +86,14 @@ export default function AdminHome() {
       label: "7. ANALYTICS",
       title: "分析ダッシュボード",
       desc: "マニュアルの閲覧数やユーザーの利用状況を可視化します",
-      color: "#f59e0b", // アンバー（オレンジ系）でアクセント
+      color: "#f59e0b",
+    },
+    {
+      href: "/admin/mail-test",
+      label: "8. MAIL TEST",
+      title: "メール送信テスト",
+      desc: "SendGridの設定確認と指定アドレスへのテスト送信を行います",
+      color: "#ef4444",
     },
   ];
 

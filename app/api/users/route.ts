@@ -96,7 +96,7 @@ function escapeHtml(s: string) {
 }
 
 /**
- * ✅ メール送信（失敗してもAPIは成功扱い）
+ * メール送信 — 成否を返す
  * - includePassword=true の場合だけ plainPassword を本文に含める
  */
 async function sendAccountMail(opts: {
@@ -105,11 +105,11 @@ async function sendAccountMail(opts: {
   name: string;
   includePassword: boolean;
   plainPassword?: string;
-}) {
+}): Promise<{ sent: boolean; reason?: string }> {
   const sg = initSendGridIfPossible();
   if (!sg.ok) {
     console.warn("[SendGrid] skipped:", sg.reason);
-    return;
+    return { sent: false, reason: sg.reason };
   }
 
   const loginUrl = getLoginUrl();
@@ -167,8 +167,10 @@ async function sendAccountMail(opts: {
 
   try {
     await sgMail.send(msg);
+    return { sent: true };
   } catch (err: any) {
-    console.error("[User Mail Error]", { name: err?.name, message: err?.message });
+    console.error("[User Mail Error]", { name: err?.name, message: err?.message, body: err?.response?.body });
+    return { sent: false, reason: err?.message ?? "SendGrid send failed" };
   }
 }
 
@@ -276,7 +278,7 @@ export async function POST(req: NextRequest) {
 
         await docClient.send(new PutCommand({ TableName: TABLE_NAME, Item: putItem }));
 
-        await sendAccountMail({
+        const mailResult = await sendAccountMail({
           type: "resend",
           to: putItem.email,
           name: putItem.name,
@@ -286,10 +288,10 @@ export async function POST(req: NextRequest) {
 
         const responseUser: any = { ...putItem };
         delete responseUser.passwordHash;
-        return NextResponse.json({ ok: true, user: responseUser });
+        return NextResponse.json({ ok: true, user: responseUser, emailSent: mailResult.sent, emailError: mailResult.reason });
       }
 
-      await sendAccountMail({
+      const mailResult = await sendAccountMail({
         type: "resend",
         to: existing.email,
         name: existing.name,
@@ -298,7 +300,7 @@ export async function POST(req: NextRequest) {
 
       const responseUser: any = { ...existing };
       delete responseUser.passwordHash;
-      return NextResponse.json({ ok: true, user: responseUser });
+      return NextResponse.json({ ok: true, user: responseUser, emailSent: mailResult.sent, emailError: mailResult.reason });
     }
 
     // --- UPDATE-PASSWORD (一般ユーザー自らの変更) ---
@@ -395,9 +397,10 @@ const putItem: KbUser = {
       })
     );
 
+    let mailResult: { sent: boolean; reason?: string } | undefined;
     if (putItem.isActive) {
       if (mode === "create") {
-        await sendAccountMail({
+        mailResult = await sendAccountMail({
           type: "create",
           to: putItem.email,
           name: putItem.name,
@@ -405,7 +408,7 @@ const putItem: KbUser = {
           plainPassword: includePassword ? plainTempPassword : undefined,
         });
       } else if (mode === "update" && resetPassword) {
-        await sendAccountMail({
+        mailResult = await sendAccountMail({
           type: "password_reset",
           to: putItem.email,
           name: putItem.name,
@@ -418,7 +421,11 @@ const putItem: KbUser = {
     const responseUser: any = { ...putItem };
     delete responseUser.passwordHash;
 
-    return NextResponse.json({ ok: true, user: responseUser });
+    return NextResponse.json({
+      ok: true,
+      user: responseUser,
+      ...(mailResult ? { emailSent: mailResult.sent, emailError: mailResult.reason } : {}),
+    });
   } catch (err) {
     console.error("POST /api/users error:", (err as Error)?.name);
     return NextResponse.json({ error: "Failed to save user" }, { status: 500 });

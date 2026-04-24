@@ -38,11 +38,15 @@ const ForgotPasswordPage = () => {
       const json = await res.json();
 
       if (res.ok) {
-        setMessage("一時パスワードをメールで送信しました。メールボックスを確認してログインしてください。");
-        // 5秒後にログイン画面へ戻す
-        setTimeout(() => {
-          router.push("/login");
-        }, 5000);
+        if (json.emailSent === false) {
+          setError(`パスワードは再発行されましたが、メール送信に失敗しました。管理者にお問い合わせください。`);
+        } else {
+          setMessage("一時パスワードをメールで送信しました。メールボックスを確認してログインしてください。");
+          // 5秒後にログイン画面へ戻す
+          setTimeout(() => {
+            router.push("/login");
+          }, 5000);
+        }
       } else {
         setError(json.error || "送信に失敗しました。アドレスが正しいかご確認ください。");
       }
