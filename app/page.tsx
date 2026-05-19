@@ -586,6 +586,12 @@ export default function HomePage() {
   const [contactSearch, setContactSearch] = useState("");
   const SLOW_TIP = "検索に時間がかかっています…（10〜20秒ほどかかる場合があります）";
   const INITIAL_TEXT = "送信しました。検索しています…";
+  const STAGE_LABELS: Record<string, string> = {
+    retrieving: "🔍 マニュアルを検索中…",
+    generating: "✍ 回答を生成中…",
+    retrying: "⟳ 再試行中…",
+  };
+  const stageActiveRef = useRef(false);
 
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
@@ -695,6 +701,7 @@ export default function HomePage() {
     setLoadingAI(true);
 
     aiBufRef.current = "";
+    stageActiveRef.current = false;
     if (flushTimerRef.current != null) {
       window.clearTimeout(flushTimerRef.current);
       flushTimerRef.current = null;
@@ -773,6 +780,27 @@ export default function HomePage() {
             return { stop: false };
           }
 
+          if (eventName === "stage") {
+            try {
+              const j = JSON.parse(data || "{}");
+              const stage = String(j.stage || "");
+              let label = STAGE_LABELS[stage] ?? "";
+              if (stage === "retrying" && j.attempt && j.max) {
+                label = `⟳ 再試行中… (${j.attempt}/${j.max})`;
+              }
+              if (label) {
+                stageActiveRef.current = true;
+                setMessages((prev) =>
+                  prev.map((m) => {
+                    if (m.id !== assistantId || !m.loading) return m;
+                    return { ...m, content: label };
+                  })
+                );
+              }
+            } catch {}
+            return { stop: false };
+          }
+
           if (eventName === "done" || data === "[DONE]") {
             setAssistantDone(assistantId);
             return { stop: true };
@@ -787,7 +815,16 @@ export default function HomePage() {
             }
           }
 
-          if (data) appendToAssistant(assistantId, data);
+          if (data) {
+            // 実テキスト到着時にステージラベルを消す (1 回だけ)
+            if (stageActiveRef.current) {
+              stageActiveRef.current = false;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantId ? { ...m, content: "" } : m))
+              );
+            }
+            appendToAssistant(assistantId, data);
+          }
           return { stop: false };
         };
 

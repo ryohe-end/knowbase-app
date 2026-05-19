@@ -116,6 +116,25 @@ function isAnonymousUserIdValidation(err: any): boolean {
   );
 }
 
+/** リトライ対象のエラー判定 */
+function isRetryableError(err: any): boolean {
+  if (!err) return false;
+  const name = String(err?.name || "");
+  const code = err?.$metadata?.httpStatusCode;
+  return (
+    name === "ThrottlingException" ||
+    name === "TooManyRequestsException" ||
+    name === "ServiceUnavailableException" ||
+    name === "InternalServerException" ||
+    name === "RequestTimeout" ||
+    (typeof code === "number" && code >= 500)
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 /* =========================
    SSE helpers
 ========================= */
@@ -259,6 +278,13 @@ export async function POST(req: Request) {
       };
       req.signal?.addEventListener?.("abort", onAbort);
 
+      // AWS SDK 側への abort 信号を伝播 (req.signal の中継用)
+      const awsAbort = new AbortController();
+      const propagateAbort = () => {
+        try { awsAbort.abort(); } catch {}
+      };
+      req.signal?.addEventListener?.("abort", propagateAbort);
+
       // まず1バイト
       controller.enqueue(toSseComment("sse-open"));
 
@@ -279,6 +305,7 @@ export async function POST(req: Request) {
         let sourceTitles: string[] = [];
         let sentConversationId: string | undefined;
         let errored = false;
+        let retryCount = 0;
 
         // 入口ログ
         logKnowbie("request", {
@@ -287,6 +314,15 @@ export async function POST(req: Request) {
           queryPreview: isDev ? prompt.slice(0, 200) : undefined,
           conversationId: conversationId ?? null,
         });
+
+        // ステージ通知 (クライアントに「検索中」「生成中」を見せる)
+        const emitStage = (stage: string, extra?: Record<string, unknown>) => {
+          try {
+            controller.enqueue(
+              toSse("stage", JSON.stringify({ stage, ...(extra ?? {}) }))
+            );
+          } catch {}
+        };
 
         try {
           const appId = mustEnv("QBUSINESS_APP_ID", runtimeEnv);
@@ -306,16 +342,47 @@ export async function POST(req: Request) {
             if (opts.includeUserId && userId) input.userId = userId;
 
             const cmd = new ChatCommand(input);
-            return client.send(cmd);
+            // abortSignal を渡すことで、クライアント切断時に上流ストリームを止める
+            return client.send(cmd, { abortSignal: awsAbort.signal });
           };
+
+          // 自動リトライ: ThrottlingException / 5xx を最大 2 回まで再試行
+          const MAX_RETRIES = 2;
+          const BASE_DELAY_MS = 800;
+          const sendWithRetry = async (opts: { includeUserId: boolean }) => {
+            let lastError: any = null;
+            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+              try {
+                return await sendChatStream(opts);
+              } catch (err: any) {
+                lastError = err;
+                if (awsAbort.signal.aborted) throw err;
+                if (!isRetryableError(err) || attempt === MAX_RETRIES) throw err;
+                retryCount++;
+                const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+                logKnowbie("retry", {
+                  queryHash,
+                  attempt: attempt + 1,
+                  errorName: err?.name,
+                  delayMs: delay,
+                });
+                emitStage("retrying", { attempt: attempt + 1, max: MAX_RETRIES });
+                await sleep(delay);
+              }
+            }
+            throw lastError;
+          };
+
+          // 初期ステージ
+          emitStage("retrieving");
 
           let resp: any;
           try {
-            resp = await sendChatStream({ includeUserId: true });
+            resp = await sendWithRetry({ includeUserId: true });
           } catch (err: any) {
             if (isAnonymousUserIdValidation(err)) {
               logKnowbie("retry_anonymous", { queryHash, userIdHash });
-              resp = await sendChatStream({ includeUserId: false });
+              resp = await sendWithRetry({ includeUserId: false });
             } else {
               throw err;
             }
@@ -333,10 +400,15 @@ export async function POST(req: Request) {
             throw new Error("outputStream is missing (streaming not available).");
           }
 
+          let stageGeneratingSent = false;
           for await (const ev of outStream) {
             // 生成テキスト（増分）
             const delta = ev?.textEvent?.systemMessage; // TextOutputEvent.systemMessage :contentReference[oaicite:2]{index=2}
             if (typeof delta === "string" && delta.length > 0) {
+              if (!stageGeneratingSent) {
+                emitStage("generating");
+                stageGeneratingSent = true;
+              }
               controller.enqueue(toSse(null, delta));
               deltaCharCount += delta.length;
             }
@@ -388,6 +460,9 @@ export async function POST(req: Request) {
           clearInterval(pingTimer);
           close();
           req.signal?.removeEventListener?.("abort", onAbort);
+          req.signal?.removeEventListener?.("abort", propagateAbort);
+          // 上流ストリームを確実にクローズ (Q-Business の同一会話 throttling 防止)
+          try { awsAbort.abort(); } catch {}
 
           // 終端ログ (エラー時は error ログを既に出しているので response は省略)
           if (!errored) {
@@ -398,6 +473,7 @@ export async function POST(req: Request) {
               sourceAttrCount,
               normalizedSourceCount,
               sourceTitles,
+              retryCount,
               conversationId: sentConversationId ?? conversationId ?? null,
               noSources: normalizedSourceCount === 0,
               emptyResponse: deltaCharCount === 0,
