@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // html-pdf-node の依存 (batch → emitter) が webpack で解決できないため、
+  // サーバー側で require させて bundle 対象から外す
+  serverExternalPackages: ["html-pdf-node"],
 };
 
 export default nextConfig;

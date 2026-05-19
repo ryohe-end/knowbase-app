@@ -11,6 +11,12 @@ export type Manual = {
   brand?: string | null;
   biz?: string | null;
   tags?: string[] | null;
+
+  // シリーズ (旧称: カテゴリ)。1階層のフラット構造に統一。
+  categoryId?: string | null;
+  // シリーズ内の表示順 (小さい順)
+  seriesOrder?: number | null;
+
   previewUrl?: string | null;
   embedUrl?: string | null;
   externalUrl?: string;

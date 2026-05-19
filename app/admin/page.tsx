@@ -47,6 +47,13 @@ export default function AdminHome() {
       color: "#3b82f6",
     },
     {
+      href: "/admin/categories",
+      label: "1-B. SERIES",
+      title: "シリーズ管理",
+      desc: "マニュアルをシリーズ単位でまとめるためのカテゴリを管理します",
+      color: "#8b5cf6",
+    },
+    {
       href: "/admin/news",
       label: "2. ANNOUNCEMENT",
       title: "お知らせ管理",

@@ -82,6 +82,11 @@ export type Manual = {
 
   // ✅ 閲覧権限（すべて / 直営のみ / FCのみ）
   viewScope?: ViewScope;
+
+  // ✅ シリーズ (1階層、旧称: カテゴリ)
+  categoryId?: string | null;
+  // ✅ シリーズ内の表示順 (小さい順)
+  seriesOrder?: number | null;
 };
 
 /** yyyy-mm-dd をざっくり検証（空はOK） */
@@ -276,6 +281,15 @@ function mapItemToManual(item: any): Manual {
 
     // ✅ viewScope（ALL / DIRECT / FC）
     viewScope: normalizeViewScope(item.viewScope),
+
+    // ✅ シリーズ
+    categoryId: item.categoryId ? String(item.categoryId) : null,
+    seriesOrder:
+      typeof item.seriesOrder === "number"
+        ? item.seriesOrder
+        : item.seriesOrder != null
+        ? Number(item.seriesOrder)
+        : null,
   };
 }
 
@@ -333,6 +347,13 @@ function buildDbItem(input: any): any {
     createdAt: finalCreatedAt,
     updatedAt,
     viewScope,
+    categoryId: input.categoryId ? String(input.categoryId).trim() : null,
+    seriesOrder:
+      typeof input.seriesOrder === "number"
+        ? input.seriesOrder
+        : input.seriesOrder != null && input.seriesOrder !== ""
+        ? Number(input.seriesOrder)
+        : null,
   };
 }
 

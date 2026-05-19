@@ -11,6 +11,8 @@ type Props = {
   setContactSearch: (v: string) => void;
   deptMap: Record<string, Dept>;
   loading: boolean;
+  /** ContactList 内部の検索ボックスが空のとき、これが指定されていればハイライトに使う */
+  fallbackKeyword?: string;
 };
 
 function highlightText(text: string, kwRaw: string) {
@@ -25,9 +27,11 @@ function highlightText(text: string, kwRaw: string) {
   );
 }
 
-export default function ContactList({ contacts, contactSearch, setContactSearch, deptMap, loading }: Props) {
-  const searching = !!contactSearch.trim();
-  const kw = contactSearch.trim().toLowerCase();
+export default function ContactList({ contacts, contactSearch, setContactSearch, deptMap, loading, fallbackKeyword }: Props) {
+  // ContactList 内部の検索ボックスが空なら、親から渡された fallbackKeyword (= メイン検索キーワード) を使う
+  const effectiveKw = (contactSearch.trim() || (fallbackKeyword ?? "").trim());
+  const searching = !!effectiveKw;
+  const kw = effectiveKw.toLowerCase();
 
   return (
     <div className="kb-contact-list-container">
@@ -120,7 +124,7 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
                           border: '1px solid #e0f2fe'
                         }}
                       >
-                        <span style={{ fontWeight: 'bold' }}>[{h.label}]</span> {highlightText(h.value, contactSearch)}
+                        <span style={{ fontWeight: 'bold' }}>[{h.label}]</span> {highlightText(h.value, effectiveKw)}
                       </div>
                     ))}
                   </div>

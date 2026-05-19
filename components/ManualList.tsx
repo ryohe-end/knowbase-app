@@ -2,10 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Manual } from "@/types/manual";
+import { getManualThumbnail } from "@/lib/manualThumbnail";
+import { highlightTokens } from "@/lib/highlight";
 
 type Props = {
   manuals: (Manual & { externalUrl?: string })[];
   userId: string;
+  /** categoryId → シリーズ名 のルックアップ。あればカードにシリーズタグを表示 */
+  seriesNameMap?: Record<string, string>;
+  /** 検索キーワード (生入力 + tokenize 後トークン) — ハイライト表示用 */
+  searchTokens?: string[];
 };
 
 function safeOpen(url: string) {
@@ -101,7 +107,26 @@ const incrementReadCount = (manualId: string, userId: string) => {
   }).catch((err) => console.error("Read count error:", err));
 };
 
-export default function ManualList({ manuals, userId }: Props) {
+export default function ManualList({ manuals, userId, seriesNameMap, searchTokens }: Props) {
+  const tokens = searchTokens ?? [];
+  const hi = (s: string) => (tokens.length > 0 ? highlightTokens(s, tokens) : s);
+
+  /** タグ・ブランドなど「カード本体に表示されないフィールド」での検索ヒットを検出 */
+  const findHiddenHits = (m: Manual & { brand?: string | null }): { label: string; value: string }[] => {
+    if (tokens.length === 0) return [];
+    const hits: { label: string; value: string }[] = [];
+    const lower = (s: any) => (s ? String(s).toLowerCase() : "");
+    const tags = Array.isArray(m.tags) ? m.tags : [];
+    for (const t of tags) {
+      if (tokens.some((tk) => lower(t).includes(tk))) {
+        hits.push({ label: "タグ", value: t });
+      }
+    }
+    if (m.brand && tokens.some((tk) => lower(m.brand).includes(tk))) {
+      hits.push({ label: "ブランド", value: String(m.brand) });
+    }
+    return hits;
+  };
   // ✅ ManualList は「受け取った順のまま表示」(page.tsx 側でソート/ページング済み前提)
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -143,6 +168,8 @@ export default function ManualList({ manuals, userId }: Props) {
       const dlDisabled = !!m.noDownload || !m.embedUrl;
       const downloadUrl = dlDisabled ? undefined : toDownloadUrl(previewRaw, isVideo);
 
+      const thumbnailUrl = getManualThumbnail(previewRaw);
+
       // NEW/UPDATE 判定（ISOが来た時だけ有効にする）
       const createdTime = parseTime((m as any).createdAt);
       const updatedTime = parseTime(m.updatedAt);
@@ -159,6 +186,7 @@ export default function ManualList({ manuals, userId }: Props) {
         embeddable,
         dlDisabled,
         downloadUrl,
+        thumbnailUrl,
         isUpdated,
         isNew,
       };
@@ -170,11 +198,38 @@ export default function ManualList({ manuals, userId }: Props) {
       {/* ✅ 並び替えUIはここから削除（page.tsx 側にあるため二重管理すると壊れる） */}
 
       <div className="kbm-list">
-        {view.map(({ m, type, isVideo, hasPreview, previewRaw, embeddable, dlDisabled, downloadUrl, isUpdated, isNew }) => {
+        {view.map(({ m, type, isVideo, hasPreview, previewRaw, embeddable, dlDisabled, downloadUrl, thumbnailUrl, isUpdated, isNew }) => {
           return (
             <article className="kbm-card" key={m.manualId}>
-              <div className="kbm-card-grid">
-                <div className="kbm-left" data-kind={type}>
+              <div className="kbm-card-grid" style={{ display: "flex", gap: 14, alignItems: "stretch" }}>
+                {/* サムネイル */}
+                <div className="kbm-thumb-wrap" aria-hidden>
+                  {thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={thumbnailUrl}
+                      alt=""
+                      loading="lazy"
+                      className="kbm-thumb"
+                      onError={(e) => {
+                        // 画像ロード失敗時は代替アイコン領域に置き換え
+                        const el = e.currentTarget as HTMLImageElement;
+                        el.style.display = "none";
+                        const fallback = el.nextElementSibling as HTMLElement | null;
+                        if (fallback) fallback.style.display = "flex";
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className="kbm-thumb-fallback"
+                    style={{ display: thumbnailUrl ? "none" : "flex" }}
+                    data-kind={type}
+                  >
+                    <span className="kbm-thumb-icon">{isVideo ? "🎬" : "📄"}</span>
+                  </div>
+                </div>
+
+                <div className="kbm-left" data-kind={type} style={{ flex: 1, minWidth: 0 }}>
                   <div className="kbm-badges" style={{ display: "flex", gap: "6px" }}>
                     <span className={`kbm-pill ${isVideo ? "kbm-pill-video" : "kbm-pill-doc"}`}>
                       <span className="kbm-pill-ico" aria-hidden="true">
@@ -193,7 +248,34 @@ export default function ManualList({ manuals, userId }: Props) {
                     ) : null}
                   </div>
 
-                  <div className="kbm-title">{m.title}</div>
+                  <div className="kbm-title">{hi(m.title)}</div>
+
+                  {/* ✅ シリーズタグ (categoryId が紐付いていて、ルックアップに名前がある場合のみ表示) */}
+                  {seriesNameMap && m.categoryId && seriesNameMap[m.categoryId] && (
+                    <div style={{ marginTop: 6 }}>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "2px 10px",
+                          borderRadius: 999,
+                          fontSize: 11,
+                          fontWeight: 800,
+                          background: "linear-gradient(135deg,#eff6ff,#dbeafe)",
+                          color: "#1d4ed8",
+                          border: "1px solid #bfdbfe",
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        <span aria-hidden>📚</span>
+                        {seriesNameMap[m.categoryId]}
+                        {typeof m.seriesOrder === "number" && (
+                          <span style={{ color: "#3b82f6", fontWeight: 700 }}>#{m.seriesOrder}</span>
+                        )}
+                      </span>
+                    </div>
+                  )}
 
                   <div
                     className="kbm-meta"
@@ -207,13 +289,28 @@ export default function ManualList({ manuals, userId }: Props) {
                     }}
                   >
                     {/* ✅ 追加: 部署名の表示 */}
-                    {m.biz && <span style={{ fontWeight: 600, color: "#64748b" }}>{m.biz}</span>}
+                    {m.biz && <span style={{ fontWeight: 600, color: "#64748b" }}>{hi(m.biz)}</span>}
 
                     {m.startDate && <span>公開日: {shortDateLabel(m.startDate)}</span>}
                     {m.updatedAt && <span>最終更新: {shortDateLabel(m.updatedAt)}</span>}
                   </div>
 
-                  {m.desc && <div className="kbm-desc">{m.desc}</div>}
+                  {m.desc && <div className="kbm-desc">{hi(m.desc)}</div>}
+
+                  {/* 検索ヒット指標 (タグ・ブランドなどカード本体に出ないフィールドでヒットした場合) */}
+                  {(() => {
+                    const hidden = findHiddenHits(m);
+                    if (hidden.length === 0) return null;
+                    return (
+                      <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {hidden.map((h, i) => (
+                          <span key={i} style={{ fontSize: 10, color: "#0284c7", background: "#f0f9ff", padding: "1px 8px", borderRadius: 4, border: "1px solid #e0f2fe" }}>
+                            <span style={{ fontWeight: 800 }}>[{h.label}]</span> {hi(h.value)}
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="kbm-right" style={{ zIndex: 10, display: "flex", gap: "8px" }}>

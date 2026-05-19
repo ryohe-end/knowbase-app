@@ -28,10 +28,21 @@ type Manual = {
 
   /** ✅ 追加：閲覧権限 */
   viewScope?: ManualViewScope; // "all" | "direct"
+
+  /** ✅ シリーズ (1階層) */
+  categoryId?: string | null;
+  /** ✅ シリーズ内の表示順 */
+  seriesOrder?: number | null;
 };
 
 type Brand = { brandId: string; name: string };
 type Dept = { deptId: string; name: string };
+type ManualCategory = {
+  categoryId: string;
+  name: string;
+  parentId?: string | null;
+  sortOrder?: number;
+};
 
 const DRAFT_KEY = "kb_manual_draft_v1";
 
@@ -68,6 +79,8 @@ const createEmptyManual = (initialData: Partial<Manual> = {}): Manual => ({
   startDate: "",
   endDate: "",
   type: "doc",
+  categoryId: null,
+  seriesOrder: null,
 
   ...initialData,
 
@@ -231,12 +244,14 @@ export default function AdminManuals() {
   const [manuals, setManuals] = useState<Manual[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [depts, setDepts] = useState<Dept[]>([]);
+  const [categories, setCategories] = useState<ManualCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [selectedManual, setSelectedManual] = useState<Manual | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [filterText, setFilterText] = useState("");
+  const [showUncategorizedOnly, setShowUncategorizedOnly] = useState(false);
 
   const [manualForm, setManualForm] = useState<Manual>(createEmptyManual());
   const [tagInput, setTagInput] = useState("");
@@ -258,7 +273,7 @@ export default function AdminManuals() {
     try {
       const manualHeaders: HeadersInit = getAdminHeaders();
 
-      const [mRes, bRes, dRes] = await Promise.all([
+      const [mRes, bRes, dRes, cRes] = await Promise.all([
         fetch("/api/manuals", {
           method: "GET",
           headers: manualHeaders,
@@ -266,12 +281,14 @@ export default function AdminManuals() {
         }),
         fetch("/api/brands", { cache: "no-store" }),
         fetch("/api/depts", { cache: "no-store" }),
+        fetch("/api/manual-categories", { cache: "no-store" }),
       ]);
 
-      const [mJson, bJson, dJson] = await Promise.all([
+      const [mJson, bJson, dJson, cJson] = await Promise.all([
         mRes.json().catch(() => ({})),
         bRes.json().catch(() => ({})),
         dRes.json().catch(() => ({})),
+        cRes.json().catch(() => ({})),
       ]);
 
       if (!mRes.ok) {
@@ -286,6 +303,10 @@ export default function AdminManuals() {
         console.error("depts fetch failed:", dJson);
         throw new Error(dJson?.error || "Failed to fetch depts");
       }
+      // カテゴリ取得失敗は致命ではないので警告のみ
+      if (!cRes.ok || !cJson?.ok) {
+        console.warn("categories fetch failed:", cJson);
+      }
 
       // ✅ viewScope を必ず "all/direct" に正規化
       const normalizedManuals: Manual[] = (mJson.manuals || []).map((m: any) => ({
@@ -296,6 +317,7 @@ export default function AdminManuals() {
       setManuals(normalizedManuals);
       setBrands(bJson.brands || []);
       setDepts(dJson.depts || []);
+      setCategories(cJson?.categories || []);
     } catch (e) {
       console.error("Fetch error:", e);
     } finally {
@@ -328,6 +350,24 @@ export default function AdminManuals() {
     () => depts.reduce((acc, d) => ({ ...acc, [d.deptId]: d }), {} as Record<string, Dept>),
     [depts]
   );
+  const categoryMap = useMemo(
+    () => categories.reduce((acc, c) => ({ ...acc, [c.categoryId]: c }), {} as Record<string, ManualCategory>),
+    [categories]
+  );
+  /** 1階層シリーズ (parentId は無視。あれば後方互換のため全件を flat として扱う) */
+  const seriesList = useMemo(
+    () => [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+    [categories]
+  );
+
+  /** シリーズラベル */
+  const seriesLabel = (categoryId?: string | null): string => {
+    if (!categoryId) return "未分類";
+    const c = categoryMap[categoryId];
+    return c?.name ?? "未分類";
+  };
+  // 既存呼び出しの互換用
+  const categoryLabel = seriesLabel;
 
   const handleNewManual = () => {
     setManualForm(createEmptyManual());
@@ -495,12 +535,17 @@ export default function AdminManuals() {
   const filteredManuals = useMemo(() => {
     const kw = filterText.trim().toLowerCase();
     return manuals.filter((m) => {
+      if (showUncategorizedOnly && m.categoryId) return false;
       const titleHit = (m.title || "").toLowerCase().includes(kw);
       const idHit = (m.manualId || "").toLowerCase().includes(kw);
       const tagHit = (m.tags || []).some((t) => (t || "").toLowerCase().includes(kw));
-      return !kw || titleHit || idHit || tagHit;
+      const catName = categoryLabel(m.categoryId).toLowerCase();
+      const catHit = catName.includes(kw);
+      return !kw || titleHit || idHit || tagHit || catHit;
     });
-  }, [manuals, filterText]);
+  }, [manuals, filterText, showUncategorizedOnly, categoryMap]);
+
+  const uncategorizedCount = useMemo(() => manuals.filter((m) => !m.categoryId).length, [manuals]);
 
   return (
     <div className="kb-root">
@@ -604,12 +649,22 @@ export default function AdminManuals() {
           <input
             type="text"
             className="kb-admin-input"
-            placeholder="タイトル、ID、タグで検索..."
+            placeholder="タイトル、ID、タグ、カテゴリで検索..."
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            style={{ marginBottom: 12 }}
+            style={{ marginBottom: 8 }}
             disabled={busy}
           />
+
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 600, color: "#475569", marginBottom: 12, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={showUncategorizedOnly}
+              onChange={(e) => setShowUncategorizedOnly(e.target.checked)}
+              disabled={busy}
+            />
+            未分類のみ表示 ({uncategorizedCount} 件)
+          </label>
 
           <div className="kb-manual-list-admin">
             {!loading &&
@@ -632,6 +687,9 @@ export default function AdminManuals() {
                     </div>
                     <div className="kb-manual-meta-admin">
                       {brandMap[m.brandId || ""]?.name || "全社"} / {deptMap[m.bizId || ""]?.name || "未設定"} /
+                      <span style={{ color: m.categoryId ? "#1d4ed8" : "#ef4444", fontWeight: 700 }}>
+                        {categoryLabel(m.categoryId)}
+                      </span> /
                       更新日: {m.updatedAt || "未設定"}
                     </div>
                   </div>
@@ -790,6 +848,22 @@ export default function AdminManuals() {
                   ))}
                 </select>
               </div>
+
+              {/* ✅ シリーズと表示順は「シリーズ管理」画面で設定する仕様に変更 */}
+              {manualForm.categoryId && (
+                <div className="kb-admin-form-row">
+                  <label className="kb-admin-label full">現在のシリーズ</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "#f1f5f9", borderRadius: 8, fontSize: 13 }}>
+                    <span style={{ fontWeight: 700, color: "#1d4ed8" }}>📚 {seriesLabel(manualForm.categoryId)}</span>
+                    {typeof manualForm.seriesOrder === "number" && (
+                      <span style={{ color: "#64748b", fontWeight: 600 }}>#{manualForm.seriesOrder}</span>
+                    )}
+                    <span style={{ marginLeft: "auto", fontSize: 11, color: "#94a3b8" }}>
+                      シリーズの編集は <Link href="/admin/categories" style={{ color: "#3b82f6", fontWeight: 700 }}>シリーズ管理</Link> から
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">説明</label>

@@ -12,7 +12,10 @@ export type MachineConfig = {
 };
 
 // ✅ 新規: 解錠機器の種類
-export type UnlockDeviceType = "入口" | "出口" | "更衣室" | "水素水";
+// 既知タイプは補完候補にしつつ、DB の未知値も受け入れられるよう string も許容
+export const KNOWN_UNLOCK_DEVICE_TYPES = ["入口", "出口", "更衣室", "水素水"] as const;
+export type KnownUnlockDeviceType = (typeof KNOWN_UNLOCK_DEVICE_TYPES)[number];
+export type UnlockDeviceType = KnownUnlockDeviceType | (string & {});
 
 // ✅ 新規: 解錠機器設定
 export type UnlockDeviceConfig = {
@@ -32,6 +35,7 @@ export type StoreAppConfig = {
   businessType: BusinessType;
   
   inquiryEmail?: string;
+  inquiryEmails?: string[];
   storeEmail?: string;
   
   latitude?: number;
@@ -44,6 +48,9 @@ export type StoreAppConfig = {
 
   // --- [店舗設定] ---
   isPointSupported: boolean;
+  pointSupportStartDate?: string;
+  appPointPopup?: boolean;
+  lesMillsAvailable?: boolean;
   canUseDormantMember: boolean;
   showAppEnableButton: boolean;
   enableReferral: boolean;

@@ -1,11 +1,52 @@
 // app/page.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ManualList from "@/components/ManualList";
+import SeriesScroll from "@/components/SeriesScroll";
 import ContactList from "@/components/ContactList";
+import Tour, { type TourStep } from "@/components/Tour";
+import HelpModal from "@/components/HelpModal";
+
+/** Know Base 使い方ガイドの Slides URL (Google Slides の /preview リンク) */
+const HELP_SLIDES_URL =
+  "https://docs.google.com/presentation/d/16EIKzRBEwdLBG1HZbKKkW0OH59SNZEL-mZJ0EeToUgI/preview";
+
+/** ガイドツアーのステップ */
+const TOUR_STEPS: TourStep[] = [
+  {
+    selector: "search-bar",
+    title: "🔍 全文検索",
+    description:
+      "マニュアル・担当者・タグなどを横断検索できます。ヒットした箇所は黄色マーカーでハイライト表示されます。",
+  },
+  {
+    selector: "filter-panel",
+    title: "🏷 ブランド・部署で絞り込み",
+    description:
+      "ブランドや部署のチップをクリックすると、関連するマニュアルだけに絞り込めます。検索ボックスと組み合わせて使えます。",
+  },
+  {
+    selector: "knowbie",
+    title: "🤖 Knowbie (AI)",
+    description:
+      "業務マニュアルや手順について自然文で質問できます。回答の下には参照元のマニュアルが表示されます。",
+  },
+  {
+    selector: "manual-list",
+    title: "📚 マニュアル一覧",
+    description:
+      "登録されているマニュアル一覧です。📚マークの行はシリーズで、クリックすると関連マニュアルが順番に並びます。「公開日 / 更新日」で並び替え可能。",
+  },
+  {
+    selector: "contact-list",
+    title: "👥 担当者リスト",
+    description:
+      "問い合わせ先の担当者一覧。担当業務・部署で索引でき、Gmail アイコンから直接メール起票できます。",
+  },
+];
 
 /* ========= 型定義 ========= */
 
@@ -26,6 +67,8 @@ type Manual = {
   startDate?: string;
   endDate?: string;
   viewScope?: "all" | "direct";
+  categoryId?: string | null;
+  seriesOrder?: number | null;
 };
 
 type Brand = {
@@ -101,6 +144,19 @@ type ExternalLink = {
 
 const ALL_BRAND_ID = "__ALL_BRAND__";
 const ALL_DEPT_ID = "__ALL_DEPT__";
+const ALL_CATEGORY_ID = "__ALL_CATEGORY__";
+
+type ManualCategory = {
+  categoryId: string;
+  name: string;
+  parentId?: string | null;
+  sortOrder?: number;
+  description?: string | null;
+  bizId?: string | null;
+  biz?: string | null;
+  publishedAt?: string | null;
+  thumbnailUrl?: string | null;
+};
 
 function buildGroupIdsHeader(groupId?: string) {
   const HQ = "g003";
@@ -493,6 +549,8 @@ export default function HomePage() {
 
   /* ========= ユーザー名メニュー（名前クリック） ========= */
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -833,6 +891,7 @@ export default function HomePage() {
   const [manuals, setManuals] = useState<Manual[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [depts, setDepts] = useState<Dept[]>([]);
+  const [categories, setCategories] = useState<ManualCategory[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [newsList, setNewsList] = useState<News[]>([]);
   const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([]);
@@ -895,13 +954,14 @@ export default function HomePage() {
         const groupIds = me?.groupId ? buildGroupIdsHeader(me.groupId) : "";
         const groupHeaders: HeadersInit = groupIds ? { "x-kb-group-ids": groupIds } : {};
 
-        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes] = await Promise.all([
+        const [manualsRes, brandsRes, deptsRes, contactsRes, newsRes, linksRes, categoriesRes] = await Promise.all([
           fetch("/api/manuals?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
           fetch("/api/brands", { cache: "no-store" }).then((res) => res.json()),
           fetch("/api/depts", { cache: "no-store" }).then((res) => res.json()),
           fetch("/api/contacts", { cache: "no-store" }).then((res) => res.json()),
           fetch("/api/news?onlyActive=1", { headers: groupHeaders, cache: "no-store" }).then((res) => res.json()),
           fetch("/api/external-links", { cache: "no-store" }).then((res) => res.json()),
+          fetch("/api/manual-categories", { cache: "no-store" }).then((res) => res.json()).catch(() => ({ categories: [] })),
         ]);
 
         if (cancelled) return;
@@ -926,6 +986,7 @@ export default function HomePage() {
         setContacts(contactsRes.contacts || []);
         setNewsList(newsRes.news || []);
         setExternalLinks(linksRes.links || []);
+        setCategories(categoriesRes.categories || []);
       } catch (e) {
         console.error("Failed to fetch initial data:", e);
       } finally {
@@ -965,6 +1026,28 @@ export default function HomePage() {
     return arr;
   }, [depts]);
 
+  // シリーズ (1階層フラット) の名前ルックアップ
+  const seriesNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of categories) m[c.categoryId] = c.name;
+    return m;
+  }, [categories]);
+
+  // シリーズ詳細ルックアップ (説明・部署・配信日・サムネイル等)
+  const seriesDetailMap = useMemo(() => {
+    const m: Record<string, ManualCategory> = {};
+    for (const c of categories) m[c.categoryId] = c;
+    return m;
+  }, [categories]);
+
+  // 検索ハイライト用: 生キーワード + tokenize 後トークン
+  const searchHighlightTokens = useMemo<string[]>(() => {
+    const raw = keyword.trim();
+    const toks = tokenizeJP(keyword);
+    const all = raw ? [raw, ...toks] : toks;
+    return Array.from(new Set(all));
+  }, [keyword]);
+
   const filteredManuals = useMemo(() => {
     const tokens = tokenizeJP(keyword);
     const hasTokens = tokens.length > 0;
@@ -991,26 +1074,66 @@ export default function HomePage() {
 
   const FAR_FUTURE = 4102444800000; // 2100-01-01
 
-  const sortedManuals = useMemo(() => {
-    const list = [...filteredManuals];
-    list.sort((a, b) => {
-      const aPrimary = manualSortKey === "publish" ? (parseTimeMs(a.startDate) ?? FAR_FUTURE) : (parseTimeMs(a.updatedAt) ?? FAR_FUTURE);
-      const bPrimary = manualSortKey === "publish" ? (parseTimeMs(b.startDate) ?? FAR_FUTURE) : (parseTimeMs(b.updatedAt) ?? FAR_FUTURE);
-      const aTie = parseTimeMs(a.updatedAt) ?? FAR_FUTURE;
-      const bTie = parseTimeMs(b.updatedAt) ?? FAR_FUTURE;
-      const primaryDiff = aPrimary - bPrimary;
-      const tieDiff = aTie - bTie;
-      const cmp = primaryDiff !== 0 ? primaryDiff : tieDiff;
-      return manualSortOrder === "desc" ? -cmp : cmp;
-    });
-    return list;
-  }, [filteredManuals, manualSortKey, manualSortOrder]);
+  /** マニュアル単体の sortKey 計算 */
+  const manualSortKeyOf = useCallback((m: Manual): number => {
+    return manualSortKey === "publish"
+      ? (parseTimeMs(m.startDate) ?? FAR_FUTURE)
+      : (parseTimeMs(m.updatedAt) ?? FAR_FUTURE);
+  }, [manualSortKey]);
 
-  const totalManualPages = Math.max(1, Math.ceil(sortedManuals.length / PAGE_SIZE));
-  const pagedManuals = useMemo(() => {
+  type MixedItem =
+    | { kind: "manual"; manual: Manual; sortKey: number }
+    | { kind: "series"; categoryId: string; name: string; manuals: Manual[]; sortKey: number };
+
+  /** シリーズと単独マニュアルを混在させた一覧アイテム */
+  const mixedItems = useMemo<MixedItem[]>(() => {
+    // シリーズ毎にマニュアルを束ねる (categoryId が存在するシリーズに紐付くもの)
+    const seriesGroups: Record<string, Manual[]> = {};
+    const standalone: Manual[] = [];
+    for (const m of filteredManuals) {
+      const cid = m.categoryId || "";
+      if (cid && seriesNameMap[cid]) {
+        (seriesGroups[cid] ||= []).push(m);
+      } else {
+        standalone.push(m);
+      }
+    }
+
+    const out: MixedItem[] = [];
+    for (const m of standalone) {
+      out.push({ kind: "manual", manual: m, sortKey: manualSortKeyOf(m) });
+    }
+    for (const [cid, items] of Object.entries(seriesGroups)) {
+      // シリーズ内は seriesOrder 昇順
+      items.sort((a, b) => (a.seriesOrder ?? 9999) - (b.seriesOrder ?? 9999));
+      // シリーズ自体の sortKey は最も新しい (max) を採用
+      const keys = items.map(manualSortKeyOf);
+      const maxKey = keys.length > 0 ? Math.max(...keys) : FAR_FUTURE;
+      out.push({
+        kind: "series",
+        categoryId: cid,
+        name: seriesNameMap[cid],
+        manuals: items,
+        sortKey: maxKey,
+      });
+    }
+
+    // 全体ソート
+    out.sort((a, b) => {
+      const diff = a.sortKey - b.sortKey;
+      return manualSortOrder === "desc" ? -diff : diff;
+    });
+    return out;
+  }, [filteredManuals, seriesNameMap, manualSortKeyOf, manualSortOrder]);
+
+  const totalManualPages = Math.max(1, Math.ceil(mixedItems.length / PAGE_SIZE));
+  const pagedMixedItems = useMemo(() => {
     const start = (manualPage - 1) * PAGE_SIZE;
-    return sortedManuals.slice(start, start + PAGE_SIZE);
-  }, [sortedManuals, manualPage]);
+    return mixedItems.slice(start, start + PAGE_SIZE);
+  }, [mixedItems, manualPage]);
+
+  // シリーズ数 + 単独マニュアル数の合計
+  const totalManualCount = filteredManuals.length;
 
   const recentTags = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -1060,6 +1183,9 @@ export default function HomePage() {
   }, [newsList, selectedBrandId, selectedDeptId, keyword]);
 
   useEffect(() => setNewsPage(1), [selectedBrandId, selectedDeptId]);
+
+  // 検索キーワード / ブランド / 部署 が変わったらマニュアル一覧のページを1に戻す
+  useEffect(() => setManualPage(1), [keyword, selectedBrandId, selectedDeptId]);
 
   const totalNewsPages = Math.max(1, Math.ceil(filteredNews.length / NEWS_PAGE_SIZE));
   const pagedNews = useMemo(() => {
@@ -1132,6 +1258,7 @@ export default function HomePage() {
         <div className="kb-topbar-center">
           <input
             className="kb-search-input"
+            data-tour="search-bar"
             placeholder="キーワードで探す（例：Canva テロップ）"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
@@ -1145,6 +1272,24 @@ export default function HomePage() {
         </div>
 
         <div className="kb-topbar-right">
+          <button
+            type="button"
+            className="kb-help-trigger"
+            onClick={() => setHelpOpen(true)}
+            title="使い方ガイドを開く"
+          >
+            <span aria-hidden>📖</span>
+            <span className="kb-help-trigger-label">使い方</span>
+          </button>
+          <button
+            type="button"
+            className="kb-help-trigger"
+            onClick={() => setTourOpen(true)}
+            title="ガイドツアーを再生"
+          >
+            <span aria-hidden>❓</span>
+            <span className="kb-help-trigger-label">ツアー</span>
+          </button>
           <div ref={userMenuRef} style={{ position: "relative" }}>
             <button
               type="button"
@@ -1210,7 +1355,7 @@ export default function HomePage() {
       </div>
 
       <div className="kb-main">
-        <aside className="kb-panel" aria-label="フィルター">
+        <aside className="kb-panel" aria-label="フィルター" data-tour="filter-panel">
           <div className="kb-panel-section">
             <div className="kb-panel-title">ブランドで探す</div>
             <div className="kb-chip-list vertical">
@@ -1309,7 +1454,7 @@ export default function HomePage() {
         </aside>
 
         <main className="kb-center">
-          <div className="kb-card">
+          <div className="kb-card" data-tour="knowbie">
             <div className="kb-card-header">
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div className="kb-avatar">
@@ -1449,12 +1594,16 @@ export default function HomePage() {
             )}
           </div>
 
-          <div className="kb-card kb-manual-card" ref={manualListRef}>
+          <div className="kb-card kb-manual-card" ref={manualListRef} data-tour="manual-list">
             <div className="kb-card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
               <div>
                 <div className="kb-card-title">マニュアル一覧</div>
                 <div className="kb-card-meta">
-                  {loadingManuals ? "読み込み中..." : filteredManuals.length === 0 ? "0 件表示中" : `${sortedManuals.length} 件中 ${(manualPage - 1) * PAGE_SIZE + 1}〜${Math.min(manualPage * PAGE_SIZE, sortedManuals.length)} 件を表示`}
+                  {loadingManuals
+                    ? "読み込み中..."
+                    : totalManualCount === 0
+                    ? "0 件表示中"
+                    : `マニュアル ${totalManualCount} 本 (シリーズ含む ${mixedItems.length} 件中 ${(manualPage - 1) * PAGE_SIZE + 1}〜${Math.min(manualPage * PAGE_SIZE, mixedItems.length)} 件を表示)`}
                 </div>
               </div>
 
@@ -1468,18 +1617,59 @@ export default function HomePage() {
             </div>
 
             {loadingManuals && <div>読み込み中...</div>}
-            {!loadingManuals && filteredManuals.length === 0 && <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>条件に一致するマニュアルがありません。</div>}
-            {!loadingManuals && filteredManuals.length > 0 && (
+            {!loadingManuals && mixedItems.length === 0 && <div style={{ fontSize: 13, color: "#6b7280", paddingTop: 8 }}>条件に一致するマニュアルがありません。</div>}
+            {!loadingManuals && mixedItems.length > 0 && (
               <>
-                <ManualList
-                  manuals={pagedManuals.map((m) => ({
-                    ...m,
-                    startDate: formatToJST(m.startDate),
-                    updatedAt: formatToJST(m.updatedAt),
-                    viewScope: normalizeManualViewScope(m.viewScope),
-                  }))}
-                  userId={me?.userId ?? ""}
-                />
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {pagedMixedItems.map((item) => {
+                    // 配信部署名を bizId からルックアップして補完
+                    // (古いマニュアルは biz が保存されているが、新しいものは bizId だけのことがある)
+                    const enrichBiz = <T extends { biz?: string | null; bizId?: string }>(m: T): T & { biz?: string } => ({
+                      ...m,
+                      biz: m.biz || (m.bizId ? deptMap[m.bizId]?.name : undefined) || undefined,
+                    });
+
+                    if (item.kind === "series") {
+                      const detail = seriesDetailMap[item.categoryId];
+                      // シリーズの biz も bizId から補完
+                      const seriesBizName = detail?.biz || (detail?.bizId ? deptMap[detail.bizId]?.name : undefined) || null;
+                      return (
+                        <SeriesScroll
+                          key={`series:${item.categoryId}`}
+                          seriesName={item.name}
+                          manuals={item.manuals.map((m) => enrichBiz({
+                            ...m,
+                            startDate: formatToJST(m.startDate),
+                            updatedAt: formatToJST(m.updatedAt),
+                            viewScope: normalizeManualViewScope(m.viewScope),
+                          }))}
+                          userId={me?.userId ?? ""}
+                          description={detail?.description ?? null}
+                          biz={seriesBizName}
+                          publishedAt={detail?.publishedAt ?? null}
+                          thumbnailUrl={detail?.thumbnailUrl ?? null}
+                          searchTokens={searchHighlightTokens}
+                        />
+                      );
+                    }
+                    // 単独マニュアル
+                    const m = item.manual;
+                    return (
+                      <ManualList
+                        key={`manual:${m.manualId}`}
+                        manuals={[enrichBiz({
+                          ...m,
+                          startDate: formatToJST(m.startDate),
+                          updatedAt: formatToJST(m.updatedAt),
+                          viewScope: normalizeManualViewScope(m.viewScope),
+                        })]}
+                        userId={me?.userId ?? ""}
+                        seriesNameMap={seriesNameMap}
+                        searchTokens={searchHighlightTokens}
+                      />
+                    );
+                  })}
+                </div>
                 {totalManualPages > 1 && (
                   <div className="kb-pager">
                     <button type="button" className="kb-pager-btn" disabled={manualPage === 1} onClick={() => setManualPage((p) => Math.max(1, p - 1))}>前へ</button>
@@ -1492,7 +1682,7 @@ export default function HomePage() {
           </div>
         </main>
 
-        <aside className="kb-panel">
+        <aside className="kb-panel" data-tour="contact-list">
           <div className="kb-panel-header-row">
             <div className="kb-panel-title">担当者リスト{currentDeptTitleLabel}</div>
           </div>
@@ -1500,7 +1690,7 @@ export default function HomePage() {
             <button type="button" className="kb-contact-inquiry-btn" onClick={() => setIsInquiryModalOpen(true)}>問い合わせ</button>
           </div>
           <div className="kb-contact-list-wrapper" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-            <ContactList contacts={filteredContacts} contactSearch={contactSearch} setContactSearch={setContactSearch} deptMap={deptMap} loading={loadingContacts} />
+            <ContactList contacts={filteredContacts} contactSearch={contactSearch} setContactSearch={setContactSearch} deptMap={deptMap} loading={loadingContacts} fallbackKeyword={keyword} />
           </div>
         </aside>
       </div>
@@ -1566,6 +1756,45 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* 使い方ガイドモーダル */}
+      <HelpModal
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        slidesUrl={HELP_SLIDES_URL}
+        title="Know Base 使い方ガイド"
+      />
+
+      {/* ガイドツアー */}
+      <Tour steps={TOUR_STEPS} open={tourOpen} onClose={() => setTourOpen(false)} />
+
+      <style jsx global>{`
+        .kb-help-trigger {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          padding: 7px 12px;
+          font-size: 12px;
+          font-weight: 700;
+          color: #475569;
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: 0.15s;
+        }
+        .kb-help-trigger:hover {
+          border-color: #3b82f6;
+          color: #3b82f6;
+          background: #eff6ff;
+        }
+        .kb-help-trigger-label {
+          letter-spacing: 0.02em;
+        }
+        @media (max-width: 640px) {
+          .kb-help-trigger-label { display: none; }
+        }
+      `}</style>
     </div>
   );
 }
