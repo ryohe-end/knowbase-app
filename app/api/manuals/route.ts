@@ -5,7 +5,9 @@ import {
   ScanCommand,
   PutCommand,
   DeleteCommand,
+  GetCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import { isAdminRequest as checkAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -51,6 +53,47 @@ const FC_GROUP_SET = new Set(FC_GROUP_ALIASES.map(norm));
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
 
+// EventBridge (前処理ジョブを async に発火するため)
+const EVENT_BUS_NAME = process.env.PREPROCESS_EVENT_BUS || "default";
+const EVENT_SOURCE = "knowbie.manual.saved";
+const eventBridge = new EventBridgeClient({ region: REGION });
+
+/** マニュアル保存時に EventBridge へイベントを送信 (fire-and-forget) */
+async function emitManualSavedEvent(payload: {
+  manualId: string;
+  embedUrl?: string;
+  trigger: "create" | "update";
+  prevEmbedUrl?: string | null;
+}): Promise<void> {
+  if (!payload.embedUrl) {
+    console.log("[manuals] skip event: embedUrl empty", payload.manualId);
+    return;
+  }
+  // 更新時に embedUrl が変わってなければスキップ
+  if (payload.trigger === "update" && payload.prevEmbedUrl === payload.embedUrl) {
+    console.log("[manuals] skip event: embedUrl unchanged", payload.manualId);
+    return;
+  }
+  try {
+    await eventBridge.send(
+      new PutEventsCommand({
+        Entries: [
+          {
+            EventBusName: EVENT_BUS_NAME,
+            Source: EVENT_SOURCE,
+            DetailType: "ManualSaved",
+            Detail: JSON.stringify(payload),
+          },
+        ],
+      })
+    );
+    console.log("[manuals] EventBridge PutEvents sent", payload.manualId);
+  } catch (e: any) {
+    // 保存自体は成功しているので失敗は warn にとどめる
+    console.warn("[manuals] EventBridge PutEvents failed:", e?.message ?? String(e));
+  }
+}
+
 export type ManualType = "doc" | "video";
 export type ViewScope = "ALL" | "DIRECT" | "FC";
 
@@ -87,6 +130,13 @@ export type Manual = {
   categoryId?: string | null;
   // ✅ シリーズ内の表示順 (小さい順)
   seriesOrder?: number | null;
+
+  // ✅ AI 用前処理メタ
+  preprocessedAt?: string | null;
+  preprocessedEmbedUrl?: string | null;
+  preprocessedKey?: string | null;
+  preprocessedStatus?: "ok" | "failed" | "pending" | null;
+  preprocessedError?: string | null;
 };
 
 /** yyyy-mm-dd をざっくり検証（空はOK） */
@@ -290,6 +340,12 @@ function mapItemToManual(item: any): Manual {
         : item.seriesOrder != null
         ? Number(item.seriesOrder)
         : null,
+    // ✅ 前処理メタ
+    preprocessedAt: item.preprocessedAt ? String(item.preprocessedAt) : null,
+    preprocessedEmbedUrl: item.preprocessedEmbedUrl ? String(item.preprocessedEmbedUrl) : null,
+    preprocessedKey: item.preprocessedKey ? String(item.preprocessedKey) : null,
+    preprocessedStatus: (item.preprocessedStatus as any) ?? null,
+    preprocessedError: item.preprocessedError ? String(item.preprocessedError) : null,
   };
 }
 
@@ -354,6 +410,12 @@ function buildDbItem(input: any): any {
         : input.seriesOrder != null && input.seriesOrder !== ""
         ? Number(input.seriesOrder)
         : null,
+    // 前処理メタは保存時には触らない (preprocess 側で UpdateItem する想定)
+    preprocessedAt: input.preprocessedAt ?? null,
+    preprocessedEmbedUrl: input.preprocessedEmbedUrl ?? null,
+    preprocessedKey: input.preprocessedKey ?? null,
+    preprocessedStatus: input.preprocessedStatus ?? null,
+    preprocessedError: input.preprocessedError ?? null,
   };
 }
 
@@ -502,6 +564,13 @@ export async function POST(req: Request) {
       })
     );
 
+    // ✅ 前処理ジョブを発火
+    await emitManualSavedEvent({
+      manualId: item.manualId,
+      embedUrl: item.embedUrl,
+      trigger: "create",
+    });
+
     return Response.json({ ok: true, manualId: item.manualId });
   } catch (error) {
     console.error("POST /api/manuals error", (error as Error)?.name);
@@ -525,6 +594,15 @@ export async function PUT(req: Request) {
       );
     }
 
+    // 既存値を取得 (embedUrl 変更検知用 / createdAt 維持用)
+    let prevEmbedUrl: string | null = null;
+    try {
+      const prev = await ddbDoc.send(
+        new GetCommand({ TableName: TABLE_NAME, Key: { manualId: body.manualId } })
+      );
+      prevEmbedUrl = prev.Item?.embedUrl ? String(prev.Item.embedUrl) : null;
+    } catch {}
+
     const item = buildDbItem(body);
 
     await ddbDoc.send(
@@ -533,6 +611,14 @@ export async function PUT(req: Request) {
         Item: item,
       })
     );
+
+    // ✅ 前処理ジョブを発火 (embedUrl 変更時のみ)
+    await emitManualSavedEvent({
+      manualId: item.manualId,
+      embedUrl: item.embedUrl,
+      trigger: "update",
+      prevEmbedUrl,
+    });
 
     return Response.json({ ok: true, manualId: item.manualId });
   } catch (error) {

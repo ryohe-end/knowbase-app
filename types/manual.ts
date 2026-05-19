@@ -23,4 +23,11 @@ export type Manual = {
   downloadUrl?: string | null;
   noDownload?: boolean | null;
   viewScope?: "all" | "direct";
+
+  // ✅ AI 用前処理ステータス (preprocess pipeline)
+  preprocessedAt?: string | null;
+  preprocessedEmbedUrl?: string | null;
+  preprocessedKey?: string | null;
+  preprocessedStatus?: "ok" | "failed" | "pending" | null;
+  preprocessedError?: string | null;
 };

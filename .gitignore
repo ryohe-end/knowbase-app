@@ -20,3 +20,6 @@ keys/
 # tooling / local
 tsconfig.tsbuildinfo
 .claude/
+
+# preprocess output (generated artifacts)
+output/
