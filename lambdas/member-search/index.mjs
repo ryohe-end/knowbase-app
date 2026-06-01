@@ -47,7 +47,19 @@ async function getPool() {
 }
 
 // --- SQL定義 -----------------------------------------------------------------
-// 共通の SELECT 句。a=個人 / b=会員番号 / c=会員番号_外部ID
+// 共通の SELECT 句。a=個人 / b=会員番号
+// UDID は「現役 (会員番号_外部ID)」と「削除済 (会員番号_外部ID_削除)」を別カラムで返し、
+// 表示時に active 優先 + 無ければ deleted を採用する。フラグ UDID_DELETED で出し分け。
+// ROWNUM=1 で複数行があってもスカラ取得 (実運用は会員番号×種別=3 で実質1行のはず)。
+const UDID_ACTIVE_SUBQ = `(
+  SELECT 外部ID FROM FIT_ADMIN.会員番号_外部ID
+   WHERE 会員番号 = b.会員番号 AND 外部ID種別コード = 3 AND ROWNUM = 1
+)`;
+const UDID_DELETED_SUBQ = `(
+  SELECT 外部ID FROM FIT_ADMIN.会員番号_外部ID_削除
+   WHERE 会員番号 = b.会員番号 AND 外部ID種別コード = 3 AND ROWNUM = 1
+)`;
+
 const BASE_SELECT = `
   SELECT
     a.個人SEQ                              AS KOJIN_SEQ,
@@ -62,17 +74,23 @@ const BASE_SELECT = `
     END                                     AS BIRTHDAY,
     a.EMAIL                                 AS EMAIL,
     a.T連絡先TEL                            AS PHONE,
-    c.外部ID                                AS UDID
+    ${UDID_ACTIVE_SUBQ}                     AS UDID_ACTIVE,
+    ${UDID_DELETED_SUBQ}                    AS UDID_DELETED
 `;
 
 const QUERIES = {
-  // ① UDID検索: 外部ID から JOIN
+  // ① UDID検索: 現役 + 削除済 両方を UNION して 会員番号 → 個人 で取得
   udid: `
     ${BASE_SELECT}
-    FROM FIT_ADMIN.会員番号_外部ID c
-    JOIN FIT_ADMIN.会員番号 b ON c.会員番号 = b.会員番号
-    JOIN FIT_ADMIN.個人     a ON b.個人SEQ  = a.個人SEQ
-    WHERE c.外部ID = :q AND c.外部ID種別コード = 3
+    FROM FIT_ADMIN.会員番号 b
+    JOIN FIT_ADMIN.個人 a ON b.個人SEQ = a.個人SEQ
+    WHERE b.会員番号 IN (
+      SELECT 会員番号 FROM FIT_ADMIN.会員番号_外部ID
+       WHERE 外部ID = :q AND 外部ID種別コード = 3
+      UNION ALL
+      SELECT 会員番号 FROM FIT_ADMIN.会員番号_外部ID_削除
+       WHERE 外部ID = :q AND 外部ID種別コード = 3
+    )
     FETCH FIRST 50 ROWS ONLY
   `,
 
@@ -81,8 +99,6 @@ const QUERIES = {
     ${BASE_SELECT}
     FROM FIT_ADMIN.会員番号 b
     JOIN FIT_ADMIN.個人 a ON b.個人SEQ = a.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE b.会員番号 = :q
     FETCH FIRST 50 ROWS ONLY
   `,
@@ -92,8 +108,6 @@ const QUERIES = {
     ${BASE_SELECT}
     FROM FIT_ADMIN.個人 a
     JOIN FIT_ADMIN.会員番号 b ON a.個人SEQ = b.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE a.漢字姓名 = :q
     FETCH FIRST 100 ROWS ONLY
   `,
@@ -103,8 +117,6 @@ const QUERIES = {
     ${BASE_SELECT}
     FROM FIT_ADMIN.個人 a
     JOIN FIT_ADMIN.会員番号 b ON a.個人SEQ = b.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE a.カナ姓 = :q
       AND (:q2 IS NULL OR a.カナ名 = :q2)
     FETCH FIRST 100 ROWS ONLY
@@ -115,8 +127,6 @@ const QUERIES = {
     ${BASE_SELECT}
     FROM FIT_ADMIN.個人 a
     JOIN FIT_ADMIN.会員番号 b ON a.個人SEQ = b.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE a.EMAIL = :q
     FETCH FIRST 50 ROWS ONLY
   `,
@@ -127,8 +137,6 @@ const QUERIES = {
     FROM FIT_ADMIN.個人電話番号 p
     JOIN FIT_ADMIN.個人     a ON p.個人SEQ = a.個人SEQ
     JOIN FIT_ADMIN.会員番号 b ON a.個人SEQ = b.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE p.検索用TEL = RPAD(:q, 15)
     FETCH FIRST 50 ROWS ONLY
   `,
@@ -138,8 +146,6 @@ const QUERIES = {
     ${BASE_SELECT}
     FROM FIT_ADMIN.個人 a
     JOIN FIT_ADMIN.会員番号 b ON a.個人SEQ = b.個人SEQ
-    LEFT JOIN FIT_ADMIN.会員番号_外部ID c
-      ON b.会員番号 = c.会員番号 AND c.外部ID種別コード = 3
     WHERE a.個人SEQ = :q
   `,
 };
@@ -200,6 +206,8 @@ export const handler = async (event) => {
 
 // --- ヘルパ ------------------------------------------------------------------
 function rowToCamel(r) {
+  const udidActive = r.UDID_ACTIVE ?? null;
+  const udidDel    = r.UDID_DELETED ?? null;
   return {
     kojinSeq:    r.KOJIN_SEQ != null ? String(r.KOJIN_SEQ) : null,
     memberNo:    r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
@@ -209,7 +217,8 @@ function rowToCamel(r) {
     birthday:    r.BIRTHDAY,
     email:       r.EMAIL,
     phone:       r.PHONE != null ? String(r.PHONE).trim() : null,
-    udid:        r.UDID,
+    udid:        udidActive ?? udidDel,
+    udidDeleted: udidActive == null && udidDel != null,
   };
 }
 

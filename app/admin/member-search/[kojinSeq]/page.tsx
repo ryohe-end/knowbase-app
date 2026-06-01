@@ -17,6 +17,7 @@ type Member = {
   email: string | null;
   phone: string | null;
   udid: string | null;
+  udidDeleted: boolean;
 };
 
 export default function MemberDetailPage({
@@ -100,7 +101,24 @@ export default function MemberDetailPage({
                   {rows.map((r, i) => (
                     <tr key={`${r.memberNo}-${r.udid}-${i}`}>
                       <td>{r.memberNo ?? "-"}</td>
-                      <td className="md-mono">{r.udid ?? "-"}</td>
+                      <td className="md-mono">
+                        {r.udid ?? "-"}
+                        {r.udidDeleted && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              padding: "1px 6px",
+                              fontSize: 11,
+                              borderRadius: 10,
+                              background: "#fee2e2",
+                              color: "#991b1b",
+                              verticalAlign: "middle",
+                            }}
+                          >
+                            削除済
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

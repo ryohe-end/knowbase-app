@@ -28,10 +28,14 @@ async function getSecret(arn) {
   return JSON.parse(r.SecretString);
 }
 
-// 既存判定用ヘルパ
+// 既存判定用ヘルパ (OUT_FORMAT_OBJECT 下では rows[0] が { COL: value } なので
+// Object.values で1列目を取得する。array index アクセスだと undefined になる)
 async function exists(conn, sql, binds) {
   const r = await conn.execute(sql, binds);
-  return (r.rows?.[0]?.[0] ?? 0) > 0;
+  const row = r.rows?.[0];
+  if (!row) return false;
+  const count = Object.values(row)[0] ?? 0;
+  return Number(count) > 0;
 }
 
 // --- セットアップ手順 --------------------------------------------------------
@@ -61,7 +65,7 @@ async function setup(adminCfg, roCfg) {
 
     // ② 権限付与
     await conn.execute(`GRANT CREATE SESSION TO ${roCfg.user}`);
-    for (const tbl of ["個人", "会員番号", "会員番号_外部ID", "個人電話番号"]) {
+    for (const tbl of ["個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号"]) {
       await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
     }
     log.push("grants applied");

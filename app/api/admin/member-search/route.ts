@@ -129,6 +129,7 @@ type MemberRow = {
   email: string | null;
   phone: string | null;
   udid: string | null;
+  udidDeleted: boolean;
 };
 
 function maskRow(r: MemberRow) {

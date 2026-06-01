@@ -24,6 +24,7 @@ type Row = {
   email: string | null;
   phone: string | null;
   udid: string | null;
+  udidDeleted: boolean;
 };
 
 const TYPE_LABELS: Record<SearchType, string> = {
@@ -177,7 +178,24 @@ export default function MemberSearchPage() {
                     <td>{r.birthday ?? "-"}</td>
                     <td>{r.email ?? "-"}</td>
                     <td>{r.phone ?? "-"}</td>
-                    <td>{r.udid ?? "-"}</td>
+                    <td>
+                      {r.udid ?? "-"}
+                      {r.udidDeleted && (
+                        <span
+                          style={{
+                            marginLeft: 6,
+                            padding: "1px 6px",
+                            fontSize: 11,
+                            borderRadius: 10,
+                            background: "#fee2e2",
+                            color: "#991b1b",
+                            verticalAlign: "middle",
+                          }}
+                        >
+                          削除済
+                        </span>
+                      )}
+                    </td>
                     <td>
                       {r.kojinSeq && (
                         <Link
