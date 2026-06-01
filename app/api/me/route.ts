@@ -59,10 +59,11 @@ export async function GET() {
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
         ProjectionExpression:
-          "userId, #n, email, #r, brandIds, deptIds, groupIds, isActive, mustChangePassword, createdAt, updatedAt",
+          "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, #p, isActive, mustChangePassword, createdAt, updatedAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
+          "#p": "permissions",
         },
       })
     );
@@ -90,6 +91,8 @@ export async function GET() {
 
         brandIds: normalizeStringArray(user.brandIds),
         deptIds: normalizeStringArray(user.deptIds),
+        clubCodes: normalizeStringArray(user.clubCodes),
+        permissions: normalizeStringArray(user.permissions),
 
         // ✅ 両方返す（フロント互換）
         groupId,      // ← 追加：page.tsx が今見てるやつ

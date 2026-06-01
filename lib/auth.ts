@@ -152,6 +152,51 @@ export async function isAdminRequest(req: Request): Promise<boolean> {
   return false;
 }
 
+/**
+ * Check if a request's session user has a specific permission flag.
+ * Looks up yamauchi-Users by signed kb_user email. Requires AWS region + creds.
+ * NOTE: role: admin alone does NOT grant a permission - explicit grant required.
+ */
+export async function requestHasPermission(
+  req: Request,
+  perm: string
+): Promise<boolean> {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const cookieMap = parseCookieHeader(cookieHeader);
+  const session = await readVerifiedSession({
+    get: (n) => (cookieMap[n] !== undefined ? { value: cookieMap[n] } : undefined),
+  });
+  if (!session) return false;
+
+  // Dynamic import so this module stays edge-safe when not called.
+  const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+  const { DynamoDBDocumentClient, QueryCommand } = await import(
+    "@aws-sdk/lib-dynamodb"
+  );
+  const region = process.env.AWS_REGION || "us-east-1";
+  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+
+  try {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: "yamauchi-Users",
+        IndexName: "email-index",
+        KeyConditionExpression: "email = :email",
+        ExpressionAttributeValues: { ":email": session.email },
+        Limit: 1,
+        ProjectionExpression: "#p, isActive",
+        ExpressionAttributeNames: { "#p": "permissions" },
+      })
+    );
+    const u = res.Items?.[0] as { permissions?: string[]; isActive?: boolean } | undefined;
+    if (!u || u.isActive === false) return false;
+    return Array.isArray(u.permissions) && u.permissions.includes(perm);
+  } catch (e) {
+    console.error("[requestHasPermission] DynamoDB error", e);
+    return false;
+  }
+}
+
 function parseCookieHeader(h: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!h) return out;

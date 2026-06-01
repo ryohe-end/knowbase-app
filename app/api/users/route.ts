@@ -15,6 +15,10 @@ import { verifySignedValue } from "@/lib/auth";
 
 export type KbUserRole = "admin" | "editor" | "viewer";
 
+// permissions は機能単位の特殊権限。現状は "member_search" のみ。
+// role: admin と独立しており、admin でも明示付与が必要。
+export type KbPermission = "member_search";
+
 export type KbUser = {
   userId: string;
   name: string;
@@ -23,6 +27,8 @@ export type KbUser = {
   brandIds?: string[];
   deptIds?: string[];
   groupIds?: string[];
+  clubCodes?: string[];
+  permissions?: KbPermission[];
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -184,10 +190,11 @@ export async function GET() {
       new ScanCommand({
         TableName: TABLE_NAME,
         ProjectionExpression:
-           "userId, #n, email, #r, brandIds, deptIds, groupIds, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
+           "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, #p, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
+          "#p": "permissions",
         },
       })
     );
@@ -375,6 +382,17 @@ export async function POST(req: NextRequest) {
   resetPassword ? true :
   (existing?.mustChangePassword ?? false);
 
+const KNOWN_PERMISSIONS: KbPermission[] = ["member_search"];
+const requestedPermissions = Array.isArray(user.permissions) ? user.permissions : [];
+const sanitizedPermissions = KNOWN_PERMISSIONS.filter((p) =>
+  requestedPermissions.includes(p)
+);
+
+const requestedClubCodes = Array.isArray(user.clubCodes) ? user.clubCodes : [];
+const sanitizedClubCodes = Array.from(
+  new Set(requestedClubCodes.map((c) => String(c).trim()).filter(Boolean))
+);
+
 const putItem: KbUser = {
   userId: user.userId,
   name: user.name ?? "",
@@ -383,6 +401,8 @@ const putItem: KbUser = {
   brandIds: user.brandIds ?? [],
   deptIds: user.deptIds ?? [],
   groupIds: user.groupIds ?? [],
+  clubCodes: sanitizedClubCodes,
+  permissions: sanitizedPermissions,
   isActive: user.isActive ?? true,
   createdAt: mode === "update" ? (existing?.createdAt ?? now) : (user.createdAt ?? now),
   updatedAt: now,

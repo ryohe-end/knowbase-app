@@ -12,7 +12,7 @@
 //   MEMBER_SEARCH_AUDIT_TABLE  デフォルト "knowbie-member-lookup-audit"
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminRequest, verifySignedValue } from "@/lib/auth";
+import { isAdminRequest, requestHasPermission, verifySignedValue } from "@/lib/auth";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -36,9 +36,15 @@ const SUPPORTED_TYPES = new Set([
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
 export async function GET(req: NextRequest) {
-  // ① admin ガード
+  // ① admin ガード + member_search 権限ガード (両方必要)
   if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
+  }
+  if (!(await requestHasPermission(req, "member_search"))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: "member_search" },
+      { status: 403 }
+    );
   }
   if (!API_BASE || !API_KEY) {
     return NextResponse.json(

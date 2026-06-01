@@ -63,7 +63,7 @@ async function getCurrentUser() {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, groupIds, isActive",
+        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
@@ -76,6 +76,7 @@ async function getCurrentUser() {
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
+      clubCodes: normalizeStringArray(user.clubCodes),
     };
   } catch (e) {
     console.error("[stores API] Failed to get current user:", e);
@@ -126,10 +127,15 @@ export async function GET() {
   }
 
   try {
-    const stores = await fetchStoresFromDB();
+    const allStores = await fetchStoresFromDB();
 
-    // TODO: 閲覧者の場合は groupIds に基づいてフィルタリング
-    // 現状は管理者と同様に全店舗返す（yamauchi-Users に clubCode が無いため）
+    // 表示範囲: admin かつ clubCodes 未指定 = 全件 / それ以外は user.clubCodes で whitelist
+    const isAdmin = user.role === "admin";
+    const userClubCodes = new Set(user.clubCodes ?? []);
+    const stores =
+      isAdmin && userClubCodes.size === 0
+        ? allStores
+        : allStores.filter((s: any) => userClubCodes.has(String(s.clubCode)));
 
     return NextResponse.json({
       ok: true,
@@ -138,6 +144,7 @@ export async function GET() {
       user: {
         role: user.role,
         groupIds: user.groupIds,
+        clubCodes: user.clubCodes,
       },
     });
   } catch (e) {

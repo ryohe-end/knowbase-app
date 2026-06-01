@@ -15,10 +15,26 @@ export default function AdminHome() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
   const [isModalMax, setIsModalMax] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => setIsInitializing(false), 800);
     return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (Array.isArray(json?.user?.permissions)) {
+          setPermissions(json.user.permissions);
+        }
+      } catch (e) {
+        console.warn("[admin] failed to load /api/me", e);
+      }
+    })();
   }, []);
 
   const portalManual: Manual = {
@@ -102,13 +118,17 @@ export default function AdminHome() {
       desc: "SendGridの設定確認と指定アドレスへのテスト送信を行います",
       color: "#ef4444",
     },
-    {
-      href: "/admin/member-search",
-      label: "9. MEMBER LOOKUP",
-      title: "会員情報照会",
-      desc: "UDID・会員番号・氏名等から FIT 会員情報を検索・閲覧します",
-      color: "#06b6d4",
-    },
+    ...(permissions.includes("member_search")
+      ? [
+          {
+            href: "/admin/member-search",
+            label: "9. MEMBER LOOKUP",
+            title: "会員情報照会",
+            desc: "UDID・会員番号・氏名等から FIT 会員情報を検索・閲覧します",
+            color: "#06b6d4",
+          },
+        ]
+      : []),
   ];
 
   return (

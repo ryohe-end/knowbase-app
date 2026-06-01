@@ -6,6 +6,7 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
 /* ========= 型 ========= */
 export type KbUserRole = "admin" | "editor" | "viewer";
+export type KbPermission = "member_search";
 export type KbUser = {
   userId: string;
   name: string;
@@ -13,6 +14,8 @@ export type KbUser = {
   role: KbUserRole;
   brandIds?: string[];
   groupIds?: string[];
+  clubCodes?: string[];
+  permissions?: KbPermission[];
   isActive?: boolean;
   createdAt?: string;
   updatedAt?: string;
@@ -20,6 +23,22 @@ export type KbUser = {
 
 type Brand = { brandId: string; name: string };
 type Group = { groupId: string; groupName: string };
+type Club = {
+  clubCode: string;
+  clubName?: string | null;
+  clubNameShort?: string | null;
+  companyGroup?: string | null;
+  companyName?: string | null;
+  businessType?: string | null;
+};
+
+const PERMISSION_OPTIONS: { value: KbPermission; label: string; desc: string }[] = [
+  {
+    value: "member_search",
+    label: "会員照会",
+    desc: "FIT会員情報の検索・閲覧 (/admin/member-search)",
+  },
+];
 
 const ROLE_OPTIONS: { value: KbUserRole; label: string }[] = [
   { value: "admin", label: "管理者" },
@@ -33,6 +52,8 @@ const DEFAULT_USER_FORM: KbUser = {
   role: "viewer",
   brandIds: [],
   groupIds: [],
+  clubCodes: [],
+  permissions: [],
   isActive: true,
 };
 
@@ -42,9 +63,11 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<KbUser[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [clubs, setClubs] = useState<Club[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
+  const [clubSearch, setClubSearch] = useState("");
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -65,21 +88,24 @@ export default function AdminUsersPage() {
   async function loadAllData() {
     setLoading(true);
     try {
-      const [uRes, bRes, gRes] = await Promise.all([
+      const [uRes, bRes, gRes, cRes] = await Promise.all([
         fetch("/api/users"),
         fetch("/api/brands"),
         fetch("/api/groups"),
+        fetch("/api/clubs"),
       ]);
 
-      const [uJson, bJson, gJson] = await Promise.all([
+      const [uJson, bJson, gJson, cJson] = await Promise.all([
         uRes.json(),
         bRes.json(),
         gRes.json(),
+        cRes.json(),
       ]);
 
       setUsers(uJson.users ?? []);
       setBrands(bJson.brands || []);
       setGroups(gJson.groups || []);
+      setClubs(cJson.clubs ?? []);
     } catch (err) {
       console.error("Failed to fetch admin data:", err);
     } finally {
@@ -152,6 +178,8 @@ export default function AdminUsersPage() {
       role: u.role ?? "viewer",
       brandIds: u.brandIds ?? [],
       groupIds: u.groupIds ?? [],
+      clubCodes: u.clubCodes ?? [],
+      permissions: u.permissions ?? [],
       isActive: u.isActive ?? true,
       createdAt: u.createdAt,
       updatedAt: u.updatedAt,
@@ -202,6 +230,54 @@ export default function AdminUsersPage() {
       return { ...prev, [name]: [id] };
     });
   };
+
+  // クラブコード (複数選択可)
+  const handleClubToggle = (clubCode: string) => {
+    setForm((prev) => {
+      const cur = prev.clubCodes ?? [];
+      const next = cur.includes(clubCode)
+        ? cur.filter((c) => c !== clubCode)
+        : [...cur, clubCode];
+      return { ...prev, clubCodes: next };
+    });
+  };
+
+  // 特殊権限
+  const handlePermissionToggle = (perm: KbPermission) => {
+    setForm((prev) => {
+      const cur = prev.permissions ?? [];
+      const next = cur.includes(perm)
+        ? cur.filter((p) => p !== perm)
+        : [...cur, perm];
+      return { ...prev, permissions: next };
+    });
+  };
+
+  // クラブ検索フィルタ + 選択中を上部に固定
+  const filteredClubs = useMemo(() => {
+    const kw = clubSearch.trim().toLowerCase();
+    if (!kw) return clubs;
+    return clubs.filter((c) => {
+      const hay = [
+        c.clubCode,
+        c.clubName ?? "",
+        c.clubNameShort ?? "",
+        c.companyGroup ?? "",
+        c.companyName ?? "",
+        c.businessType ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(kw);
+    });
+  }, [clubs, clubSearch]);
+
+  const sortedClubs = useMemo(() => {
+    const selected = new Set(form.clubCodes ?? []);
+    const inList = filteredClubs.filter((c) => selected.has(c.clubCode));
+    const notInList = filteredClubs.filter((c) => !selected.has(c.clubCode));
+    return [...inList, ...notInList];
+  }, [filteredClubs, form.clubCodes]);
 
   // ====== 保存（作成 / 更新） ======
   async function handleSave(e: React.FormEvent) {
@@ -803,6 +879,100 @@ export default function AdminUsersPage() {
                 <div className="kb-subnote full" style={{ marginTop: 4 }}>
                   ※ ユーザーが所属する属性グループを<strong>1つ</strong>
                   設定します。
+                </div>
+              </div>
+
+              {/* 担当クラブ (複数選択可) */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">
+                  担当クラブ ({(form.clubCodes ?? []).length} / {clubs.length})
+                </label>
+                <input
+                  type="text"
+                  className="kb-input full"
+                  placeholder="クラブ名 / コード / カンパニーで絞り込み"
+                  value={clubSearch}
+                  onChange={(e) => setClubSearch(e.target.value)}
+                  disabled={saving}
+                  style={{ marginBottom: 6 }}
+                />
+                <div
+                  className="kb-chip-list full"
+                  style={{
+                    marginBottom: 4,
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    padding: 4,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 6,
+                  }}
+                >
+                  {sortedClubs.length === 0 && (
+                    <div style={{ fontSize: 12, color: "#9ca3af", padding: 8 }}>
+                      該当するクラブがありません
+                    </div>
+                  )}
+                  {sortedClubs.map((c) => {
+                    const isSelected = (form.clubCodes ?? []).includes(c.clubCode);
+                    return (
+                      <button
+                        key={c.clubCode}
+                        type="button"
+                        className={`kb-chip small ${
+                          isSelected ? "kb-chip-active" : ""
+                        }`}
+                        onClick={() => handleClubToggle(c.clubCode)}
+                        disabled={saving}
+                        title={`${c.clubCode} / ${c.companyGroup ?? ""} / ${c.companyName ?? ""}`}
+                      >
+                        {c.clubCode}: {c.clubNameShort ?? c.clubName ?? c.clubCode}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                  ※ クラブ単位で store-settings の表示範囲を制限します。
+                  <strong>未指定 かつ admin</strong> なら全クラブ表示。
+                </div>
+              </div>
+
+              {/* 特殊権限 */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">特殊権限</label>
+                <div className="kb-chip-list full" style={{ marginBottom: 4 }}>
+                  {PERMISSION_OPTIONS.map((p) => {
+                    const isSelected = (form.permissions ?? []).includes(p.value);
+                    return (
+                      <label
+                        key={p.value}
+                        className="kb-checkbox-wrap"
+                        style={{ marginRight: 16, alignItems: "flex-start" }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handlePermissionToggle(p.value)}
+                          disabled={saving}
+                        />
+                        <span style={{ display: "inline-block" }}>
+                          <span style={{ fontWeight: 500 }}>{p.label}</span>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 11,
+                              color: "#6b7280",
+                              marginTop: 2,
+                            }}
+                          >
+                            {p.desc}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                  ※ role: admin であっても、ここで明示的に許可しないと該当機能は使えません。
                 </div>
               </div>
 
