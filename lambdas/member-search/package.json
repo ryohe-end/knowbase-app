@@ -1,0 +1,13 @@
+{
+  "name": "knowbie-member-search-lambda",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "oracledb": "^6.5.1",
+    "@aws-sdk/client-secrets-manager": "^3.700.0"
+  }
+}

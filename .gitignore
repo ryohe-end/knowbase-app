@@ -23,3 +23,6 @@ tsconfig.tsbuildinfo
 
 # preprocess output (generated artifacts)
 output/
+
+# Lambda deploy artifacts
+lambdas/*/function.zip
