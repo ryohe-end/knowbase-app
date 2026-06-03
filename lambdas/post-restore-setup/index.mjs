@@ -65,7 +65,7 @@ async function setup(adminCfg, roCfg) {
 
     // ② 権限付与
     await conn.execute(`GRANT CREATE SESSION TO ${roCfg.user}`);
-    for (const tbl of ["個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号"]) {
+    for (const tbl of ["個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号", "会員クラブ契約"]) {
       await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
     }
     log.push("grants applied");

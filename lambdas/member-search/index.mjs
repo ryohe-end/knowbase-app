@@ -59,6 +59,14 @@ const UDID_DELETED_SUBQ = `(
   SELECT 外部ID FROM FIT_ADMIN.会員番号_外部ID_削除
    WHERE 会員番号 = b.会員番号 AND 外部ID種別コード = 3 AND ROWNUM = 1
 )`;
+// 1会員 = 1契約者SEQ につき複数クラブ契約があり得るので、入会日 DESC で最新 1 件のみ。
+const LATEST_CLUB_SUBQ = `(
+  SELECT クラブコード FROM (
+    SELECT クラブコード FROM FIT_ADMIN.会員クラブ契約
+     WHERE 契約者SEQ = b.契約者SEQ
+     ORDER BY "Tクラブ入会年月日" DESC NULLS LAST
+  ) WHERE ROWNUM = 1
+)`;
 
 const BASE_SELECT = `
   SELECT
@@ -75,7 +83,8 @@ const BASE_SELECT = `
     a.EMAIL                                 AS EMAIL,
     a.T連絡先TEL                            AS PHONE,
     ${UDID_ACTIVE_SUBQ}                     AS UDID_ACTIVE,
-    ${UDID_DELETED_SUBQ}                    AS UDID_DELETED
+    ${UDID_DELETED_SUBQ}                    AS UDID_DELETED,
+    ${LATEST_CLUB_SUBQ}                     AS CLUB_CODE
 `;
 
 const QUERIES = {
@@ -219,6 +228,7 @@ function rowToCamel(r) {
     phone:       r.PHONE != null ? String(r.PHONE).trim() : null,
     udid:        udidActive ?? udidDel,
     udidDeleted: udidActive == null && udidDel != null,
+    clubCode:    r.CLUB_CODE != null ? String(r.CLUB_CODE) : null,
   };
 }
 

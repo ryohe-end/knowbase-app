@@ -25,6 +25,7 @@ type Row = {
   phone: string | null;
   udid: string | null;
   udidDeleted: boolean;
+  club?: { code: string; name: string | null } | null;
 };
 
 const TYPE_LABELS: Record<SearchType, string> = {
@@ -163,6 +164,7 @@ export default function MemberSearchPage() {
                   <th>漢字氏名</th>
                   <th>カナ氏名</th>
                   <th>生年月日</th>
+                  <th>所属店舗</th>
                   <th>メール</th>
                   <th>電話</th>
                   <th>UDID</th>
@@ -176,6 +178,7 @@ export default function MemberSearchPage() {
                     <td>{r.nameKanji ?? "-"}</td>
                     <td>{[r.nameKanaSei, r.nameKanaMei].filter(Boolean).join(" ")}</td>
                     <td>{r.birthday ?? "-"}</td>
+                    <td>{r.club ? r.club.name ?? `#${r.club.code}` : "-"}</td>
                     <td>{r.email ?? "-"}</td>
                     <td>{r.phone ?? "-"}</td>
                     <td>

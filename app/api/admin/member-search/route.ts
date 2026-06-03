@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest, requestHasPermission, verifySignedValue } from "@/lib/auth";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +23,8 @@ const REGION = process.env.AWS_REGION || "us-east-1";
 const API_BASE = process.env.MEMBER_SEARCH_API_BASE || "";
 const API_KEY = process.env.MEMBER_SEARCH_API_KEY || "";
 const AUDIT_TABLE = process.env.MEMBER_SEARCH_AUDIT_TABLE || "knowbie-member-lookup-audit";
+const CLUBS_TABLE = process.env.CLUBS_TABLE || "knowbie-clubs";
+const CLUBS_REGION = process.env.CLUBS_TABLE_REGION || "us-east-1";
 
 const SUPPORTED_TYPES = new Set([
   "udid",
@@ -34,6 +36,7 @@ const SUPPORTED_TYPES = new Set([
 ]);
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+const clubsDdb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: CLUBS_REGION }));
 
 export async function GET(req: NextRequest) {
   // ① admin ガード + member_search 権限ガード (両方必要)
@@ -94,7 +97,8 @@ export async function GET(req: NextRequest) {
   }
 
   const payload = (await upstream.json()) as { results?: MemberRow[]; count?: number };
-  const results = (payload.results || []).map(maskRow);
+  const masked = (payload.results || []).map(maskRow);
+  const results = await enrichWithClubNames(masked);
 
   // ④ 監査ログ書き込み (失敗してもレスポンスは返す)
   const session = await readSessionFromReq(req);
@@ -136,6 +140,7 @@ type MemberRow = {
   phone: string | null;
   udid: string | null;
   udidDeleted: boolean;
+  clubCode?: string | null;
 };
 
 function maskRow(r: MemberRow) {
@@ -144,7 +149,50 @@ function maskRow(r: MemberRow) {
     email: maskEmail(r.email),
     phone: maskPhone(r.phone),
     udid: maskUdid(r.udid),
+    clubCode: r.clubCode ?? null,
   };
+}
+
+// --- クラブ名解決 (最新クラブ 1 件のみ) ----------------------------------------
+async function enrichWithClubNames(rows: ReturnType<typeof maskRow>[]) {
+  const codes = Array.from(
+    new Set(rows.map((r) => r.clubCode).filter((c): c is string => !!c))
+  );
+  const nameByCode = codes.length > 0 ? await fetchClubNames(codes) : new Map();
+  return rows.map((r) => ({
+    ...r,
+    club: r.clubCode
+      ? { code: r.clubCode, name: nameByCode.get(r.clubCode) ?? null }
+      : null,
+  }));
+}
+
+async function fetchClubNames(codes: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  // BatchGetItem は 100 件上限
+  for (let i = 0; i < codes.length; i += 100) {
+    const chunk = codes.slice(i, i + 100);
+    try {
+      const res = await clubsDdb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [CLUBS_TABLE]: {
+              Keys: chunk.map((c) => ({ clubCode: c })),
+              ProjectionExpression: "clubCode, clubNameShort, clubName",
+            },
+          },
+        })
+      );
+      for (const item of res.Responses?.[CLUBS_TABLE] ?? []) {
+        const code = String((item as any).clubCode);
+        const name = (item as any).clubNameShort || (item as any).clubName;
+        if (name) result.set(code, name);
+      }
+    } catch (e) {
+      console.error("clubs batch get failed", e);
+    }
+  }
+  return result;
 }
 
 function maskEmail(v: string | null): string | null {
