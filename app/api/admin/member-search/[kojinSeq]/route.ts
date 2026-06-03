@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminRequest, requestHasPermission, verifySignedValue } from "@/lib/auth";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,8 +15,11 @@ const REGION = process.env.AWS_REGION || "us-east-1";
 const API_BASE = process.env.MEMBER_SEARCH_API_BASE || "";
 const API_KEY = process.env.MEMBER_SEARCH_API_KEY || "";
 const AUDIT_TABLE = process.env.MEMBER_SEARCH_AUDIT_TABLE || "knowbie-member-lookup-audit";
+const CLUBS_TABLE = process.env.CLUBS_TABLE || "knowbie-clubs";
+const CLUBS_REGION = process.env.CLUBS_TABLE_REGION || "us-east-1";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+const clubsDdb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: CLUBS_REGION }));
 
 export async function GET(
   req: NextRequest,
@@ -66,11 +69,44 @@ export async function GET(
   }
 
   const payload = (await upstream.json()) as { results?: any[] };
-  const rows = payload.results || [];
+  const rawRows = payload.results || [];
 
-  if (rows.length === 0) {
+  if (rawRows.length === 0) {
     return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
   }
+
+  // clubCode を knowbie-clubs から名前解決
+  const codes = Array.from(
+    new Set(rawRows.map((r) => r.clubCode).filter((c): c is string => !!c))
+  );
+  const nameByCode = new Map<string, string>();
+  if (codes.length > 0) {
+    try {
+      const res = await clubsDdb.send(
+        new BatchGetCommand({
+          RequestItems: {
+            [CLUBS_TABLE]: {
+              Keys: codes.map((c) => ({ clubCode: c })),
+              ProjectionExpression: "clubCode, clubNameShort, clubName",
+            },
+          },
+        })
+      );
+      for (const item of res.Responses?.[CLUBS_TABLE] ?? []) {
+        const code = String((item as any).clubCode);
+        const name = (item as any).clubNameShort || (item as any).clubName;
+        if (name) nameByCode.set(code, name);
+      }
+    } catch (e) {
+      console.error("clubs batch get failed", e);
+    }
+  }
+  const rows = rawRows.map((r) => ({
+    ...r,
+    club: r.clubCode
+      ? { code: r.clubCode, name: nameByCode.get(r.clubCode) ?? null }
+      : null,
+  }));
 
   // 監査ログ (view)
   const email = await verifySignedValue(req.cookies.get("kb_user")?.value);

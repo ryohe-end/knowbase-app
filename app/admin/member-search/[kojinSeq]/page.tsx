@@ -18,6 +18,7 @@ type Member = {
   phone: string | null;
   udid: string | null;
   udidDeleted: boolean;
+  club?: { code: string; name: string | null } | null;
 };
 
 export default function MemberDetailPage({
@@ -83,6 +84,7 @@ export default function MemberDetailPage({
                 <dt>カナ姓</dt><dd>{head.nameKanaSei ?? "-"}</dd>
                 <dt>カナ名</dt><dd>{head.nameKanaMei ?? "-"}</dd>
                 <dt>生年月日</dt><dd>{head.birthday ?? "-"}</dd>
+                <dt>所属店舗</dt><dd>{head.club ? head.club.name ?? `#${head.club.code}` : "-"}</dd>
                 <dt>メールアドレス</dt><dd>{head.email ?? "-"}</dd>
                 <dt>主要電話番号</dt><dd>{head.phone ?? "-"}</dd>
               </dl>
