@@ -252,7 +252,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
   // バリデーション
   const validate = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
-    if (!form.clubName.trim()) newErrors.clubName = "クラブ名は必須です";
+    // clubName / brand / businessType は店舗マスタ管理 (readonly) のため検証不要
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (form.storeEmail && !emailRegex.test(form.storeEmail)) {
       newErrors.storeEmail = "有効なメールアドレスを入力してください";
@@ -512,30 +512,32 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
             <div className="kbs-card-body">
               <div className="kbs-field-grid-2">
                 <div className="kbs-field">
-                  <label className="kbs-label">ブランド <span className="kbs-req">必須</span></label>
-                  <select name="brand" value={form.brand} onChange={handleChange} className="kbs-select" required>
+                  <label className="kbs-label">ブランド</label>
+                  <select name="brand" value={form.brand} className="kbs-select readonly" disabled>
                     <option value="FIT365">FIT365</option>
                     <option value="JOYFIT">JOYFIT</option>
                   </select>
+                  <span className="kbs-help-text">店舗マスタにより自動管理</span>
                 </div>
                 <div className="kbs-field">
                   <label className="kbs-label">業態</label>
-                  <select name="businessType" value={form.businessType} onChange={handleChange} className="kbs-select">
+                  <select name="businessType" value={form.businessType} className="kbs-select readonly" disabled>
                     <option value="">選択してください</option>
                     {BUSINESS_TYPES.map(bt => <option key={bt} value={bt}>{bt}</option>)}
                   </select>
+                  <span className="kbs-help-text">店舗マスタにより自動管理</span>
                 </div>
               </div>
 
               <div className="kbs-field-grid-2">
                 <div className="kbs-field">
                   <label className="kbs-label">クラブコード</label>
-                  <input type="text" name="clubCode" value={form.clubCode} onChange={handleChange} className="kbs-input readonly" readOnly />
+                  <input type="text" name="clubCode" value={form.clubCode} className="kbs-input readonly" readOnly />
                 </div>
                 <div className="kbs-field">
-                  <label className="kbs-label">クラブ名 <span className="kbs-req">必須</span></label>
-                  <input type="text" name="clubName" value={form.clubName} onChange={handleChange} className={`kbs-input ${errors.clubName ? "has-error" : ""}`} required />
-                  {errors.clubName && <span className="kbs-error-text">{errors.clubName}</span>}
+                  <label className="kbs-label">クラブ名</label>
+                  <input type="text" name="clubName" value={form.clubName} className="kbs-input readonly" readOnly />
+                  <span className="kbs-help-text">店舗マスタにより自動管理</span>
                 </div>
               </div>
 
@@ -1044,8 +1046,10 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
           box-sizing: border-box;
         }
         .kbs-input:focus, .kbs-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
-        .kbs-input.readonly { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+        .kbs-input.readonly, .kbs-select.readonly { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
+        .kbs-select:disabled { background: #f8fafc; color: #94a3b8; cursor: not-allowed; }
         .kbs-input.has-error { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1); }
+        .kbs-help-text { display: block; font-size: 11px; color: #94a3b8; margin-top: 4px; font-style: italic; }
         .kbs-error-text { display: block; font-size: 12px; color: #ef4444; margin-top: 4px; font-weight: 600; }
         .kbs-error-text.full-width { flex-basis: 100%; }
         .kbs-error-banner { background: #fef2f2; color: #dc2626; padding: 12px 24px; font-size: 13px; font-weight: 600; border-bottom: 1px solid #fee2e2; }

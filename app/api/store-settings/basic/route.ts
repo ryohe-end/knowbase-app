@@ -146,7 +146,7 @@ export async function GET(req: Request) {
         createddate,
         lastupdateddate
       FROM club__c
-      WHERE club_code__c = $1 AND isdeleted = false
+      WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false
       LIMIT 1`,
       [clubCode]
     );
@@ -274,7 +274,7 @@ export async function POST(req: Request) {
   try {
     // 店舗の存在確認 + sfid 取得
     const existing = await pool.query(
-      `SELECT sfid FROM club__c WHERE club_code__c = $1 AND isdeleted = false LIMIT 1`,
+      `SELECT sfid FROM club__c WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false LIMIT 1`,
       [clubCode]
     );
     if (existing.rows.length === 0) {
@@ -302,31 +302,29 @@ export async function POST(req: Request) {
     // 既存ブランドが JOYFIT 系列ならそのまま、FIT365 系列なら "FIT365" / "JOYFIT" を素直に書く。
     // ここでは安全策として brand__c は更新対象から除外する (ブランド変更は店舗マスタ管理側で行う想定)。
 
+    // name / field1__c (業態) / brand__c は clubs-sync (MotionBoard) が SoT のため
+    // ここでは更新しない。UI 側でも readonly 表示。
     await pool.query(
       `UPDATE club__c
        SET
-         name = $2,
-         field1__c = $3,
-         addressit__c = $4,
-         latitude__c = $5,
-         longitude__c = $6,
-         link_url__c = $7,
-         club_mail_address__c = $8,
-         notification_targets__c = $9,
-         personal_training_url = $10,
-         point_program_support_flag__c = $11,
-         point_program_support_start_date = $12,
-         app_point_popup_flag__c = $13,
-         recess_member_available_flag__c = $14,
-         les_mills_member_available_flag__c = $15,
-         hide_unpaid_warning_flag__c = $16,
-         machine_names__c = $17,
+         addressit__c = $2,
+         latitude__c = $3,
+         longitude__c = $4,
+         link_url__c = $5,
+         club_mail_address__c = $6,
+         notification_targets__c = $7,
+         personal_training_url = $8,
+         point_program_support_flag__c = $9,
+         point_program_support_start_date = $10,
+         app_point_popup_flag__c = $11,
+         recess_member_available_flag__c = $12,
+         les_mills_member_available_flag__c = $13,
+         hide_unpaid_warning_flag__c = $14,
+         machine_names__c = $15,
          lastupdateddate = NOW()
-       WHERE club_code__c = $1 AND isdeleted = false`,
+       WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false`,
       [
         clubCode,
-        toNullableString(body.clubName) ?? "",
-        toNullableString(body.businessType),
         fullAddress,
         toNullableNumber(body.latitude),
         toNullableNumber(body.longitude),

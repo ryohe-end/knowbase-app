@@ -98,7 +98,7 @@ async function fetchStoresFromDB() {
       COALESCE(is_private__c, false) AS "isPrivate",
       capacity__c AS "capacity"
     FROM club__c
-    WHERE isdeleted = false
+    WHERE COALESCE(isdeleted, false) = false
       AND club_code__c IS NOT NULL
       AND club_code__c != ''
       AND brand__c IS NOT NULL
