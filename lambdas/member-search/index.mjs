@@ -159,6 +159,17 @@ const QUERIES = {
   `,
 };
 
+// クラブ住所一括取得 (clubs-sync 用 / q 不要)
+// FIT_ADMIN.CSクラブ は店舗マスタの拡張: 住所/郵便番号/TEL を持つ。
+// 住所が NULL の店舗は同期対象外なので除外して返す。
+const CLUB_ADDRESSES_SQL = `
+  SELECT クラブコード AS CLUB_CODE,
+         郵便番号    AS ZIP,
+         住所        AS ADDRESS
+    FROM FIT_ADMIN."CSクラブ"
+   WHERE 住所 IS NOT NULL
+`;
+
 // --- 入力正規化 --------------------------------------------------------------
 function normalize(type, q) {
   if (q == null) return q;
@@ -181,8 +192,31 @@ export const handler = async (event) => {
   const q = normalize(type, params.q);
   const q2 = params.q2 ? normalize(type, params.q2) : null;
 
+  // クラブ住所一括取得は q 不要なので別経路
+  if (type === "club_addresses") {
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const result = await conn.execute(CLUB_ADDRESSES_SQL, {}, {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+      });
+      const addresses = (result.rows || []).map((r) => ({
+        clubCode: r.CLUB_CODE != null ? String(r.CLUB_CODE) : null,
+        zip:      r.ZIP != null ? String(r.ZIP).trim() : null,
+        address:  r.ADDRESS,
+      })).filter((a) => a.clubCode);
+      return resp(200, { addresses, count: addresses.length });
+    } catch (err) {
+      console.error("club_addresses error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
   if (!type || !QUERIES[type]) {
-    return resp(400, { error: "invalid_type", supported: Object.keys(QUERIES) });
+    return resp(400, { error: "invalid_type", supported: [...Object.keys(QUERIES), "club_addresses"] });
   }
   if (!q) {
     return resp(400, { error: "missing_q" });
