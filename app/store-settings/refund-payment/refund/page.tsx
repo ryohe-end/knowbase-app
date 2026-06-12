@@ -311,9 +311,16 @@ function BankcodeAutocomplete({
   );
 }
 
+type ClubOption = { clubCode: string; clubName?: string; clubNameShort?: string };
+
 export default function RefundApplicationPage() {
-  const shopName = "旭川アモール";
-  const shopId = "000121";
+  // クラブセレクタ
+  const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
+  const [shopId, setShopId] = useState<string>("");
+  const shopName = useMemo(() => {
+    const c = clubOptions.find((x) => x.clubCode === shopId);
+    return c?.clubNameShort || c?.clubName || "";
+  }, [clubOptions, shopId]);
 
   const [step, setStep] = useState(1);
   const [targetMonthFrom, setTargetMonthFrom] = useState("");
@@ -350,17 +357,28 @@ export default function RefundApplicationPage() {
   // 申請中フラグ
   const [submitting, setSubmitting] = useState(false);
 
-  // 初回ロード: 自分の申請履歴を取得
+  // 初回ロード: 自分の申請履歴 + クラブ一覧を取得
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" });
-        const data = await res.json();
-        if (data.ok && Array.isArray(data.applications)) {
-          setHistory(data.applications.map((a: ApiApplication) => apiToUi(a)));
+        const [appRes, clubRes] = await Promise.all([
+          fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" }),
+          fetch("/api/store-settings/refund-payment/clubs", { cache: "no-store" }),
+        ]);
+        const appData = await appRes.json();
+        if (appData.ok && Array.isArray(appData.applications)) {
+          setHistory(appData.applications.map((a: ApiApplication) => apiToUi(a)));
+        }
+        const clubData = await clubRes.json();
+        if (clubData.ok && Array.isArray(clubData.clubs)) {
+          setClubOptions(clubData.clubs);
+          // 自動選択: 1 件のみなら採用、それ以外は未選択 (ユーザに選ばせる)
+          if (clubData.clubs.length === 1) {
+            setShopId(clubData.clubs[0].clubCode);
+          }
         }
       } catch (e) {
-        console.error("Failed to fetch history", e);
+        console.error("Failed to fetch initial data", e);
       } finally {
         setHistoryLoading(false);
       }
@@ -456,10 +474,12 @@ export default function RefundApplicationPage() {
         if (!res.ok || !data.ok) {
           throw new Error(data?.error || "検索失敗");
         }
-        const members: Member[] = (data.members ?? []).map((m: any): Member => ({
+        // member-search のレスポンスフォーマット: { ok, results: [...], count }
+        const rows = Array.isArray(data.results) ? data.results : (data.members ?? []);
+        const members: Member[] = rows.map((m: any): Member => ({
           memberId: String(m.memberNo ?? m.member_no ?? m.kojinSeq ?? ""),
-          name: String(m.name ?? m.fullName ?? ""),
-          kana: String(m.kana ?? m.nameKana ?? ""),
+          name: String(m.nameKanji ?? m.name ?? m.fullName ?? ""),
+          kana: String([m.nameKanaSei, m.nameKanaMei].filter(Boolean).join(" ") || m.kana || m.nameKana || ""),
           phone: String(m.phone ?? m.tel ?? ""),
           plan: String(m.plan ?? m.planName ?? ""),
           account: {
@@ -481,33 +501,37 @@ export default function RefundApplicationPage() {
   }, [debouncedQuery]);
   const filteredMembers = memberSearchResults;
 
-  // 会員が選択されたら返金可能項目を API で取得
+  // 会員が選択されたら member-detail (Oracle 経由) で口座+項目+プランを取得
   useEffect(() => {
-    if (!selectedMember) {
+    if (!selectedMember || !shopId) {
       setApiRefundableItems([]);
       return;
     }
     const ctrl = new AbortController();
     (async () => {
       try {
-        const res = await fetch(
-          `/api/store-settings/refund-payment/refundable?memberNo=${encodeURIComponent(selectedMember.memberId)}`,
-          { signal: ctrl.signal }
-        );
+        const url =
+          `/api/store-settings/refund-payment/member-detail?memberNo=${encodeURIComponent(selectedMember.memberId)}` +
+          `&clubCode=${encodeURIComponent(shopId)}`;
+        const res = await fetch(url, { signal: ctrl.signal });
         const data = await res.json();
         if (data.ok) {
           setApiRefundableItems((data.items ?? []) as RefundableItem[]);
-          // バックエンドから口座情報が来た場合は、未登録のときに適用
+          // 口座情報の自動適用
           if (data.account && !selectedMember.account.bankName) {
             setAccountDraft(data.account);
           }
+          // プラン名等が返ってきたら selectedMember を補完
+          if (data.member?.plan && !selectedMember.plan) {
+            setSelectedMember({ ...selectedMember, plan: data.member.plan });
+          }
         }
       } catch (e: any) {
-        if (e?.name !== "AbortError") console.error("refundable fetch error", e);
+        if (e?.name !== "AbortError") console.error("member-detail fetch error", e);
       }
     })();
     return () => ctrl.abort();
-  }, [selectedMember]);
+  }, [selectedMember, shopId]);
 
   const refundableItems = useMemo(() => {
     return apiRefundableItems.filter((it) => {
@@ -545,6 +569,7 @@ export default function RefundApplicationPage() {
   };
 
   const canNext = () => {
+    if (!shopId) return false;
     if (step === 1) return isPeriodValid();
     if (step === 2) return !!selectedMember;
     if (step === 3) return selectedItemIds.size > 0;
@@ -670,8 +695,23 @@ export default function RefundApplicationPage() {
             </Link>
             <div className="rfa-title-group">
               <h1 className="rfa-main-title">返金申請ワークフロー</h1>
-              <p className="rfa-sub-title">{shopId} {shopName}</p>
+              <p className="rfa-sub-title">{shopId ? `${shopId} ${shopName}` : "クラブ未選択"}</p>
             </div>
+          </div>
+          <div className="rfa-club-selector">
+            <label>クラブ:</label>
+            <select
+              value={shopId}
+              onChange={(e) => setShopId(e.target.value)}
+              className="rfa-club-select"
+            >
+              <option value="">選択してください</option>
+              {clubOptions.map((c) => (
+                <option key={c.clubCode} value={c.clubCode}>
+                  {c.clubCode} {c.clubNameShort || c.clubName || ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="rfa-data-badge">
             <Database size={14} />
@@ -1275,6 +1315,9 @@ export default function RefundApplicationPage() {
         .rfa-main-title { font-size: 18px; font-weight: 800; margin: 0; color: #1e293b; }
         .rfa-sub-title { font-size: 13px; color: #64748b; font-weight: 600; margin: 0; }
         .rfa-data-badge { display: flex; align-items: center; gap: 6px; background: #f0f9ff; color: #0369a1; padding: 6px 12px; border-radius: 20px; border: 1px solid #bae6fd; font-size: 11px; font-weight: 700; }
+        .rfa-club-selector { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; font-weight: 600; }
+        .rfa-club-select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; font-weight: 600; color: #0f172a; background: #fff; min-width: 200px; }
+        .rfa-club-select:focus { outline: none; border-color: #0ea5e9; }
 
         .rfa-container { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
 
