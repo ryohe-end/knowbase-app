@@ -18,7 +18,7 @@ export type RefundUser = {
   email: string;
   role: string;
   dept?: string;
-  groupIds: string[];      // clubCode 配列 (空=全店)
+  clubCodes: string[];     // yamauchi-Users.clubCodes (空=全クラブ)
 };
 
 function normArr(raw: any): string[] {
@@ -44,7 +44,7 @@ export async function getRefundUser(): Promise<RefundUser | null> {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, dept, groupIds, isActive",
+        ProjectionExpression: "userId, #n, email, #r, dept, clubCodes, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
@@ -56,7 +56,7 @@ export async function getRefundUser(): Promise<RefundUser | null> {
       email: String(u.email ?? ""),
       role: String(u.role ?? ""),
       dept: typeof u.dept === "string" ? u.dept : undefined,
-      groupIds: normArr(u.groupIds),
+      clubCodes: normArr(u.clubCodes),
     };
   } catch (e) {
     console.error("[refundAuth] error:", e);
@@ -71,8 +71,8 @@ export function canApprove(user: RefundUser): boolean {
 export function canFinance(user: RefundUser): boolean {
   return user.role === "admin" || user.role === "finance";
 }
-// クラブスコープ判定 (groupIds が空なら全店、そうでなければ含まれる必要あり)
+// クラブスコープ判定 (clubCodes が空なら全クラブ、そうでなければ含まれる必要あり)
 export function isClubInScope(user: RefundUser, clubCode: string): boolean {
-  if (user.groupIds.length === 0) return true;
-  return user.groupIds.includes(clubCode);
+  if (user.clubCodes.length === 0) return true;
+  return user.clubCodes.includes(clubCode);
 }

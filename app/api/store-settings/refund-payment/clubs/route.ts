@@ -1,8 +1,8 @@
 // app/api/store-settings/refund-payment/clubs/route.ts
 //
 // 返金画面のクラブセレクタ用エンドポイント。
-// ログインユーザの groupIds に基づいて利用可能なクラブ一覧を返す。
-// groupIds が空 (= 全店アクセス可) なら knowbie-clubs を Scan して全件返す。
+// ログインユーザの yamauchi-Users.clubCodes に基づいて利用可能なクラブ一覧を返す。
+// clubCodes が空 (= 全クラブアクセス可) なら knowbie-clubs を Scan して全件返す。
 
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -35,7 +35,7 @@ export async function GET() {
   }
 
   try {
-    if (user.groupIds.length === 0) {
+    if (user.clubCodes.length === 0) {
       // 全店アクセス可: 全件返す
       const items: Club[] = [];
       let LastEvaluatedKey: Record<string, any> | undefined;
@@ -53,10 +53,10 @@ export async function GET() {
       return NextResponse.json({ ok: true, clubs: sortClubs(items), scope: "all" });
     }
 
-    // groupIds に絞って BatchGet
+    // clubCodes に絞って BatchGet
     const items: Club[] = [];
-    for (let i = 0; i < user.groupIds.length; i += 100) {
-      const chunk = user.groupIds.slice(i, i + 100);
+    for (let i = 0; i < user.clubCodes.length; i += 100) {
+      const chunk = user.clubCodes.slice(i, i + 100);
       const res = await ddb.send(
         new BatchGetCommand({
           RequestItems: {
@@ -69,9 +69,9 @@ export async function GET() {
       );
       items.push(...((res.Responses?.[CLUBS_TABLE] as Club[]) ?? []));
     }
-    // BatchGet で取れなかった groupIds も "名前なし" として返す
+    // BatchGet で取れなかった clubCodes も "名前なし" として返す
     const got = new Set(items.map((it) => it.clubCode));
-    for (const code of user.groupIds) {
+    for (const code of user.clubCodes) {
       if (!got.has(code)) items.push({ clubCode: code });
     }
     return NextResponse.json({ ok: true, clubs: sortClubs(items), scope: "limited" });
