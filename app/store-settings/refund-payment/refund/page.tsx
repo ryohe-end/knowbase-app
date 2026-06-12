@@ -1,14 +1,19 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, ArrowRight, Check, Search, Calendar, User, Receipt,
   ClipboardCheck, X, AlertCircle, FileText, Database, CreditCard,
   Edit3, RefreshCw, Send, ChevronRight
 } from "lucide-react";
+import type {
+  RefundApplication as ApiApplication,
+  ApprovalStep as ApiStep,
+  BankAccount as ApiBankAccount,
+} from "@/types/refundApplication";
 
-// ---- 型 ----
+// ---- 型 (UI 用ローカル型 — API 型 [types/refundApplication] とは adapt で接続) ----
 type BankAccount = {
   bankCode?: string;
   bankName: string;
@@ -54,7 +59,105 @@ const APPROVERS = {
   finance: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" } as Approver,
 };
 
+// 表示用フォールバック (実際の名前は API ステップで上書きされる)
 const APPROVAL_FLOW: Approver[] = [APPROVERS.applicant, APPROVERS.approver, APPROVERS.finance];
+
+// 役割表示 (API → ローカル role/3 段ラベル変換)
+function roleLabel(role: ApiStep["role"]): "申請者" | "承認者" | "経理部" {
+  if (role === "approver") return "承認者";
+  if (role === "finance") return "経理部";
+  return "申請者";
+}
+function labelToRole(label: string): ApiStep["role"] {
+  if (label === "承認者") return "approver";
+  if (label === "経理部") return "finance";
+  return "applicant";
+}
+
+// API → UI 変換
+function apiToUi(a: ApiApplication): RefundApplication {
+  return {
+    id: a.applicationId,
+    targetMonthFrom: a.targetMonthFrom,
+    targetMonthTo: a.targetMonthTo,
+    memberId: a.memberNo,
+    memberName: a.memberName,
+    items: (a.items ?? []).map((it) => ({ id: it.id, label: it.label, amount: it.amount })),
+    totalAmount: a.totalAmount,
+    reason: a.reason,
+    // 申請者画面では「振込手配中」を「承認待ち」相当として表示
+    status: a.status === "振込手配中" ? "承認待ち" : (a.status as RefundApplication["status"]),
+    createdAt: (a.createdAt ?? "").slice(0, 10),
+    steps: (a.steps ?? []).map((s) => ({
+      approver: {
+        role: roleLabel(s.role),
+        name: s.userName || "",
+        dept: s.dept || "",
+        email: s.email || "",
+      },
+      state: s.state,
+      actedAt: s.actedAt,
+      comment: s.comment,
+    })),
+    account: a.bankAccount
+      ? {
+          bankCode: a.bankAccount.bankCode,
+          bankName: a.bankAccount.bankName,
+          branchCode: a.bankAccount.branchCode,
+          branchName: a.bankAccount.branchName,
+          accountType: a.bankAccount.accountType,
+          accountNumber: a.bankAccount.accountNumber,
+          holderName: a.bankAccount.holderName,
+          source: (a.bankAccount.source as BankAccount["source"]) || "登録済み（過去返金）",
+        }
+      : undefined,
+  };
+}
+
+// UI → API へ送る payload を構築
+function uiToApiPayload(
+  u: Partial<RefundApplication>,
+  clubCode: string,
+  member: { memberId: string; name: string; kana?: string; phone?: string; plan?: string } | null,
+): Partial<ApiApplication> {
+  return {
+    applicationId: u.id,
+    clubCode,
+    status: u.status,
+    memberNo: u.memberId ?? member?.memberId ?? "",
+    memberName: u.memberName ?? member?.name ?? "",
+    memberKana: member?.kana,
+    memberPhone: member?.phone,
+    memberPlan: member?.plan,
+    targetMonthFrom: u.targetMonthFrom ?? "",
+    targetMonthTo: u.targetMonthTo ?? "",
+    items: u.items,
+    totalAmount: u.totalAmount,
+    reason: u.reason,
+    bankAccount: u.account
+      ? {
+          bankCode: u.account.bankCode,
+          bankName: u.account.bankName,
+          branchCode: u.account.branchCode,
+          branchName: u.account.branchName,
+          accountType: u.account.accountType,
+          accountNumber: u.account.accountNumber,
+          holderName: u.account.holderName,
+          source: u.account.source,
+        }
+      : undefined,
+    steps: (u.steps ?? []).map((s) => ({
+      role: labelToRole(s.approver.role),
+      userId: "",
+      userName: s.approver.name,
+      dept: s.approver.dept,
+      email: s.approver.email,
+      state: s.state,
+      actedAt: s.actedAt,
+      comment: s.comment,
+    })),
+  };
+}
 
 type StepState = "完了" | "対応中" | "未対応" | "差戻し";
 type ApprovalStep = {
@@ -79,158 +182,6 @@ type RefundApplication = {
   account?: BankAccount;
 };
 
-// ---- モックデータ ----
-const MOCK_MEMBERS: Member[] = [
-  {
-    memberId: "M0001234", name: "山田 太郎", kana: "ヤマダ タロウ", phone: "090-1234-5678", plan: "プレミアム",
-    account: { bankCode: "0001", bankName: "みずほ銀行", branchName: "旭川支店", accountType: "普通", accountNumber: "1234567", holderName: "ヤマダ タロウ", source: "登録済み（引落口座）" },
-  },
-  {
-    memberId: "M0002345", name: "佐藤 花子", kana: "サトウ ハナコ", phone: "080-9876-5432", plan: "スタンダード",
-    account: { bankCode: "0116", bankName: "北海道銀行", branchName: "本店営業部", accountType: "普通", accountNumber: "7654321", holderName: "サトウ ハナコ", source: "登録済み（引落口座）" },
-  },
-  {
-    memberId: "M0003456", name: "鈴木 一郎", kana: "スズキ イチロウ", phone: "070-1111-2222", plan: "プレミアム",
-    account: { bankCode: "0005", bankName: "三菱UFJ銀行", branchName: "札幌支店", accountType: "普通", accountNumber: "2233445", holderName: "スズキ イチロウ", source: "登録済み（過去返金）" },
-  },
-  {
-    memberId: "M0004567", name: "高橋 美咲", kana: "タカハシ ミサキ", phone: "090-3333-4444", plan: "1980円会員",
-    account: { bankName: "", branchName: "", accountType: "普通", accountNumber: "", holderName: "", source: "未登録" },
-  },
-  {
-    memberId: "M0005678", name: "田中 健太", kana: "タナカ ケンタ", phone: "080-5555-6666", plan: "法人個人A",
-    account: { bankCode: "9900", bankName: "ゆうちょ銀行", branchName: "〇五八支店", accountType: "普通", accountNumber: "8801234", holderName: "タナカ ケンタ", source: "登録済み（引落口座）" },
-  },
-];
-
-const MOCK_REFUNDABLE: Record<string, RefundableItem[]> = {
-  M0001234: [
-    { id: "i1a", label: "月会費（2月分）", amount: 7980, paidAt: "2026-02-01", targetMonth: "2026-02", category: "月会費" },
-    { id: "i1", label: "月会費（3月分）", amount: 7980, paidAt: "2026-03-01", targetMonth: "2026-03", category: "月会費" },
-    { id: "i1b", label: "月会費（4月分）", amount: 7980, paidAt: "2026-04-01", targetMonth: "2026-04", category: "月会費" },
-    { id: "i2", label: "FIT365あんしんサポート", amount: 550, paidAt: "2026-04-01", targetMonth: "2026-04", category: "オプション" },
-    { id: "i3", label: "レディースエリア", amount: 550, paidAt: "2026-04-01", targetMonth: "2026-04", category: "オプション" },
-  ],
-  M0002345: [
-    { id: "i4", label: "月会費（4月分）", amount: 5980, paidAt: "2026-04-01", targetMonth: "2026-04", category: "月会費" },
-    { id: "i5", label: "事務手数料", amount: 3300, paidAt: "2026-04-01", targetMonth: "2026-04", category: "事務手数料" },
-  ],
-  M0003456: [
-    { id: "i6a", label: "月会費（3月分）", amount: 7980, paidAt: "2026-03-01", targetMonth: "2026-03", category: "月会費" },
-    { id: "i6", label: "月会費（4月分）", amount: 7980, paidAt: "2026-04-01", targetMonth: "2026-04", category: "月会費" },
-    { id: "i7", label: "1Dayパス", amount: 2200, paidAt: "2026-04-15", targetMonth: "2026-04", category: "1Day" },
-  ],
-  M0004567: [
-    { id: "i8", label: "月会費（4月分）", amount: 1980, paidAt: "2026-04-01", targetMonth: "2026-04", category: "月会費" },
-  ],
-  M0005678: [
-    { id: "i9a", label: "月会費（2月分）", amount: 5980, paidAt: "2026-02-01", targetMonth: "2026-02", category: "月会費" },
-    { id: "i9", label: "月会費（3月分）", amount: 5980, paidAt: "2026-03-01", targetMonth: "2026-03", category: "月会費" },
-    { id: "i10", label: "契約ロッカー", amount: 1100, paidAt: "2026-03-01", targetMonth: "2026-03", category: "オプション" },
-  ],
-};
-
-const INITIAL_HISTORY: RefundApplication[] = [
-  {
-    id: "RF-20260510-001",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    memberId: "M0001234",
-    memberName: "山田 太郎",
-    items: [{ id: "i1b", label: "月会費（4月分）", amount: 7980 }],
-    totalAmount: 7980,
-    reason: "店舗都合による設備停止のため",
-    status: "承認待ち",
-    createdAt: "2026-05-10",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-10 14:22", comment: "申請しました" },
-      { approver: APPROVERS.approver, state: "対応中" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260508-002",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-03",
-    memberId: "M0003456",
-    memberName: "鈴木 一郎",
-    items: [{ id: "i6a", label: "月会費（3月分）", amount: 7980 }],
-    totalAmount: 7980,
-    reason: "解約日の登録漏れ",
-    status: "承認済み",
-    createdAt: "2026-05-08",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-08 10:11" },
-      { approver: APPROVERS.approver, state: "完了", actedAt: "2026-05-08 16:40", comment: "承認します" },
-      { approver: APPROVERS.finance, state: "完了", actedAt: "2026-05-09 11:02", comment: "Oracle 連携完了" },
-    ],
-  },
-  {
-    id: "RF-20260505-003",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    memberId: "M0002345",
-    memberName: "佐藤 花子",
-    items: [{ id: "i5", label: "事務手数料", amount: 3300 }],
-    totalAmount: 3300,
-    reason: "重複徴収",
-    status: "差戻し",
-    createdAt: "2026-05-05",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-05 09:30" },
-      { approver: APPROVERS.approver, state: "差戻し", actedAt: "2026-05-06 13:15", comment: "二重徴収の証跡を添付してください。請求書または領収書のスキャンを添付し、再申請してください。" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260502-004",
-    targetMonthFrom: "2026-02", targetMonthTo: "2026-03",
-    memberId: "M0005678",
-    memberName: "田中 健太",
-    items: [
-      { id: "i9a", label: "月会費（2月分）", amount: 5980 },
-      { id: "i10", label: "契約ロッカー", amount: 1100 },
-    ],
-    totalAmount: 7080,
-    reason: "解約日の遡及対応",
-    status: "承認待ち",
-    createdAt: "2026-05-02",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-02 18:02" },
-      { approver: APPROVERS.approver, state: "完了", actedAt: "2026-05-03 09:11", comment: "問題ありません" },
-      { approver: APPROVERS.finance, state: "対応中" },
-    ],
-  },
-  {
-    id: "RF-20260428-005",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    memberId: "M0001234",
-    memberName: "山田 太郎",
-    items: [{ id: "i2", label: "FIT365あんしんサポート", amount: 550 }],
-    totalAmount: 550,
-    reason: "オプション解約日の遡及",
-    status: "下書き",
-    createdAt: "2026-04-28",
-    steps: [
-      { approver: APPROVERS.applicant, state: "対応中" },
-      { approver: APPROVERS.approver, state: "未対応" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260425-007",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-03",
-    memberId: "M0001234",
-    memberName: "山田 太郎",
-    items: [{ id: "i1a", label: "月会費（3月分）", amount: 7980 }],
-    totalAmount: 7980,
-    reason: "解約日の遡及",
-    status: "差戻し",
-    createdAt: "2026-04-25",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-04-25 11:30" },
-      { approver: APPROVERS.approver, state: "完了", actedAt: "2026-04-26 10:30", comment: "解約日確認済み" },
-      { approver: APPROVERS.finance, state: "差戻し", actedAt: "2026-05-01 09:15", comment: "[振込失敗:口座番号相違] 全銀ネットからエラー応答。口座番号桁数が不一致です。口座情報を再確認の上、修正・再申請してください。" },
-    ],
-  },
-];
 
 const STATUS_COLOR: Record<RefundApplication["status"], string> = {
   下書き: "#94a3b8",
@@ -379,13 +330,42 @@ export default function RefundApplicationPage() {
   const [accountDraft, setAccountDraft] = useState<BankAccount | null>(null);
   const [accountOverridden, setAccountOverridden] = useState(false);
 
-  // 履歴
-  const [history, setHistory] = useState<RefundApplication[]>(INITIAL_HISTORY);
+  // 履歴 (API から取得)
+  const [history, setHistory] = useState<RefundApplication[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState("");
   const [historyStatus, setHistoryStatus] = useState<"all" | RefundApplication["status"]>("all");
   const [editingApplicationId, setEditingApplicationId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<"edit" | "resubmit" | null>(null);
+
+  // 会員検索 (API)
+  const [memberSearchResults, setMemberSearchResults] = useState<Member[]>([]);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
+
+  // 返金可能項目 (API)
+  const [apiRefundableItems, setApiRefundableItems] = useState<RefundableItem[]>([]);
+
+  // 申請中フラグ
+  const [submitting, setSubmitting] = useState(false);
+
+  // 初回ロード: 自分の申請履歴を取得
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" });
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.applications)) {
+          setHistory(data.applications.map((a: ApiApplication) => apiToUi(a)));
+        }
+      } catch (e) {
+        console.error("Failed to fetch history", e);
+      } finally {
+        setHistoryLoading(false);
+      }
+    })();
+  }, []);
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
@@ -410,11 +390,17 @@ export default function RefundApplicationPage() {
 
   // 申請の編集/再申請をウィザードに読み込む
   const loadApplicationIntoWizard = (app: RefundApplication, mode: "edit" | "resubmit") => {
-    const member = MOCK_MEMBERS.find((m) => m.memberId === app.memberId);
-    if (!member) {
-      alert("会員情報を取得できません");
-      return;
-    }
+    // 申請レコードから会員情報を復元 (詳細はあくまでスナップショット)
+    const member: Member = {
+      memberId: app.memberId,
+      name: app.memberName,
+      kana: "",
+      phone: "",
+      plan: "",
+      account: app.account ?? {
+        bankName: "", branchName: "", accountType: "普通", accountNumber: "", holderName: "", source: "未登録",
+      },
+    };
     setTargetMonthFrom(app.targetMonthFrom);
     setTargetMonthTo(app.targetMonthTo);
     setSelectedMember(member);
@@ -433,7 +419,6 @@ export default function RefundApplicationPage() {
     setEditMode(mode);
     setStep(1);
     setExpandedHistory(null);
-    // スクロール上へ
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -443,28 +428,94 @@ export default function RefundApplicationPage() {
     reset();
   };
 
-  // ---- 検索結果 ----
-  const filteredMembers = useMemo(() => {
-    if (!searchQuery) return MOCK_MEMBERS;
-    const q = searchQuery.toLowerCase();
-    return MOCK_MEMBERS.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.kana.toLowerCase().includes(q) ||
-        m.memberId.toLowerCase().includes(q) ||
-        m.phone.includes(q)
-    );
-  }, [searchQuery]);
+  // ---- 検索結果: /api/admin/member-search (admin 必須) ----
+  const debouncedQuery = useDebounce(searchQuery, 300);
+  useEffect(() => {
+    const q = debouncedQuery.trim();
+    if (!q) {
+      setMemberSearchResults([]);
+      setMemberSearchError(null);
+      return;
+    }
+    // 検索 type の推定 (会員番号/電話/カナ/漢字)
+    const inferType = (val: string): string => {
+      if (/^M\d+$/i.test(val) || /^\d{6,}$/.test(val)) return "member_no";
+      if (/^[\d\-]+$/.test(val)) return "phone";
+      if (/^[ァ-ヶー\s]+$/.test(val)) return "name_kana";
+      return "name_kanji";
+    };
+    const ctrl = new AbortController();
+    setMemberSearchLoading(true);
+    setMemberSearchError(null);
+    (async () => {
+      try {
+        const type = inferType(q);
+        const url = `/api/admin/member-search?type=${type}&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data?.error || "検索失敗");
+        }
+        const members: Member[] = (data.members ?? []).map((m: any): Member => ({
+          memberId: String(m.memberNo ?? m.member_no ?? m.kojinSeq ?? ""),
+          name: String(m.name ?? m.fullName ?? ""),
+          kana: String(m.kana ?? m.nameKana ?? ""),
+          phone: String(m.phone ?? m.tel ?? ""),
+          plan: String(m.plan ?? m.planName ?? ""),
+          account: {
+            bankName: "", branchName: "", accountType: "普通", accountNumber: "", holderName: "",
+            source: "未登録",
+          },
+        }));
+        setMemberSearchResults(members);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setMemberSearchError(e?.message || "検索エラー");
+          setMemberSearchResults([]);
+        }
+      } finally {
+        setMemberSearchLoading(false);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [debouncedQuery]);
+  const filteredMembers = memberSearchResults;
+
+  // 会員が選択されたら返金可能項目を API で取得
+  useEffect(() => {
+    if (!selectedMember) {
+      setApiRefundableItems([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/store-settings/refund-payment/refundable?memberNo=${encodeURIComponent(selectedMember.memberId)}`,
+          { signal: ctrl.signal }
+        );
+        const data = await res.json();
+        if (data.ok) {
+          setApiRefundableItems((data.items ?? []) as RefundableItem[]);
+          // バックエンドから口座情報が来た場合は、未登録のときに適用
+          if (data.account && !selectedMember.account.bankName) {
+            setAccountDraft(data.account);
+          }
+        }
+      } catch (e: any) {
+        if (e?.name !== "AbortError") console.error("refundable fetch error", e);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [selectedMember]);
 
   const refundableItems = useMemo(() => {
-    if (!selectedMember) return [];
-    const all = MOCK_REFUNDABLE[selectedMember.memberId] ?? [];
-    return all.filter((it) => {
-      if (targetMonthFrom && it.targetMonth < targetMonthFrom) return false;
-      if (targetMonthTo && it.targetMonth > targetMonthTo) return false;
+    return apiRefundableItems.filter((it) => {
+      if (targetMonthFrom && it.targetMonth && it.targetMonth < targetMonthFrom) return false;
+      if (targetMonthTo && it.targetMonth && it.targetMonth > targetMonthTo) return false;
       return true;
     });
-  }, [selectedMember, targetMonthFrom, targetMonthTo]);
+  }, [apiRefundableItems, targetMonthFrom, targetMonthTo]);
 
   // 会員選択時、対象月変更時に口座draftを初期化
   React.useEffect(() => {
@@ -517,64 +568,86 @@ export default function RefundApplicationPage() {
     setEditMode(null);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedMember || !accountDraft) {
-      setSuccessOpen(true);
       return;
     }
     const items = refundableItems
       .filter((it) => selectedItemIds.has(it.id))
       .map((it) => ({ id: it.id, label: it.label, amount: adjustedAmounts[it.id] ?? it.amount }));
 
-    const today = new Date().toISOString().slice(0, 10);
-    const nowStamp = today + " " + new Date().toTimeString().slice(0, 5);
-
-    if (editingApplicationId) {
-      // 編集 or 再申請
-      setHistory((prev) => prev.map((h) => {
-        if (h.id !== editingApplicationId) return h;
-        const baseSteps: ApprovalStep[] = [
-          { approver: APPROVERS.applicant, state: "完了", actedAt: nowStamp, comment: editMode === "resubmit" ? "差戻しから再申請しました" : "編集して再送信しました" },
-          { approver: APPROVERS.approver, state: "対応中" },
-          { approver: APPROVERS.finance, state: "未対応" },
-        ];
-        return {
-          ...h,
+    setSubmitting(true);
+    try {
+      // 1) upsert (保存) — 新規なら applicationId を取得
+      const draftSteps: ApprovalStep[] = [
+        { approver: APPROVERS.applicant, state: "未対応" },
+        { approver: APPROVERS.approver, state: "未対応" },
+        { approver: APPROVERS.finance, state: "未対応" },
+      ];
+      const payload = uiToApiPayload(
+        {
+          id: editingApplicationId || undefined,
           targetMonthFrom,
           targetMonthTo,
+          memberId: selectedMember.memberId,
+          memberName: selectedMember.name,
           items,
           totalAmount,
           reason,
-          status: "承認待ち" as const,
-          createdAt: today,
-          steps: baseSteps,
+          status: "下書き",
+          steps: draftSteps,
           account: accountDraft,
-        };
-      }));
-    } else {
-      // 新規
-      const newId = `RF-${today.replace(/-/g, "")}-${String(history.length + 1).padStart(3, "0")}`;
-      const newApp: RefundApplication = {
-        id: newId,
-        targetMonthFrom,
-        targetMonthTo,
-        memberId: selectedMember.memberId,
-        memberName: selectedMember.name,
-        items,
-        totalAmount,
-        reason,
-        status: "承認待ち",
-        createdAt: today,
-        steps: [
-          { approver: APPROVERS.applicant, state: "完了", actedAt: nowStamp, comment: "申請しました" },
-          { approver: APPROVERS.approver, state: "対応中" },
-          { approver: APPROVERS.finance, state: "未対応" },
-        ],
-        account: accountDraft,
-      };
-      setHistory((prev) => [newApp, ...prev]);
+        },
+        shopId,
+        {
+          memberId: selectedMember.memberId,
+          name: selectedMember.name,
+          kana: selectedMember.kana,
+          phone: selectedMember.phone,
+          plan: selectedMember.plan,
+        }
+      );
+      const saveRes = await fetch("/api/store-settings/refund-payment/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok || !saveData.ok) throw new Error(saveData?.error || "保存に失敗しました");
+      const saved: ApiApplication = saveData.application;
+
+      // 2) submit 遷移 (下書き → 承認待ち、自分のステップを完了に)
+      const transitionRes = await fetch(
+        `/api/store-settings/refund-payment/applications/${encodeURIComponent(saved.applicationId)}/transition`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "submit",
+            comment: editMode === "resubmit" ? "差戻しから再申請しました" : (editMode === "edit" ? "編集して再送信しました" : "申請しました"),
+          }),
+        }
+      );
+      const transitionData = await transitionRes.json();
+      if (!transitionRes.ok || !transitionData.ok) throw new Error(transitionData?.error || "申請送信に失敗しました");
+      const updated: ApiApplication = transitionData.application;
+
+      const ui = apiToUi(updated);
+      setHistory((prev) => {
+        const idx = prev.findIndex((h) => h.id === ui.id);
+        if (idx >= 0) {
+          const copy = prev.slice();
+          copy[idx] = ui;
+          return copy;
+        }
+        return [ui, ...prev];
+      });
+      setSuccessOpen(true);
+    } catch (e: any) {
+      alert(e?.message || "送信エラー");
+    } finally {
+      setSubmitting(false);
     }
-    setSuccessOpen(true);
   };
 
   const toggleItem = (id: string) => {
@@ -602,7 +675,7 @@ export default function RefundApplicationPage() {
           </div>
           <div className="rfa-data-badge">
             <Database size={14} />
-            <span>Oracle 連携（モック）</span>
+            <span>DynamoDB 連携</span>
           </div>
         </div>
       </header>
@@ -1098,10 +1171,10 @@ export default function RefundApplicationPage() {
               {step === 4 && (
                 <button
                   className="rfa-btn primary"
-                  disabled={!canNext()}
+                  disabled={!canNext() || submitting}
                   onClick={handleSubmit}
                 >
-                  申請する <Check size={16} />
+                  {submitting ? "送信中..." : "申請する"} <Check size={16} />
                 </button>
               )}
             </div>
@@ -1174,10 +1247,10 @@ export default function RefundApplicationPage() {
             <div className="rfa-modal-icon"><Check size={32} /></div>
             <h3>
               {editMode === "resubmit"
-                ? "再申請を送信しました（モック）"
+                ? "再申請を送信しました"
                 : editMode === "edit"
-                ? "申請を更新しました（モック）"
-                : "申請を作成しました（モック）"}
+                ? "申請を更新しました"
+                : "申請を作成しました"}
             </h3>
             <p>
               {editMode === "resubmit"

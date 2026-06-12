@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Search, Check, X, Database, Clock,
   Receipt, FileText, Calculator, DollarSign, Download,
   Building2, FileSpreadsheet, AlertCircle, CheckCircle2, ChevronDown
 } from "lucide-react";
+import type { RefundApplication as ApiApplication } from "@/types/refundApplication";
 
 type RefundApp = {
   id: string;
@@ -60,129 +61,61 @@ type CsvBatch = {
 };
 
 const APPROVERS = {
-  finance: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" },
+  finance: { role: "経理部", name: "—", dept: "—", email: "" },
 };
 
-const INITIAL_APPS: RefundApp[] = [
-  {
-    id: "RF-20260510-001",
-    applicantName: "遠藤 涼平", applicantDept: "旭川アモール 店舗",
-    memberId: "M0001234", memberName: "山田 太郎",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    items: [{ id: "i1b", label: "月会費（4月分）", amount: 7980, category: "月会費" }],
-    totalAmount: 7980,
-    reason: "店舗都合による設備停止のため、4月分の月会費を返金します。",
-    account: { bankCode: "0001", bankName: "みずほ銀行", branchCode: "813", branchName: "旭川支店", accountType: "1", accountTypeLabel: "普通", accountNumber: "1234567", holderName: "ヤマダ タロウ" },
-    approverName: "後藤 充洋", approvedAt: "2026-05-10 17:45", approverComment: "設備停止期間を確認。承認します。",
-    status: "CSV出力待ち",
-  },
-  {
-    id: "RF-20260511-002",
-    applicantName: "佐藤 由美", applicantDept: "旭川アモール 店舗",
-    memberId: "M0007890", memberName: "井上 さくら",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-04",
-    items: [
-      { id: "k1", label: "月会費（3月分）", amount: 7980, category: "月会費" },
-      { id: "k2", label: "月会費（4月分）", amount: 7980, category: "月会費" },
-      { id: "k3", label: "FIT365あんしんサポート", amount: 550, category: "オプション" },
-    ],
-    totalAmount: 16510,
-    reason: "本人都合の長期療養により2ヶ月分を返金。診断書提出済み。",
-    account: { bankCode: "0116", bankName: "北海道銀行", branchCode: "121", branchName: "旭川中央支店", accountType: "1", accountTypeLabel: "普通", accountNumber: "5544332", holderName: "イノウエ サクラ" },
-    approverName: "後藤 充洋", approvedAt: "2026-05-11 13:30", approverComment: "診断書を確認。承認します。",
-    status: "CSV出力待ち",
-  },
-  {
-    id: "RF-20260511-003",
-    applicantName: "高橋 健", applicantDept: "旭川アモール 店舗",
-    memberId: "M0001235", memberName: "中村 真二",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    items: [{ id: "i9", label: "月会費（4月分）", amount: 7980, category: "月会費" }],
-    totalAmount: 7980,
-    reason: "店舗都合による設備停止",
-    account: { bankCode: "0001", bankName: "みずほ銀行", branchCode: "201", branchName: "札幌支店", accountType: "1", accountTypeLabel: "普通", accountNumber: "9988776", holderName: "ナカムラ シンジ" },
-    approverName: "後藤 充洋", approvedAt: "2026-05-11 14:00",
-    status: "CSV出力待ち",
-  },
-  {
-    id: "RF-20260502-005",
-    applicantName: "山本 美穂", applicantDept: "旭川アモール 店舗",
-    memberId: "M0005678", memberName: "田中 健太",
-    targetMonthFrom: "2026-02", targetMonthTo: "2026-03",
-    items: [
-      { id: "y1", label: "月会費（2月分）", amount: 5980, category: "月会費" },
-      { id: "y2", label: "契約ロッカー", amount: 1100, category: "オプション" },
-    ],
-    totalAmount: 7080,
-    reason: "解約日の遡及対応",
-    account: { bankCode: "9900", bankName: "ゆうちょ銀行", branchCode: "058", branchName: "〇五八支店", accountType: "1", accountTypeLabel: "普通", accountNumber: "8801234", holderName: "タナカ ケンタ" },
-    approverName: "後藤 充洋", approvedAt: "2026-05-03 09:11",
-    status: "振込手配中",
-    batchId: "BATCH-20260504-001",
-    scheduledTransferDate: "2026-05-10",
-  },
-  {
-    id: "RF-20260428-006",
-    applicantName: "遠藤 涼平", applicantDept: "旭川アモール 店舗",
-    memberId: "M0002345", memberName: "佐藤 花子",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-03",
-    items: [{ id: "z1", label: "月会費（3月分）", amount: 5980, category: "月会費" }],
-    totalAmount: 5980,
-    reason: "オプション解約日の遡及",
-    account: { bankCode: "0116", bankName: "北海道銀行", branchCode: "001", branchName: "本店営業部", accountType: "1", accountTypeLabel: "普通", accountNumber: "7654321", holderName: "サトウ ハナコ" },
-    approverName: "後藤 充洋", approvedAt: "2026-04-29 11:00",
-    status: "振込完了",
-    batchId: "BATCH-20260430-002",
-    scheduledTransferDate: "2026-04-30",
-    transferCompletedAt: "2026-04-30 14:25",
-  },
-  {
-    id: "RF-20260425-007",
-    applicantName: "高橋 健", applicantDept: "旭川アモール 店舗",
-    memberId: "M0009999", memberName: "森 健二",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-03",
-    items: [{ id: "m1", label: "月会費（3月分）", amount: 7980, category: "月会費" }],
-    totalAmount: 7980,
-    reason: "解約日の遡及",
-    account: { bankCode: "0005", bankName: "三菱UFJ銀行", branchCode: "401", branchName: "渋谷支店", accountType: "1", accountTypeLabel: "普通", accountNumber: "0000000", holderName: "モリ ケンジ" },
-    approverName: "後藤 充洋", approvedAt: "2026-04-26 10:30",
-    status: "差戻し",
-    batchId: "BATCH-20260430-002",
-    scheduledTransferDate: "2026-04-30",
-    failure: {
-      reason: "口座番号相違",
-      detail: "全銀ネットからのエラー応答。口座番号桁数不一致 (7桁→0埋め不要のところ0000000で送付)",
-      failedAt: "2026-05-01 09:15",
-      operator: "経理部 担当",
-    },
-  },
-];
+// API → ローカル finance ステータス
+function deriveStatus(a: ApiApplication): RefundApp["status"] {
+  if (a.status === "振込手配中") return "振込手配中";
+  if (a.status === "承認済み" && a.transferResult === "成功") return "振込完了";
+  if (a.status === "差戻し" && a.transferResult === "失敗") return "差戻し";
+  return "CSV出力待ち";
+}
 
-const INITIAL_BATCHES: CsvBatch[] = [
-  {
-    id: "BATCH-20260504-001",
-    generatedAt: "2026-05-04 10:30",
-    count: 1,
-    totalAmount: 7080,
-    bankBreakdown: [{ bankCode: "9900", bankName: "ゆうちょ銀行", count: 1, amount: 7080 }],
-    status: "出力済み",
-    scheduledTransferDate: "2026-05-10",
-    operator: "経理部 担当",
-  },
-  {
-    id: "BATCH-20260430-002",
-    generatedAt: "2026-04-30 09:15",
-    count: 2,
-    totalAmount: 13960,
-    bankBreakdown: [
-      { bankCode: "0116", bankName: "北海道銀行", count: 1, amount: 5980 },
-      { bankCode: "0005", bankName: "三菱UFJ銀行", count: 1, amount: 7980 },
-    ],
-    status: "一部完了",
-    scheduledTransferDate: "2026-04-30",
-    operator: "経理部 担当",
-  },
-];
+function apiToLocal(a: ApiApplication): RefundApp {
+  const approverStep = a.steps?.find((s) => s.role === "approver");
+  const applicantStep = a.steps?.find((s) => s.role === "applicant");
+  const financeStep = a.steps?.find((s) => s.role === "finance");
+  const bank = a.bankAccount;
+  const accountTypeIs1 = bank?.accountType === "普通";
+  return {
+    id: a.applicationId,
+    applicantName: a.createdByName || "—",
+    applicantDept: applicantStep?.dept || "—",
+    memberId: a.memberNo,
+    memberName: a.memberName,
+    targetMonthFrom: a.targetMonthFrom,
+    targetMonthTo: a.targetMonthTo,
+    items: (a.items ?? []).map((it) => ({ id: it.id, label: it.label, amount: it.amount, category: it.category ?? "その他" })),
+    totalAmount: a.totalAmount,
+    reason: a.reason,
+    account: {
+      bankCode: bank?.bankCode || "",
+      bankName: bank?.bankName || "",
+      branchCode: bank?.branchCode || "",
+      branchName: bank?.branchName || "",
+      accountType: accountTypeIs1 ? "1" : "2",
+      accountTypeLabel: bank?.accountType || "普通",
+      accountNumber: bank?.accountNumber || "",
+      holderName: bank?.holderName || "",
+    },
+    approverName: approverStep?.userName || "—",
+    approvedAt: approverStep?.actedAt || "",
+    approverComment: approverStep?.comment,
+    status: deriveStatus(a),
+    batchId: a.transferBatchId,
+    scheduledTransferDate: a.transferScheduledDate,
+    transferCompletedAt: a.transferCompletedAt,
+    failure: a.failureReason
+      ? {
+          reason: a.failureReason as FailureReason,
+          detail: a.failureDetail,
+          failedAt: a.transferAttemptedAt || "",
+          operator: financeStep?.userName || "—",
+        }
+      : undefined,
+  };
+}
 
 const STATUS_COLOR: Record<RefundApp["status"], string> = {
   CSV出力待ち: "#f59e0b",
@@ -220,8 +153,72 @@ function downloadFile(filename: string, content: string, mime = "text/csv;charse
 
 export default function RefundFinancePage() {
   const today = new Date().toISOString().slice(0, 10);
-  const [apps, setApps] = useState<RefundApp[]>(INITIAL_APPS);
-  const [batches, setBatches] = useState<CsvBatch[]>(INITIAL_BATCHES);
+  const [apps, setApps] = useState<RefundApp[]>([]);
+  const [batches, setBatches] = useState<CsvBatch[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // 一覧の取得
+  const reload = async () => {
+    try {
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      const all = data.applications as ApiApplication[];
+      // 経理ステージに到達したもののみ (= 承認者ステップが完了)
+      const reached = all.filter((a) => a.steps?.find((s) => s.role === "approver")?.state === "完了");
+      const local = reached.map(apiToLocal);
+      setApps(local);
+
+      // バッチを transferBatchId で集約して導出
+      const batchMap = new Map<string, CsvBatch>();
+      reached.forEach((a) => {
+        const bid = a.transferBatchId;
+        if (!bid) return;
+        const existing = batchMap.get(bid);
+        const bank = a.bankAccount;
+        if (existing) {
+          existing.count += 1;
+          existing.totalAmount += a.totalAmount;
+          const bd = existing.bankBreakdown.find((b) => b.bankCode === (bank?.bankCode || ""));
+          if (bd) {
+            bd.count += 1;
+            bd.amount += a.totalAmount;
+          } else if (bank) {
+            existing.bankBreakdown.push({ bankCode: bank.bankCode || "", bankName: bank.bankName, count: 1, amount: a.totalAmount });
+          }
+        } else {
+          batchMap.set(bid, {
+            id: bid,
+            generatedAt: (a.transferArrangedAt ?? "").replace("T", " ").slice(0, 16),
+            count: 1,
+            totalAmount: a.totalAmount,
+            bankBreakdown: bank ? [{ bankCode: bank.bankCode || "", bankName: bank.bankName, count: 1, amount: a.totalAmount }] : [],
+            status: "出力済み",
+            scheduledTransferDate: a.transferScheduledDate || "",
+            operator: a.steps?.find((s) => s.role === "finance")?.userName || "—",
+          });
+        }
+      });
+      // 各バッチの status を内訳から再計算
+      batchMap.forEach((b) => {
+        const inBatch = local.filter((x) => x.batchId === b.id);
+        const stillArranged = inBatch.some((x) => x.status === "振込手配中");
+        const anyDone = inBatch.some((x) => x.status === "振込完了");
+        const anyReturned = inBatch.some((x) => x.status === "差戻し");
+        if (stillArranged) b.status = "出力済み";
+        else if (anyDone && !anyReturned) b.status = "振込完了";
+        else if (anyDone || anyReturned) b.status = "一部完了";
+      });
+      setBatches(Array.from(batchMap.values()).sort((x, y) => y.generatedAt.localeCompare(x.generatedAt)));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    reload();
+  }, []);
   const [tab, setTab] = useState<"pending" | "arranged" | "returned" | "done" | "all">("pending");
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
   const [batchSearch, setBatchSearch] = useState("");
@@ -436,6 +433,19 @@ export default function RefundFinancePage() {
     const csv = [header, ...data, trailer, end].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`zengin_refund_${stampShort}.csv`, csv);
 
+    // API: 選択した各 app を arrange (振込手配中) に
+    Promise.all(
+      selectedApps.map((a) =>
+        fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})` }),
+        })
+      )
+    )
+      .catch((e) => console.error("arrange failed", e))
+      .finally(() => reload());
+
     // 銀行別内訳（社内管理用）
     const breakdownMap = new Map<string, { bankCode: string; bankName: string; count: number; amount: number }>();
     selectedApps.forEach((a) => {
@@ -494,51 +504,63 @@ export default function RefundFinancePage() {
     return "一部完了";
   };
 
-  // 1件単位の振込完了
-  const markOneComplete = (id: string) => {
-    const stamp = stampNow();
-    setApps((prev) => {
-      const next = prev.map((a) => a.id === id && a.status === "振込手配中" ? { ...a, status: "振込完了", transferCompletedAt: stamp } as RefundApp : a);
-      const target = next.find((a) => a.id === id);
-      if (target?.batchId) {
-        const newStatus = recomputeBatchStatus(next, target.batchId);
-        setBatches((bs) => bs.map((b) => b.id === target.batchId ? { ...b, status: newStatus } : b));
-      }
-      return next;
-    });
+  // 1件単位の振込完了 (API)
+  const markOneComplete = async (id: string) => {
+    try {
+      const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(id)}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "transfer", result: "成功" }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
+      await reload();
+    } catch (e: any) {
+      alert(e?.message || "エラー");
+    }
     setCompleteOne(null);
   };
 
-  // バッチ全件まとめて振込完了
-  const markBatchComplete = (batchId: string) => {
-    const stamp = stampNow();
-    setApps((prev) => {
-      const next = prev.map((a) => a.batchId === batchId && a.status === "振込手配中" ? { ...a, status: "振込完了", transferCompletedAt: stamp } as RefundApp : a);
-      const newStatus = recomputeBatchStatus(next, batchId);
-      setBatches((bs) => bs.map((b) => b.id === batchId ? { ...b, status: newStatus } : b));
-      return next;
-    });
+  // バッチ全件まとめて振込完了 (API)
+  const markBatchComplete = async (batchId: string) => {
+    const targets = apps.filter((a) => a.batchId === batchId && a.status === "振込手配中");
+    try {
+      await Promise.all(
+        targets.map((a) =>
+          fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "transfer", result: "成功" }),
+          })
+        )
+      );
+      await reload();
+    } catch (e: any) {
+      alert(e?.message || "一括更新エラー");
+    }
     setConfirmTransfer(null);
   };
 
-  // 振込失敗 → 自動的に差戻し
-  const submitFailure = () => {
+  // 振込失敗 → 自動的に差戻し (API)
+  const submitFailure = async () => {
     if (!failureModal) return;
-    const id = failureModal.appId;
-    const stamp = stampNow();
-    setApps((prev) => {
-      const next = prev.map((a) => a.id === id && a.status === "振込手配中" ? {
-        ...a,
-        status: "差戻し" as const,
-        failure: { reason: failureModal.reason, detail: failureModal.detail || undefined, failedAt: stamp, operator: APPROVERS.finance.name },
-      } : a);
-      const target = next.find((a) => a.id === id);
-      if (target?.batchId) {
-        const newStatus = recomputeBatchStatus(next, target.batchId);
-        setBatches((bs) => bs.map((b) => b.id === target.batchId ? { ...b, status: newStatus } : b));
-      }
-      return next;
-    });
+    try {
+      const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(failureModal.appId)}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "transfer",
+          result: "失敗",
+          failureReason: failureModal.reason,
+          failureDetail: failureModal.detail || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
+      await reload();
+    } catch (e: any) {
+      alert(e?.message || "エラー");
+    }
     setFailureModal(null);
   };
 
@@ -554,7 +576,7 @@ export default function RefundFinancePage() {
             </div>
           </div>
           <div className="rff-data-badge">
-            <Database size={14} /><span>Oracle 連携 / 全銀協CSV</span>
+            <Database size={14} /><span>DynamoDB 連携 / 全銀協CSV</span>
           </div>
         </div>
       </header>

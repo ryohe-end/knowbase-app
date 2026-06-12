@@ -1,11 +1,15 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Search, Check, X, AlertCircle, Database, Clock,
   ChevronRight, Send, CreditCard, Receipt, FileText, ShieldCheck, RotateCcw
 } from "lucide-react";
+import type {
+  RefundApplication as ApiApplication,
+  ApprovalStep as ApiStep,
+} from "@/types/refundApplication";
 
 // ---- 型 ----
 type StepState = "完了" | "対応中" | "未対応" | "差戻し";
@@ -30,108 +34,64 @@ type Application = {
 };
 
 const APPROVERS = {
-  applicant: { role: "申請者", name: "遠藤 涼平", dept: "旭川アモール 店舗", email: "r-endo@okamoto-group.co.jp" },
-  approver: { role: "承認者", name: "後藤 充洋", dept: "旭川アモール 店長", email: "goto@fit365.jp" },
-  finance: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" },
+  applicant: { role: "申請者", name: "—", dept: "—", email: "" },
+  approver: { role: "承認者", name: "—", dept: "—", email: "" },
+  finance: { role: "経理部", name: "—", dept: "—", email: "" },
 };
 
-const MOCK_APPS: Application[] = [
-  {
-    id: "RF-20260510-001",
-    applicantName: "遠藤 涼平", applicantEmail: "r-endo@okamoto-group.co.jp", applicantDept: "旭川アモール 店舗",
-    memberId: "M0001234", memberName: "山田 太郎",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    items: [{ id: "i1b", label: "月会費（4月分）", amount: 7980, category: "月会費" }],
-    totalAmount: 7980,
-    reason: "店舗都合による設備停止のため、4月分の月会費を返金します。",
-    account: { bankName: "みずほ銀行", branchName: "旭川支店", accountType: "普通", accountNumber: "1234567", holderName: "ヤマダ タロウ" },
-    status: "承認待ち",
-    submittedAt: "2026-05-10 14:22",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-10 14:22" },
-      { approver: APPROVERS.approver, state: "対応中" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260511-002",
-    applicantName: "佐藤 由美", applicantEmail: "y-sato@okamoto-group.co.jp", applicantDept: "旭川アモール 店舗",
-    memberId: "M0007890", memberName: "井上 さくら",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-04",
-    items: [
-      { id: "k1", label: "月会費（3月分）", amount: 7980, category: "月会費" },
-      { id: "k2", label: "月会費（4月分）", amount: 7980, category: "月会費" },
-      { id: "k3", label: "FIT365あんしんサポート", amount: 550, category: "オプション" },
-    ],
-    totalAmount: 16510,
-    reason: "本人都合の長期療養により2ヶ月分を返金。診断書提出済み。",
-    account: { bankName: "北海道銀行", branchName: "旭川中央支店", accountType: "普通", accountNumber: "5544332", holderName: "イノウエ サクラ" },
-    status: "承認待ち",
-    submittedAt: "2026-05-11 09:08",
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-11 09:08" },
-      { approver: APPROVERS.approver, state: "対応中" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260509-003",
-    applicantName: "高橋 健", applicantEmail: "k-takahashi@okamoto-group.co.jp", applicantDept: "旭川アモール 店舗",
-    memberId: "M0003456", memberName: "鈴木 一郎",
-    targetMonthFrom: "2026-03", targetMonthTo: "2026-03",
-    items: [{ id: "x1", label: "月会費（3月分）", amount: 7980, category: "月会費" }],
-    totalAmount: 7980,
-    reason: "解約日の登録漏れ",
-    account: { bankName: "三菱UFJ銀行", branchName: "札幌支店", accountType: "普通", accountNumber: "2233445", holderName: "スズキ イチロウ" },
-    status: "承認済み",
-    submittedAt: "2026-05-08 10:11",
-    myAction: { state: "完了", actedAt: "2026-05-08 16:40", comment: "解約日確認しました。承認します。" },
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-08 10:11" },
-      { approver: APPROVERS.approver, state: "完了", actedAt: "2026-05-08 16:40", comment: "解約日確認しました。承認します。" },
-      { approver: APPROVERS.finance, state: "完了", actedAt: "2026-05-09 11:02", comment: "Oracle 連携完了" },
-    ],
-  },
-  {
-    id: "RF-20260505-004",
-    applicantName: "遠藤 涼平", applicantEmail: "r-endo@okamoto-group.co.jp", applicantDept: "旭川アモール 店舗",
-    memberId: "M0002345", memberName: "佐藤 花子",
-    targetMonthFrom: "2026-04", targetMonthTo: "2026-04",
-    items: [{ id: "x2", label: "事務手数料", amount: 3300, category: "事務手数料" }],
-    totalAmount: 3300,
-    reason: "重複徴収",
-    account: { bankName: "北海道銀行", branchName: "本店営業部", accountType: "普通", accountNumber: "7654321", holderName: "サトウ ハナコ" },
-    status: "差戻し",
-    submittedAt: "2026-05-05 09:30",
-    myAction: { state: "差戻し", actedAt: "2026-05-06 13:15", comment: "二重徴収の証跡を添付してください。" },
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-05 09:30" },
-      { approver: APPROVERS.approver, state: "差戻し", actedAt: "2026-05-06 13:15", comment: "二重徴収の証跡を添付してください。" },
-      { approver: APPROVERS.finance, state: "未対応" },
-    ],
-  },
-  {
-    id: "RF-20260502-005",
-    applicantName: "山本 美穂", applicantEmail: "m-yamamoto@okamoto-group.co.jp", applicantDept: "旭川アモール 店舗",
-    memberId: "M0005678", memberName: "田中 健太",
-    targetMonthFrom: "2026-02", targetMonthTo: "2026-03",
-    items: [
-      { id: "y1", label: "月会費（2月分）", amount: 5980, category: "月会費" },
-      { id: "y2", label: "契約ロッカー", amount: 1100, category: "オプション" },
-    ],
-    totalAmount: 7080,
-    reason: "解約日の遡及対応",
-    account: { bankName: "ゆうちょ銀行", branchName: "〇五八支店", accountType: "普通", accountNumber: "8801234", holderName: "タナカ ケンタ" },
-    status: "経理処理中",
-    submittedAt: "2026-05-02 18:02",
-    myAction: { state: "完了", actedAt: "2026-05-03 09:11", comment: "問題ありません" },
-    steps: [
-      { approver: APPROVERS.applicant, state: "完了", actedAt: "2026-05-02 18:02" },
-      { approver: APPROVERS.approver, state: "完了", actedAt: "2026-05-03 09:11", comment: "問題ありません" },
-      { approver: APPROVERS.finance, state: "対応中" },
-    ],
-  },
-];
+// API ApprovalStep を画面用 step に変換
+function apiStepToLocal(s: ApiStep) {
+  const role = s.role === "applicant" ? "申請者" : s.role === "approver" ? "承認者" : "経理部";
+  return {
+    approver: {
+      role,
+      name: s.userName || "—",
+      dept: s.dept || "—",
+      email: s.email || "",
+    },
+    state: s.state,
+    actedAt: s.actedAt,
+    comment: s.comment,
+  };
+}
+
+function apiToLocalApp(a: ApiApplication): Application {
+  const approverStep = a.steps?.find((s) => s.role === "approver");
+  const financeStep = a.steps?.find((s) => s.role === "finance");
+  // 状態の派生
+  let status: Application["status"] = a.status as Application["status"];
+  if (a.status === "承認済み") status = "完了";
+  else if (a.status === "承認待ち" && approverStep?.state === "完了" && financeStep?.state === "対応中") status = "経理処理中";
+
+  const applicantStep = a.steps?.find((s) => s.role === "applicant");
+  return {
+    id: a.applicationId,
+    applicantName: a.createdByName || "—",
+    applicantEmail: applicantStep?.email || "",
+    applicantDept: applicantStep?.dept || "—",
+    memberId: a.memberNo,
+    memberName: a.memberName,
+    targetMonthFrom: a.targetMonthFrom,
+    targetMonthTo: a.targetMonthTo,
+    items: (a.items ?? []).map((it) => ({ id: it.id, label: it.label, amount: it.amount, category: it.category ?? "その他" })),
+    totalAmount: a.totalAmount,
+    reason: a.reason,
+    account: {
+      bankName: a.bankAccount?.bankName || "",
+      branchName: a.bankAccount?.branchName || "",
+      accountType: a.bankAccount?.accountType || "普通",
+      accountNumber: a.bankAccount?.accountNumber || "",
+      holderName: a.bankAccount?.holderName || "",
+    },
+    status,
+    submittedAt: applicantStep?.actedAt || (a.createdAt ?? "").replace("T", " ").slice(0, 16),
+    myAction: approverStep && approverStep.state !== "対応中" && approverStep.state !== "未対応"
+      ? { state: approverStep.state as "完了" | "差戻し", actedAt: approverStep.actedAt || "", comment: approverStep.comment }
+      : undefined,
+    steps: (a.steps ?? []).map(apiStepToLocal),
+  };
+}
+
 
 const STATE_COLOR: Record<StepState, string> = {
   完了: "#10b981", 対応中: "#f59e0b", 未対応: "#cbd5e1", 差戻し: "#ef4444",
@@ -145,14 +105,37 @@ export default function RefundApproverPage() {
   const shopName = "旭川アモール";
   const shopId = "000121";
 
-  const [apps, setApps] = useState<Application[]>(MOCK_APPS);
+  const [apps, setApps] = useState<Application[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"pending" | "processed" | "all">("pending");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(MOCK_APPS[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [acting, setActing] = useState(false);
 
   // モーダル
   const [actionModal, setActionModal] = useState<null | { type: "approve" | "reject"; appId: string }>(null);
   const [actionComment, setActionComment] = useState("");
+
+  // 一覧の取得 (承認待ち + 処理済み 両方表示するため queue=all を取得し、画面でフィルタ)
+  const reload = async () => {
+    try {
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      const mapped = (data.applications as ApiApplication[]).map(apiToLocalApp);
+      // 承認者観点で関係するもののみ
+      const relevant = mapped.filter((a) => a.steps.some((s) => s.approver.role === "承認者"));
+      setApps(relevant);
+      setSelectedId(relevant[0]?.id ?? null);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    reload();
+  }, []);
 
   const filtered = useMemo(() => {
     return apps.filter((a) => {
@@ -185,34 +168,36 @@ export default function RefundApproverPage() {
   const openApprove = (id: string) => { setActionComment(""); setActionModal({ type: "approve", appId: id }); };
   const openReject = (id: string) => { setActionComment(""); setActionModal({ type: "reject", appId: id }); };
 
-  const doAction = () => {
+  const doAction = async () => {
     if (!actionModal) return;
     const isApprove = actionModal.type === "approve";
     if (!isApprove && !actionComment.trim()) {
       alert("差戻しコメントを入力してください");
       return;
     }
-    const now = new Date();
-    const stamp = now.toISOString().slice(0, 10) + " " + now.toTimeString().slice(0, 5);
-    setApps((prev) => prev.map((a) => {
-      if (a.id !== actionModal.appId) return a;
-      const newSteps = a.steps.map((s, idx) => {
-        if (idx === 1) {
-          return { ...s, state: (isApprove ? "完了" : "差戻し") as StepState, actedAt: stamp, comment: actionComment || undefined };
+    setActing(true);
+    try {
+      const res = await fetch(
+        `/api/store-settings/refund-payment/applications/${encodeURIComponent(actionModal.appId)}/transition`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: isApprove ? "approve" : "reject",
+            comment: actionComment || undefined,
+          }),
         }
-        if (idx === 2 && isApprove) {
-          return { ...s, state: "対応中" as StepState };
-        }
-        return s;
-      });
-      return {
-        ...a,
-        status: isApprove ? "経理処理中" : "差戻し",
-        myAction: { state: isApprove ? "完了" : "差戻し", actedAt: stamp, comment: actionComment || undefined },
-        steps: newSteps,
-      };
-    }));
-    setActionModal(null);
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "処理失敗");
+      const updated = apiToLocalApp(data.application as ApiApplication);
+      setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      setActionModal(null);
+    } catch (e: any) {
+      alert(e?.message || "エラー");
+    } finally {
+      setActing(false);
+    }
   };
 
   return (
@@ -225,11 +210,11 @@ export default function RefundApproverPage() {
             </Link>
             <div className="rfap-title-group">
               <h1 className="rfap-main-title">返金申請 承認者画面</h1>
-              <p className="rfap-sub-title">{shopId} {shopName} ／ 承認者: {APPROVERS.approver.name}</p>
+              <p className="rfap-sub-title">{shopId} {shopName} ／ 承認者ロール</p>
             </div>
           </div>
           <div className="rfap-data-badge">
-            <Database size={14} /><span>Oracle 連携</span>
+            <Database size={14} /><span>DynamoDB 連携</span>
           </div>
         </div>
       </header>
@@ -360,8 +345,9 @@ export default function RefundApproverPage() {
               <button
                 className={`rfap-btn ${actionModal.type === "approve" ? "primary" : "danger"}`}
                 onClick={doAction}
+                disabled={acting}
               >
-                {actionModal.type === "approve" ? <><Check size={14} /> 承認する</> : <><X size={14} /> 差戻す</>}
+                {acting ? "処理中…" : actionModal.type === "approve" ? <><Check size={14} /> 承認する</> : <><X size={14} /> 差戻す</>}
               </button>
             </div>
           </div>
