@@ -475,6 +475,19 @@ export default function RefundApplicationPage() {
     })();
   }, []);
 
+  // 履歴のみ再取得 (submit 後など)
+  const reloadHistory = async () => {
+    try {
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.applications)) {
+        setHistory(data.applications.map((a: ApiApplication) => apiToUi(a)));
+      }
+    } catch (e) {
+      console.error("history reload failed", e);
+    }
+  };
+
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
     return history.filter((h) => {
@@ -590,6 +603,12 @@ export default function RefundApplicationPage() {
     return () => ctrl.abort();
   }, [debouncedQuery]);
   const filteredMembers = memberSearchResults;
+
+  // 会員選択が変わったら選択項目をクリア (前回会員の選択が残ると不整合)
+  useEffect(() => {
+    setSelectedItemIds(new Set());
+    setAdjustedAmounts({});
+  }, [selectedMember?.memberId]);
 
   // 会員が選択されたら member-detail (Oracle 経由) で口座+項目+プランを取得
   useEffect(() => {
@@ -758,6 +777,8 @@ export default function RefundApplicationPage() {
         return [ui, ...prev];
       });
       setSuccessOpen(true);
+      // サーバから完全な状態を取り直し (履歴の整合)
+      reloadHistory().catch((e) => console.error("post-submit reload failed", e));
     } catch (e: any) {
       alert(e?.message || "送信エラー");
     } finally {
@@ -969,7 +990,13 @@ export default function RefundApplicationPage() {
                 </div>
                 <div className="rfa-items">
                   {refundableItems.length === 0 && (
-                    <div className="rfa-empty">対象月の課金項目はありません</div>
+                    <div className="rfa-empty">
+                      対象月の課金項目はありません。
+                      <br />
+                      <small style={{ color: "#94a3b8" }}>
+                        Step 1 に戻って対象期間を広げるか、Step 2 で別の会員を選択してください。
+                      </small>
+                    </div>
                   )}
                   {refundableItems.map((it) => {
                     const checked = selectedItemIds.has(it.id);

@@ -11,7 +11,10 @@ export const dynamic = "force-dynamic";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.DYNAMO_REFUND_APPLICATIONS_TABLE || "yamauchi-RefundApplications";
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRefundUser();

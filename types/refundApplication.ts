@@ -43,6 +43,19 @@ export type BankAccount = {
 
 export type TransferResult = "成功" | "失敗" | "保留";
 
+// 操作履歴 (誰がいつ何をしたか) — 監査用
+export type RefundEvent = {
+  at: string;                  // ISO timestamp
+  byUserId: string;
+  byUserName: string;
+  action: "create" | "edit" | "submit" | "approve" | "reject" | "arrange" | "transfer";
+  fromStatus?: RefundStatus;
+  toStatus?: RefundStatus;
+  role?: StepRole;             // どの段階での操作か
+  comment?: string;
+  metadata?: Record<string, any>;
+};
+
 export type RefundApplication = {
   applicationId: string;            // RF-YYYYMMDD-### 形式
   clubCode: string;
@@ -77,6 +90,9 @@ export type RefundApplication = {
   transferErrorMessage?: string;
   failureReason?: string;            // 振込失敗理由 (口座番号相違 等)
   failureDetail?: string;
+
+  // 監査用イベントログ (作成順に append のみ)
+  events?: RefundEvent[];
 
   createdBy: string;
   createdByName: string;

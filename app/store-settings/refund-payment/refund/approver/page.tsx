@@ -27,7 +27,8 @@ type Application = {
   totalAmount: number;
   reason: string;
   account: { bankName: string; branchName: string; accountType: string; accountNumber: string; holderName: string };
-  status: "承認待ち" | "承認済み" | "差戻し" | "経理処理中" | "完了";
+  status: "承認待ち" | "承認済み" | "差戻し" | "経理処理中" | "振込手配中" | "完了";
+  updatedAt: string;
   submittedAt: string;
   myAction?: { state: "完了" | "差戻し"; actedAt: string; comment?: string };
   steps: { approver: Approver; state: StepState; actedAt?: string; comment?: string }[];
@@ -58,9 +59,10 @@ function apiStepToLocal(s: ApiStep) {
 function apiToLocalApp(a: ApiApplication): Application {
   const approverStep = a.steps?.find((s) => s.role === "approver");
   const financeStep = a.steps?.find((s) => s.role === "finance");
-  // 状態の派生
+  // 状態の派生 (API の "承認待ち" を 承認待ち/経理処理中 に分岐)
   let status: Application["status"] = a.status as Application["status"];
   if (a.status === "承認済み") status = "完了";
+  else if (a.status === "振込手配中") status = "振込手配中";
   else if (a.status === "承認待ち" && approverStep?.state === "完了" && financeStep?.state === "対応中") status = "経理処理中";
 
   const applicantStep = a.steps?.find((s) => s.role === "applicant");
@@ -89,6 +91,7 @@ function apiToLocalApp(a: ApiApplication): Application {
       ? { state: approverStep.state as "完了" | "差戻し", actedAt: approverStep.actedAt || "", comment: approverStep.comment }
       : undefined,
     steps: (a.steps ?? []).map(apiStepToLocal),
+    updatedAt: a.updatedAt || "",
   };
 }
 
@@ -98,7 +101,8 @@ const STATE_COLOR: Record<StepState, string> = {
 };
 
 const STATUS_COLOR: Record<Application["status"], string> = {
-  承認待ち: "#f59e0b", 承認済み: "#10b981", 差戻し: "#ef4444", 経理処理中: "#8b5cf6", 完了: "#10b981",
+  承認待ち: "#f59e0b", 承認済み: "#10b981", 差戻し: "#ef4444",
+  経理処理中: "#8b5cf6", 振込手配中: "#0ea5e9", 完了: "#10b981",
 };
 
 export default function RefundApproverPage() {
@@ -116,17 +120,22 @@ export default function RefundApproverPage() {
   const [actionModal, setActionModal] = useState<null | { type: "approve" | "reject"; appId: string }>(null);
   const [actionComment, setActionComment] = useState("");
 
-  // 一覧の取得 (承認待ち + 処理済み 両方表示するため queue=all を取得し、画面でフィルタ)
+  // 一覧の取得: 承認待ちタブは queue=approver で対応中のもののみ、
+  //          処理済み/全てタブは queue=all で履歴含む。タブ変更時に再取得。
   const reload = async () => {
+    setLoading(true);
     try {
-      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
+      const url = tab === "pending"
+        ? "/api/store-settings/refund-payment/applications?queue=approver"
+        : "/api/store-settings/refund-payment/applications?queue=all";
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
       const mapped = (data.applications as ApiApplication[]).map(apiToLocalApp);
-      // 承認者観点で関係するもののみ
-      const relevant = mapped.filter((a) => a.steps.some((s) => s.approver.role === "承認者"));
-      setApps(relevant);
-      setSelectedId(relevant[0]?.id ?? null);
+      setApps(mapped);
+      if (!mapped.find((m) => m.id === selectedId)) {
+        setSelectedId(mapped[0]?.id ?? null);
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -135,7 +144,8 @@ export default function RefundApproverPage() {
   };
   useEffect(() => {
     reload();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const filtered = useMemo(() => {
     return apps.filter((a) => {
@@ -157,13 +167,18 @@ export default function RefundApproverPage() {
 
   const selected = filtered.find((a) => a.id === selectedId) ?? filtered[0] ?? null;
 
+  const currentYm = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
   const counts = useMemo(() => ({
     pending: apps.filter((a) => a.status === "承認待ち").length,
     processed: apps.filter((a) => a.status !== "承認待ち").length,
     all: apps.length,
-    todayActed: apps.filter((a) => a.myAction?.actedAt?.startsWith("2026-05")).length,
+    todayActed: apps.filter((a) => a.myAction?.actedAt?.startsWith(currentYm)).length,
     returned: apps.filter((a) => a.status === "差戻し" && a.myAction?.state === "差戻し").length,
-  }), [apps]);
+  }), [apps, currentYm]);
 
   const openApprove = (id: string) => { setActionComment(""); setActionModal({ type: "approve", appId: id }); };
   const openReject = (id: string) => { setActionComment(""); setActionModal({ type: "reject", appId: id }); };
@@ -437,7 +452,9 @@ export default function RefundApproverPage() {
 
 // ---- 詳細パネル ----
 function DetailPanel({ app, onApprove, onReject }: { app: Application; onApprove: () => void; onReject: () => void }) {
-  const canAct = app.status === "承認待ち";
+  // 承認者ステップが対応中のときのみアクション可能 (経理処理中・振込手配中は承認者の出る幕ではない)
+  const approverStep = app.steps.find((s) => s.approver.role === "承認者");
+  const canAct = app.status === "承認待ち" && approverStep?.state === "対応中";
   return (
     <div className="dp-panel">
       <div className="dp-panel-head">

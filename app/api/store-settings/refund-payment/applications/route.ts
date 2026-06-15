@@ -1,7 +1,13 @@
 // app/api/store-settings/refund-payment/applications/route.ts
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import {
+  DynamoDBDocumentClient,
+  PutCommand,
+  ScanCommand,
+  GetCommand,
+} from "@aws-sdk/lib-dynamodb";
+import { randomUUID } from "crypto";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
 import type { RefundApplication, ApprovalStep } from "@/types/refundApplication";
 
@@ -11,16 +17,21 @@ export const dynamic = "force-dynamic";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.DYNAMO_REFUND_APPLICATIONS_TABLE || "yamauchi-RefundApplications";
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+// removeUndefinedValues を有効化しないと、optional フィールドが undefined のままで
+// PutCommand が throw する。
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
 
-// 申請 ID 生成: RF-YYYYMMDD-XXX (XXX は乱数)
+// 申請 ID 生成: RF-YYYYMMDD-<uuid8> (衝突しないよう uuid 由来)
 function newApplicationId(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  const rand = String(Math.floor(Math.random() * 900) + 100);
-  return `RF-${yyyy}${mm}${dd}-${rand}`;
+  const uuid = randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase();
+  return `RF-${yyyy}${mm}${dd}-${uuid}`;
 }
 
 function nowIso(): string {
@@ -30,6 +41,12 @@ function nowIso(): string {
 function ensureSteps(steps: ApprovalStep[] | undefined): ApprovalStep[] {
   if (!Array.isArray(steps)) return [];
   return steps.filter((s) => s && typeof s === "object");
+}
+
+// items から合計金額を再計算 (クライアント値は信頼しない)
+function computeTotalAmount(items: unknown): number {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, it: any) => sum + (Number(it?.amount) || 0), 0);
 }
 
 // 一覧 GET
@@ -92,6 +109,10 @@ export async function GET(req: Request) {
 
 // POST: 新規作成 or 上書き保存
 // body: Partial<RefundApplication> (applicationId なし=新規、あり=更新)
+//
+// 更新時は status/steps を既存値ベースに維持し、申請者が編集できるフィールド
+// (memberNo, items, reason, bankAccount, targetMonth*) だけを差し替える。
+// status 遷移は /transition で行う。
 export async function POST(req: Request) {
   const user = await getRefundUser();
   if (!user) {
@@ -115,10 +136,45 @@ export async function POST(req: Request) {
   const now = nowIso();
   const isNew = !body.applicationId;
 
+  // 更新の場合は既存を取得して差分マージ。steps は保護する。
+  let existing: RefundApplication | null = null;
+  if (!isNew) {
+    try {
+      const res = await ddb.send(
+        new GetCommand({ TableName: TABLE, Key: { applicationId: body.applicationId } })
+      );
+      existing = (res.Item as RefundApplication | undefined) ?? null;
+      if (existing && !isClubInScope(user, existing.clubCode)) {
+        return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+      if (existing && existing.createdBy !== user.userId && user.role !== "admin") {
+        return NextResponse.json({ ok: false, error: "Forbidden: not owner" }, { status: 403 });
+      }
+    } catch (e) {
+      console.error("[refund applications] get existing failed", e);
+    }
+  }
+
+  const items = Array.isArray(body.items) ? body.items : [];
+  const totalAmount = computeTotalAmount(items);
+
+  // 新規の場合は draft step 3 件を作成。既存は step を保持。
+  const initialSteps: ApprovalStep[] = [
+    { role: "applicant", userId: user.userId, userName: user.name, dept: user.dept ?? "", email: user.email, state: "未対応" },
+    { role: "approver",  userId: "", userName: "", dept: "", email: "", state: "未対応" },
+    { role: "finance",   userId: "", userName: "", dept: "", email: "", state: "未対応" },
+  ];
+  const steps = existing
+    ? existing.steps
+    : (Array.isArray(body.steps) && body.steps.length > 0 ? ensureSteps(body.steps) : initialSteps);
+
   const application: RefundApplication = {
     applicationId: body.applicationId || newApplicationId(),
     clubCode: body.clubCode,
-    status: (body.status as any) || "下書き",
+    // status 遷移は /transition で行うので、ここでは既存値か "下書き" を維持。
+    // 更新時に body.status を採用すると ロール跨ぎで状態を直接書き換えられるため
+    // 既存値を優先する。
+    status: existing?.status ?? "下書き",
 
     memberNo: body.memberNo || "",
     memberName: body.memberName || "",
@@ -128,28 +184,45 @@ export async function POST(req: Request) {
 
     targetMonthFrom: body.targetMonthFrom || "",
     targetMonthTo: body.targetMonthTo || "",
-    items: Array.isArray(body.items) ? body.items : [],
-    totalAmount: Number(body.totalAmount || 0),
+    items,
+    totalAmount,
     reason: body.reason || "",
     attachments: Array.isArray(body.attachments) ? body.attachments : undefined,
 
     bankAccount: body.bankAccount,
 
-    steps: ensureSteps(body.steps),
+    steps,
 
-    transferAttemptedAt: body.transferAttemptedAt,
-    transferResult: body.transferResult,
-    transferErrorCode: body.transferErrorCode,
-    transferErrorMessage: body.transferErrorMessage,
+    transferAttemptedAt: existing?.transferAttemptedAt,
+    transferResult: existing?.transferResult,
+    transferErrorCode: existing?.transferErrorCode,
+    transferErrorMessage: existing?.transferErrorMessage,
+    transferBatchId: existing?.transferBatchId,
+    transferScheduledDate: existing?.transferScheduledDate,
+    transferArrangedAt: existing?.transferArrangedAt,
+    transferCompletedAt: existing?.transferCompletedAt,
+    failureReason: existing?.failureReason,
+    failureDetail: existing?.failureDetail,
 
-    createdBy: isNew ? user.userId : (body.createdBy || user.userId),
-    createdByName: isNew ? user.name : (body.createdByName || user.name),
-    createdAt: isNew ? now : (body.createdAt || now),
+    createdBy: isNew ? user.userId : (existing?.createdBy || user.userId),
+    createdByName: isNew ? user.name : (existing?.createdByName || user.name),
+    createdAt: isNew ? now : (existing?.createdAt || now),
     updatedAt: now,
   };
 
   try {
-    await ddb.send(new PutCommand({ TableName: TABLE, Item: application }));
+    if (isNew) {
+      // 新規は ID 衝突保護 (uuid なので実質衝突しないが念のため)
+      await ddb.send(
+        new PutCommand({
+          TableName: TABLE,
+          Item: application,
+          ConditionExpression: "attribute_not_exists(applicationId)",
+        })
+      );
+    } else {
+      await ddb.send(new PutCommand({ TableName: TABLE, Item: application }));
+    }
     return NextResponse.json({ ok: true, application });
   } catch (e: any) {
     console.error("[refund applications] POST error:", e);

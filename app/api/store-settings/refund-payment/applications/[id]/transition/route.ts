@@ -1,24 +1,34 @@
 // app/api/store-settings/refund-payment/applications/[id]/transition/route.ts
 //
 // 申請ステップの状態遷移を 1 アクション = 1 リクエストで処理する。
-//   action=submit         申請者が下書きを提出
+//   action=submit         申請者が下書きを提出 (or 差戻し → 再申請)
 //   action=approve        承認者 が承認
 //   action=reject         承認者/経理が差戻し
 //   action=arrange        経理が CSV 出力してバッチに組み入れた (status → 振込手配中)
 //   action=transfer       経理が振込結果を記録 (result=成功/失敗)
 //
 // 状態遷移ルール:
-//   下書き --submit--> 承認待ち (applicant step → 完了, approver step → 対応中)
+//   下書き --submit--> 承認待ち (applicant step → 完了, approver step → 対応中, finance step → 未対応)
 //   承認待ち --approve(approver)-->  承認待ち (approver step → 完了, finance step → 対応中)
 //   承認待ち --approve(finance)-->   承認済み (finance step → 完了)
 //   承認待ち --reject-->             差戻し  (該当 step → 差戻し)
-//   差戻し  --submit-->              承認待ち (resubmit、ステップは再対応中に)
+//   承認待ち --arrange-->           振込手配中 (finance step は対応中のまま)
+//   振込手配中 --transfer(成功)-->   承認済み (finance step → 完了)
+//   振込手配中 --transfer(失敗)-->   差戻し  (finance step → 差戻し)
+//   差戻し  --submit-->              承認待ち (再申請、approver/finance step は再対応中/未対応に巻き戻す)
+//
+// 同時更新対策: ConditionExpression で updatedAt をチェック (optimistic concurrency)
 
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
-import type { RefundApplication, ApprovalStep, StepRole } from "@/types/refundApplication";
+import type {
+  RefundApplication,
+  ApprovalStep,
+  StepRole,
+  RefundEvent,
+} from "@/types/refundApplication";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,7 +36,10 @@ export const dynamic = "force-dynamic";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.DYNAMO_REFUND_APPLICATIONS_TABLE || "yamauchi-RefundApplications";
 
-const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -42,6 +55,11 @@ function setStep(app: RefundApplication, role: StepRole, patch: Partial<Approval
   app.steps[i] = { ...app.steps[i], ...patch };
 }
 
+function appendEvent(app: RefundApplication, ev: RefundEvent) {
+  if (!Array.isArray(app.events)) app.events = [];
+  app.events.push(ev);
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRefundUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -53,10 +71,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     result?: "成功" | "失敗" | "保留";
     errorCode?: string;
     errorMessage?: string;
-    batchId?: string;
     scheduledDate?: string;
     failureReason?: string;
     failureDetail?: string;
+    // optimistic concurrency 用 (UI が保持していた updatedAt)
+    expectedUpdatedAt?: string;
   };
   try {
     body = await req.json();
@@ -77,23 +96,45 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
+    const prevStatus = app.status;
+
     if (action === "submit") {
       // 申請者本人 (もしくは admin) のみ
       if (app.createdBy !== user.userId && user.role !== "admin") {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
+      // 既に承認済みの再申請は不可
+      if (app.status === "承認済み") {
+        return NextResponse.json({ ok: false, error: "承認済みは再申請できません" }, { status: 400 });
+      }
       setStep(app, "applicant", {
         userId: user.userId,
         userName: user.name,
+        dept: user.dept ?? "",
+        email: user.email,
         state: "完了",
         actedAt,
         comment: comment || "申請しました",
       });
-      setStep(app, "approver", { state: "対応中" });
-      setStep(app, "finance", { state: "未対応" });
+      // 再申請時は approver/finance step を完全に巻き戻す
+      setStep(app, "approver", { state: "対応中", actedAt: undefined, comment: undefined });
+      setStep(app, "finance",  { state: "未対応", actedAt: undefined, comment: undefined });
+      // 振込関連も差戻し→再申請でリセット
+      if (app.status === "差戻し") {
+        app.transferResult = undefined;
+        app.transferErrorCode = undefined;
+        app.transferErrorMessage = undefined;
+        app.transferAttemptedAt = undefined;
+        app.failureReason = undefined;
+        app.failureDetail = undefined;
+      }
       app.status = "承認待ち";
+      appendEvent(app, {
+        at: ts, byUserId: user.userId, byUserName: user.name,
+        action: "submit", fromStatus: prevStatus, toStatus: "承認待ち",
+        role: "applicant", comment: comment || undefined,
+      });
     } else if (action === "approve") {
-      // 承認者なら承認 step を進める
       const approverStep = findStep(app, "approver");
       const financeStep = findStep(app, "finance");
       if (approverStep?.state === "対応中") {
@@ -103,29 +144,43 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep(app, "approver", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "完了",
           actedAt,
           comment: comment || "承認しました",
         });
         setStep(app, "finance", { state: "対応中" });
         app.status = "承認待ち";
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "approve", fromStatus: prevStatus, toStatus: "承認待ち",
+          role: "approver", comment: comment || undefined,
+        });
       } else if (financeStep?.state === "対応中") {
+        // 経理段階の "approve" は使わない (transfer で決着) が、保険として残す
         if (!canFinance(user)) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
         setStep(app, "finance", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "完了",
           actedAt,
           comment: comment || "経理確認しました",
         });
         app.status = "承認済み";
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "approve", fromStatus: prevStatus, toStatus: "承認済み",
+          role: "finance", comment: comment || undefined,
+        });
       } else {
         return NextResponse.json({ ok: false, error: "対応中ステップがありません" }, { status: 400 });
       }
     } else if (action === "reject") {
-      // 承認 or 経理 のうち対応中の段階を差戻し
       const approverStep = findStep(app, "approver");
       const financeStep = findStep(app, "finance");
       if (approverStep?.state === "対応中") {
@@ -135,9 +190,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep(app, "approver", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "差戻し",
           actedAt,
           comment: comment || "差戻しました",
+        });
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "reject", fromStatus: prevStatus, toStatus: "差戻し",
+          role: "approver", comment: comment || undefined,
         });
       } else if (financeStep?.state === "対応中") {
         if (!canFinance(user)) {
@@ -146,9 +208,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep(app, "finance", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "差戻し",
           actedAt,
           comment: comment || "差戻しました",
+        });
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "reject", fromStatus: prevStatus, toStatus: "差戻し",
+          role: "finance", comment: comment || undefined,
         });
       } else {
         return NextResponse.json({ ok: false, error: "対応中ステップがありません" }, { status: 400 });
@@ -158,14 +227,34 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (!canFinance(user)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
-      app.transferBatchId = body.batchId;
+      // 経理ステップが対応中のものだけ手配可
+      const financeStep = findStep(app, "finance");
+      if (financeStep?.state !== "対応中") {
+        return NextResponse.json({ ok: false, error: "経理対応中のみ手配可能" }, { status: 400 });
+      }
+      // 同一 CSV バッチに属する複数 application はクライアントから同じ batchId を送る
+      // ことで束ねる。形式バリデーションのみ。
+      const clientBatchId = (body as any).batchId;
+      if (clientBatchId && !/^BATCH-[A-Za-z0-9_-]+$/.test(String(clientBatchId))) {
+        return NextResponse.json({ ok: false, error: "Invalid batchId" }, { status: 400 });
+      }
+      app.transferBatchId = clientBatchId || makeBatchId();
       app.transferScheduledDate = body.scheduledDate;
       app.transferArrangedAt = ts;
       app.status = "振込手配中";
-      // finance step は対応中のまま (CSV を出しただけ)
+      appendEvent(app, {
+        at: ts, byUserId: user.userId, byUserName: user.name,
+        action: "arrange", fromStatus: prevStatus, toStatus: "振込手配中",
+        role: "finance",
+        metadata: { batchId: app.transferBatchId, scheduledDate: body.scheduledDate },
+      });
     } else if (action === "transfer") {
       if (!canFinance(user)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+      }
+      // 振込手配中のものだけ振込結果反映可
+      if (app.status !== "振込手配中") {
+        return NextResponse.json({ ok: false, error: "振込手配中のみ更新可能" }, { status: 400 });
       }
       app.transferAttemptedAt = ts;
       app.transferResult = body.result;
@@ -176,32 +265,83 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         setStep(app, "finance", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "完了",
           actedAt,
           comment: comment || "振込完了",
         });
         app.status = "承認済み";
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "transfer", fromStatus: prevStatus, toStatus: "承認済み",
+          role: "finance", comment: comment || undefined,
+          metadata: { result: "成功" },
+        });
       } else if (body.result === "失敗") {
         app.failureReason = body.failureReason;
         app.failureDetail = body.failureDetail;
         setStep(app, "finance", {
           userId: user.userId,
           userName: user.name,
+          dept: user.dept ?? "",
+          email: user.email,
           state: "差戻し",
           actedAt,
           comment: comment || `振込失敗: ${body.failureReason || body.errorMessage || ""}`,
         });
         app.status = "差戻し";
+        appendEvent(app, {
+          at: ts, byUserId: user.userId, byUserName: user.name,
+          action: "transfer", fromStatus: prevStatus, toStatus: "差戻し",
+          role: "finance", comment: comment || undefined,
+          metadata: { result: "失敗", failureReason: body.failureReason, failureDetail: body.failureDetail },
+        });
+      } else {
+        return NextResponse.json({ ok: false, error: "result must be 成功 or 失敗" }, { status: 400 });
       }
     } else {
       return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
     }
 
+    const previousUpdatedAt = app.updatedAt;
     app.updatedAt = ts;
-    await ddb.send(new PutCommand({ TableName: TABLE, Item: app }));
+    try {
+      await ddb.send(
+        new PutCommand({
+          TableName: TABLE,
+          Item: app,
+          // optimistic concurrency: 取得直後の updatedAt と一致するもののみ更新
+          ConditionExpression: "updatedAt = :prev",
+          ExpressionAttributeValues: { ":prev": previousUpdatedAt },
+        })
+      );
+    } catch (e: any) {
+      if (e?.name === "ConditionalCheckFailedException") {
+        return NextResponse.json(
+          { ok: false, error: "他のユーザにより更新されています。再読込してください" },
+          { status: 409 }
+        );
+      }
+      throw e;
+    }
     return NextResponse.json({ ok: true, application: app });
   } catch (e: any) {
     console.error("[refund transition] error:", e);
     return NextResponse.json({ ok: false, error: e?.message || "DB error" }, { status: 500 });
   }
+}
+
+// バッチ ID 生成 (CSV 出力単位)
+let _batchCounter = 0;
+function makeBatchId(): string {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  _batchCounter = (_batchCounter + 1) % 1000;
+  const seq = String(_batchCounter).padStart(3, "0");
+  return `BATCH-${yyyy}${mm}${dd}-${hh}${mi}-${seq}`;
 }

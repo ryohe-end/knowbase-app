@@ -65,11 +65,20 @@ const APPROVERS = {
 };
 
 // API → ローカル finance ステータス
-function deriveStatus(a: ApiApplication): RefundApp["status"] {
+function deriveStatus(a: ApiApplication): RefundApp["status"] | null {
+  // 振込手配中: バッチ組入れ済み、振込未完了
   if (a.status === "振込手配中") return "振込手配中";
+  // 振込完了: 経理が transfer 成功で承認済みに
   if (a.status === "承認済み" && a.transferResult === "成功") return "振込完了";
+  // 差戻し (経理由来のみ): transferResult=失敗
   if (a.status === "差戻し" && a.transferResult === "失敗") return "差戻し";
-  return "CSV出力待ち";
+  // 経理段階に到達済み (approver 完了) で finance 対応中: CSV出力待ち
+  const approverStep = a.steps?.find((s) => s.role === "approver");
+  const financeStep = a.steps?.find((s) => s.role === "finance");
+  if (a.status === "承認待ち" && approverStep?.state === "完了" && financeStep?.state === "対応中") {
+    return "CSV出力待ち";
+  }
+  return null; // 経理画面では扱わない
 }
 
 function apiToLocal(a: ApiApplication): RefundApp {
@@ -77,7 +86,8 @@ function apiToLocal(a: ApiApplication): RefundApp {
   const applicantStep = a.steps?.find((s) => s.role === "applicant");
   const financeStep = a.steps?.find((s) => s.role === "finance");
   const bank = a.bankAccount;
-  const accountTypeIs1 = bank?.accountType === "普通";
+  // 当座は accountType="当座"。bank が null なら "普通" 既定で構わない (表示用)。
+  const accountTypeIs1 = bank?.accountType !== "当座";
   return {
     id: a.applicationId,
     applicantName: a.createdByName || "—",
@@ -102,7 +112,7 @@ function apiToLocal(a: ApiApplication): RefundApp {
     approverName: approverStep?.userName || "—",
     approvedAt: approverStep?.actedAt || "",
     approverComment: approverStep?.comment,
-    status: deriveStatus(a),
+    status: deriveStatus(a) ?? "CSV出力待ち",
     batchId: a.transferBatchId,
     scheduledTransferDate: a.transferScheduledDate,
     transferCompletedAt: a.transferCompletedAt,
@@ -164,8 +174,8 @@ export default function RefundFinancePage() {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
       const all = data.applications as ApiApplication[];
-      // 経理ステージに到達したもののみ (= 承認者ステップが完了)
-      const reached = all.filter((a) => a.steps?.find((s) => s.role === "approver")?.state === "完了");
+      // 経理ステージに到達したもの (deriveStatus が null を返さないもの) のみ
+      const reached = all.filter((a) => deriveStatus(a) !== null);
       const local = reached.map(apiToLocal);
       setApps(local);
 
@@ -267,6 +277,11 @@ export default function RefundFinancePage() {
     return Array.from(map.values()).sort((x, y) => y.total - x.total);
   }, [filtered]);
 
+  const currentYm = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
   const stats = useMemo(() => {
     const pending = apps.filter((a) => a.status === "CSV出力待ち");
     const arranged = apps.filter((a) => a.status === "振込手配中");
@@ -280,9 +295,9 @@ export default function RefundFinancePage() {
       returnedCount: returned.length,
       returnedAmount: returned.reduce((s, a) => s + a.totalAmount, 0),
       doneCount: done.length,
-      monthAmount: done.filter((a) => a.transferCompletedAt?.startsWith("2026-05")).reduce((s, a) => s + a.totalAmount, 0),
+      monthAmount: done.filter((a) => a.transferCompletedAt?.startsWith(currentYm)).reduce((s, a) => s + a.totalAmount, 0),
     };
-  }, [apps]);
+  }, [apps, currentYm]);
 
   // 各バッチに紐づく内訳
   const batchBreakdown = useMemo(() => {
@@ -387,10 +402,11 @@ export default function RefundFinancePage() {
     const scheduled = csvModal.scheduledDate || today;
 
     const stamp = new Date();
-    const stampStr = stamp.toISOString().slice(0, 10) + " " + stamp.toTimeString().slice(0, 5);
     const stampShort = stamp.toISOString().slice(0, 10).replace(/-/g, "");
-    const seq = batches.length + 1;
-    const batchId = `BATCH-${stampShort}-${String(seq).padStart(3, "0")}`;
+    // batchId: 日付 + 時刻 + 乱数 で衝突しないようにする (オペレータ・セッション間でも安全)
+    const hhmm = `${String(stamp.getHours()).padStart(2, "0")}${String(stamp.getMinutes()).padStart(2, "0")}`;
+    const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+    const batchId = `BATCH-${stampShort}-${hhmm}-${rand}`;
     const total = selectedApps.reduce((s, a) => s + a.totalAmount, 0);
 
     // 全銀協 総合振込フォーマット（CSV版）
@@ -446,16 +462,7 @@ export default function RefundFinancePage() {
       .catch((e) => console.error("arrange failed", e))
       .finally(() => reload());
 
-    // 銀行別内訳（社内管理用）
-    const breakdownMap = new Map<string, { bankCode: string; bankName: string; count: number; amount: number }>();
-    selectedApps.forEach((a) => {
-      const k = a.account.bankCode;
-      const cur = breakdownMap.get(k) ?? { bankCode: a.account.bankCode, bankName: a.account.bankName, count: 0, amount: 0 };
-      cur.count++; cur.amount += a.totalAmount;
-      breakdownMap.set(k, cur);
-    });
-    const bankBreakdown = Array.from(breakdownMap.values());
-
+    // 銀行別内訳サマリ CSV (社内管理用)
     const summaryHeaders = ["バッチID", "申請ID", "会員ID", "会員名", "銀行コード", "銀行名", "支店", "種別", "口座番号", "名義人", "金額", "申請理由"];
     const summaryRows = selectedApps.map((a) => [
       batchId, a.id, a.memberId, a.memberName,
@@ -466,22 +473,7 @@ export default function RefundFinancePage() {
     const summaryCsv = [summaryHeaders, ...summaryRows].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`refund_summary_${stampShort}.csv`, summaryCsv);
 
-    const newBatch: CsvBatch = {
-      id: batchId,
-      generatedAt: stampStr,
-      count: selectedApps.length,
-      totalAmount: total,
-      bankBreakdown,
-      status: "出力済み",
-      scheduledTransferDate: scheduled,
-      operator: APPROVERS.finance.name,
-    };
-
-    setApps((prev) => prev.map((a) => {
-      if (!selectedIds.has(a.id) || a.status !== "CSV出力待ち") return a;
-      return { ...a, status: "振込手配中", batchId, scheduledTransferDate: scheduled };
-    }));
-    setBatches((prev) => [newBatch, ...prev]);
+    // 楽観 UI 更新は API レスポンスを待つ。整合性優先 (race を避ける)。
     setSelectedIds(new Set());
     setCsvModal(null);
   };
