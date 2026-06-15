@@ -131,9 +131,16 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const url = new URL(`${API_BASE}/members/refundable`);
+  // 既存の /members/search Lambda に type=refundable で投げる
+  // (新たな API Gateway ルートを増やさないため)
+  const url = new URL(`${API_BASE}/members/search`);
+  url.searchParams.set("type", "refundable");
   url.searchParams.set("memberNo", memberNo);
   url.searchParams.set("clubCode", clubCode);
+  const fromMonth = sp.get("fromMonth");
+  const toMonth = sp.get("toMonth");
+  if (fromMonth) url.searchParams.set("fromMonth", fromMonth);
+  if (toMonth) url.searchParams.set("toMonth", toMonth);
 
   let upstream: Response;
   try {

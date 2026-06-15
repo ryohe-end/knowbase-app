@@ -3,8 +3,16 @@
 //
 // 入力: API Gateway event.queryStringParameters
 //   - type: "udid" | "member_no" | "phone" | "email" | "name_kanji" | "name_kana" | "kojin_seq"
+//          | "refundable" (返金画面用: 会員+口座+入金歴)
+//          | "club_addresses"
 //   - q:    検索値
 //   - q2:   2nd 検索値 (name_kana の名 部分のみ使用)
+//
+//   refundable 時の追加パラメータ:
+//   - memberNo:  会員番号 (必須)
+//   - clubCode:  クラブコード (必須)
+//   - fromMonth: 検索開始 YYYYMM (任意, 省略時は 24ヶ月前)
+//   - toMonth:   検索終了 YYYYMM (任意, 省略時は当月)
 //
 // 出力: { results: [...] }  -- 重複は kojin_seq+会員番号 単位で集約
 //
@@ -170,6 +178,69 @@ const CLUB_ADDRESSES_SQL = `
    WHERE 住所 IS NOT NULL
 `;
 
+// --- 返金画面用: 会員+口座+入金歴 1ショット ---
+// 会員契約者口座は 契約者SEQ ごとに複数行ある可能性があるため
+// データ更新時刻 DESC で最新 1 件に絞る。
+// 会員契約明細は 1:N の可能性があるため、対応 LIKE で絞り込まず最新の
+// 契約形態のみを使う想定 (シンプル化のため明細フィルタは入れず JOIN は行う)。
+const REFUNDABLE_SQL = `
+  WITH latest_account AS (
+    SELECT 契約者SEQ, 銀行支店コード, 預金種目コード, 口座番号, 預金者名,
+           クレジットカードNO, 有効期限, ステータス1, ステータス2, ステータス3
+      FROM (
+        SELECT f.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY 契約者SEQ
+                 ORDER BY データ更新時刻 DESC NULLS LAST
+               ) AS rn
+          FROM FIT_ADMIN.会員契約者口座 f
+      )
+     WHERE rn = 1
+  )
+  SELECT
+    b.会員番号                                 AS MEMBER_NO,
+    b.個人SEQ                                  AS KOJIN_SEQ,
+    c.契約者SEQ                                AS KEIYAKUSHA_SEQ,
+    c.契約SEQ                                  AS KEIYAKU_SEQ,
+    c.クラブコード                             AS CLUB_CODE,
+    c.会員区分コード                           AS PLAN_CODE,
+    k.会員区分名                               AS PLAN_NAME,
+    k.会員大区分コード                         AS PLAN_BIG_CODE,
+    k.法人フラグ                               AS IS_CORPORATE,
+    c.入会届出日                               AS JOIN_DATE,
+    c.退会届出日                               AS WITHDRAWN_DECL_DATE,
+    c.退会日                                   AS WITHDRAWN_DATE,
+    a.対応年月                                 AS TARGET_YYYYMM,
+    a.会費分類コード                           AS FEE_CATEGORY_CODE,
+    h.会費分類名                               AS FEE_CATEGORY_NAME,
+    a.月相当額                                 AS MONTHLY_AMOUNT,
+    a.請求額                                   AS BILLED_AMOUNT,
+    a.入金額                                   AS PAID_AMOUNT,
+    a.入金年月日                               AS PAID_DATE,
+    a.会費支払方式コード                       AS PAYMENT_METHOD_CODE,
+    f.銀行支店コード                           AS BANK_BRANCH_CODE,
+    f.預金種目コード                           AS DEPOSIT_TYPE_CODE,
+    TRIM(f.口座番号)                           AS ACCOUNT_NUMBER,
+    TRIM(f.預金者名)                           AS HOLDER_NAME,
+    f.クレジットカードNO                       AS CREDIT_CARD_NO,
+    f.有効期限                                 AS CARD_EXPIRY,
+    f.ステータス1                              AS ACCOUNT_STATUS1,
+    f.ステータス2                              AS ACCOUNT_STATUS2,
+    f.ステータス3                              AS ACCOUNT_STATUS3
+  FROM FIT_ADMIN.会員入金歴 a
+  INNER JOIN FIT_ADMIN.会員番号 b       ON a.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN.会員契約 c       ON a.契約SEQ   = c.契約SEQ
+  LEFT  JOIN FIT_ADMIN.会員区分 k       ON c.会員区分コード = k.会員区分コード
+  LEFT  JOIN FIT_ADMIN.会費分類 h       ON a.会費分類コード = h.会費分類コード
+  INNER JOIN latest_account f           ON a.契約者SEQ = f.契約者SEQ
+  WHERE b.会員番号 = :memberNo
+    AND c.クラブコード = :clubCode
+    AND a.対応年月 BETWEEN :fromMonth AND :toMonth
+    AND a.入金額 > 0
+  ORDER BY a.対応年月 DESC, a.会費分類コード
+  FETCH FIRST 200 ROWS ONLY
+`;
+
 // --- 入力正規化 --------------------------------------------------------------
 function normalize(type, q) {
   if (q == null) return q;
@@ -191,6 +262,41 @@ export const handler = async (event) => {
   const type = params.type;
   const q = normalize(type, params.q);
   const q2 = params.q2 ? normalize(type, params.q2) : null;
+
+  // 返金画面用: 会員+口座+入金歴 を 1ショットで返す
+  if (type === "refundable") {
+    const memberNo = (params.memberNo || "").trim();
+    const clubCode = (params.clubCode || "").trim();
+    if (!memberNo || !clubCode) {
+      return resp(400, { error: "missing_params", required: ["memberNo", "clubCode"] });
+    }
+    // デフォルト期間: 直近 24 ヶ月
+    const now = new Date();
+    const defaultTo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const fromDate = new Date(now);
+    fromDate.setMonth(fromDate.getMonth() - 24);
+    const defaultFrom = `${fromDate.getFullYear()}${String(fromDate.getMonth() + 1).padStart(2, "0")}`;
+    const fromMonth = (params.fromMonth || defaultFrom).trim();
+    const toMonth = (params.toMonth || defaultTo).trim();
+
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const result = await conn.execute(
+        REFUNDABLE_SQL,
+        { memberNo, clubCode, fromMonth: Number(fromMonth), toMonth: Number(toMonth) },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      const rows = result.rows || [];
+      return resp(200, { results: buildRefundableResult(rows) });
+    } catch (err) {
+      console.error("refundable error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
 
   // クラブ住所一括取得は q 不要なので別経路
   if (type === "club_addresses") {
@@ -248,6 +354,88 @@ export const handler = async (event) => {
 };
 
 // --- ヘルパ ------------------------------------------------------------------
+// --- 返金画面用: SQL 結果を {member, account, items} に整形 ---
+function buildRefundableResult(rows) {
+  if (rows.length === 0) {
+    return { member: null, account: null, items: [] };
+  }
+  const first = rows[0];
+
+  // 銀行支店コード (10桁) = 銀行4桁 + 支店6桁
+  const bankBranch = first.BANK_BRANCH_CODE != null ? String(first.BANK_BRANCH_CODE) : "";
+  const bankCode = bankBranch.slice(0, 4) || null;
+  const branchCode = bankBranch.slice(4) || null;
+
+  const accountType = first.DEPOSIT_TYPE_CODE === 1 || first.DEPOSIT_TYPE_CODE === "1" ? "普通"
+                    : first.DEPOSIT_TYPE_CODE === 2 || first.DEPOSIT_TYPE_CODE === "2" ? "当座"
+                    : null;
+
+  const isCreditCard = first.CREDIT_CARD_NO != null && String(first.CREDIT_CARD_NO).trim().length > 0;
+  const isActive = !first.ACCOUNT_STATUS1 && !first.ACCOUNT_STATUS2 && !first.ACCOUNT_STATUS3;
+
+  const account = bankBranch || isCreditCard
+    ? {
+        bankCode,
+        bankName: null,
+        branchCode,
+        branchName: null,
+        accountType,
+        accountNumber: first.ACCOUNT_NUMBER != null ? String(first.ACCOUNT_NUMBER) : null,
+        holderName: first.HOLDER_NAME != null ? String(first.HOLDER_NAME) : null,
+        source: "登録済み（引落口座）",
+        isCreditCard,
+        isActive,
+      }
+    : null;
+
+  const withdrawnRaw = first.WITHDRAWN_DATE != null ? String(first.WITHDRAWN_DATE) : null;
+  const withdrawnAt = withdrawnRaw && withdrawnRaw.length === 8
+    ? `${withdrawnRaw.slice(0, 4)}-${withdrawnRaw.slice(4, 6)}-${withdrawnRaw.slice(6, 8)}`
+    : null;
+  const memberStatus = withdrawnAt ? "withdrawn" : "active";
+
+  const member = {
+    memberNo: first.MEMBER_NO != null ? String(first.MEMBER_NO) : null,
+    kojinSeq: first.KOJIN_SEQ != null ? String(first.KOJIN_SEQ) : null,
+    name: null,                // 漢字氏名は別 SQL で取得 (本 SQL では未取得)
+    kana: first.HOLDER_NAME != null ? String(first.HOLDER_NAME) : null,
+    phone: null,
+    plan: first.PLAN_NAME ?? null,
+    planCode: first.PLAN_CODE ?? null,
+    isCorporate: first.IS_CORPORATE === 1 || first.IS_CORPORATE === "1",
+    joinClubCode: first.CLUB_CODE != null ? String(first.CLUB_CODE) : null,
+    joinClubName: null,
+    withdrawnAt,
+    status: memberStatus,
+  };
+
+  const items = rows.map((r) => {
+    const ymRaw = r.TARGET_YYYYMM != null ? String(r.TARGET_YYYYMM) : "";
+    const targetMonth = ymRaw.length === 6
+      ? `${ymRaw.slice(0, 4)}-${ymRaw.slice(4, 6)}`
+      : ymRaw;
+    const paidRaw = r.PAID_DATE != null ? String(r.PAID_DATE) : "";
+    const paidAt = paidRaw.length === 8
+      ? `${paidRaw.slice(0, 4)}-${paidRaw.slice(4, 6)}-${paidRaw.slice(6, 8)}`
+      : null;
+    const yyyy = ymRaw.slice(0, 4);
+    const mm = ymRaw.slice(4, 6);
+    const categoryName = r.FEE_CATEGORY_NAME ?? "その他";
+    return {
+      id: `${r.KEIYAKU_SEQ}-${ymRaw}-${r.FEE_CATEGORY_CODE}`,
+      label: `${categoryName} (${yyyy}年${mm}月分)`,
+      amount: Number(r.PAID_AMOUNT) || 0,
+      paidAt,
+      targetMonth,
+      category: categoryName,
+      categoryCode: r.FEE_CATEGORY_CODE ?? null,
+      contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+    };
+  });
+
+  return { member, account, items };
+}
+
 function rowToCamel(r) {
   const udidActive = r.UDID_ACTIVE ?? null;
   const udidDel    = r.UDID_DELETED ?? null;
