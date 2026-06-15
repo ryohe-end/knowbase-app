@@ -313,6 +313,96 @@ function BankcodeAutocomplete({
 
 type ClubOption = { clubCode: string; clubName?: string; clubNameShort?: string };
 
+// クラブ検索付きセレクタ
+function ClubSearchSelect({
+  clubs,
+  value,
+  onChange,
+}: {
+  clubs: ClubOption[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = React.useRef<HTMLDivElement>(null);
+
+  // 外側クリックで閉じる
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const selected = clubs.find((c) => c.clubCode === value) || null;
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return clubs;
+    return clubs.filter((c) =>
+      c.clubCode.toLowerCase().includes(q) ||
+      (c.clubNameShort || "").toLowerCase().includes(q) ||
+      (c.clubName || "").toLowerCase().includes(q)
+    );
+  }, [clubs, query]);
+
+  const displayLabel = selected
+    ? `${selected.clubCode} ${selected.clubNameShort || selected.clubName || ""}`
+    : "選択してください";
+
+  return (
+    <div className="rfa-club-search" ref={wrapRef}>
+      <button
+        type="button"
+        className="rfa-club-search-trigger"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={selected ? "" : "rfa-club-search-placeholder"}>{displayLabel}</span>
+        <span className="rfa-club-search-caret">▾</span>
+      </button>
+      {open && (
+        <div className="rfa-club-search-dropdown">
+          <div className="rfa-club-search-input-wrap">
+            <Search size={14} />
+            <input
+              autoFocus
+              type="text"
+              className="rfa-club-search-input"
+              placeholder="クラブコード / 名前で検索"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button className="rfa-club-search-clear" onClick={() => setQuery("")}>✕</button>
+            )}
+          </div>
+          <div className="rfa-club-search-list">
+            {filtered.length === 0 && (
+              <div className="rfa-club-search-empty">候補なし</div>
+            )}
+            {filtered.map((c) => (
+              <button
+                key={c.clubCode}
+                type="button"
+                className={`rfa-club-search-item ${c.clubCode === value ? "selected" : ""}`}
+                onClick={() => { onChange(c.clubCode); setOpen(false); setQuery(""); }}
+              >
+                <span className="rfa-club-search-code">{c.clubCode}</span>
+                <span className="rfa-club-search-name">{c.clubNameShort || c.clubName || ""}</span>
+              </button>
+            ))}
+          </div>
+          <div className="rfa-club-search-footer">{filtered.length} / {clubs.length} 件</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function RefundApplicationPage() {
   // クラブセレクタ
   const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
@@ -700,18 +790,11 @@ export default function RefundApplicationPage() {
           </div>
           <div className="rfa-club-selector">
             <label>クラブ:</label>
-            <select
+            <ClubSearchSelect
+              clubs={clubOptions}
               value={shopId}
-              onChange={(e) => setShopId(e.target.value)}
-              className="rfa-club-select"
-            >
-              <option value="">選択してください</option>
-              {clubOptions.map((c) => (
-                <option key={c.clubCode} value={c.clubCode}>
-                  {c.clubCode} {c.clubNameShort || c.clubName || ""}
-                </option>
-              ))}
-            </select>
+              onChange={setShopId}
+            />
           </div>
           <div className="rfa-data-badge">
             <Database size={14} />
@@ -1318,6 +1401,28 @@ export default function RefundApplicationPage() {
         .rfa-club-selector { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; font-weight: 600; }
         .rfa-club-select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; font-weight: 600; color: #0f172a; background: #fff; min-width: 200px; }
         .rfa-club-select:focus { outline: none; border-color: #0ea5e9; }
+
+        /* Club search select */
+        .rfa-club-search { position: relative; min-width: 240px; }
+        .rfa-club-search-trigger { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; font-size: 12px; font-weight: 600; color: #0f172a; cursor: pointer; text-align: left; }
+        .rfa-club-search-trigger:hover { border-color: #94a3b8; }
+        .rfa-club-search-placeholder { color: #94a3b8; }
+        .rfa-club-search-caret { color: #94a3b8; font-size: 10px; }
+        .rfa-club-search-dropdown { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 10px 24px rgba(15,23,42,0.12); z-index: 200; overflow: hidden; }
+        .rfa-club-search-input-wrap { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #f1f5f9; color: #94a3b8; }
+        .rfa-club-search-input { flex: 1; border: none; outline: none; font-size: 12px; background: transparent; color: #0f172a; }
+        .rfa-club-search-clear { background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 0 2px; }
+        .rfa-club-search-clear:hover { color: #64748b; }
+        .rfa-club-search-list { max-height: 280px; overflow-y: auto; }
+        .rfa-club-search-empty { padding: 16px 12px; font-size: 12px; color: #94a3b8; text-align: center; }
+        .rfa-club-search-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: none; background: none; cursor: pointer; text-align: left; font-size: 12px; }
+        .rfa-club-search-item:hover { background: #f1f5f9; }
+        .rfa-club-search-item.selected { background: #eff6ff; color: #2563eb; font-weight: 700; }
+        .rfa-club-search-code { font-family: "SF Mono", Menlo, monospace; color: #64748b; min-width: 50px; }
+        .rfa-club-search-item.selected .rfa-club-search-code { color: #2563eb; }
+        .rfa-club-search-name { color: #334155; flex: 1; }
+        .rfa-club-search-item.selected .rfa-club-search-name { color: #2563eb; }
+        .rfa-club-search-footer { font-size: 10px; color: #94a3b8; padding: 6px 12px; background: #f8fafc; border-top: 1px solid #f1f5f9; text-align: right; }
 
         .rfa-container { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
 
