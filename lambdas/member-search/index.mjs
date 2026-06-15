@@ -200,8 +200,8 @@ const REFUNDABLE_SQL = `
   SELECT
     b.会員番号                                 AS MEMBER_NO,
     b.個人SEQ                                  AS KOJIN_SEQ,
-    c.契約者SEQ                                AS KEIYAKUSHA_SEQ,
-    c.契約SEQ                                  AS KEIYAKU_SEQ,
+    a.契約者SEQ                                AS KEIYAKUSHA_SEQ,
+    a.契約SEQ                                  AS KEIYAKU_SEQ,
     c.クラブコード                             AS CLUB_CODE,
     c.会員区分コード                           AS PLAN_CODE,
     k.会員区分名                               AS PLAN_NAME,
