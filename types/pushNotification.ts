@@ -21,18 +21,24 @@ export type PushStats = {
   errorCount: number;     // 配信エラー数（端末未登録など）
 };
 
+// 配信後の時間別開封数 (ダッシュボード用)
+export type PushOpenTimeBucket = {
+  hourOffset: number;  // 送信からの経過時間 (時)
+  opens: number;
+};
+
 export type PushNotification = {
   id: string;
   title: string;
   body: string;
-  imageUrl?: string;
-  
+
   targetType: PushTargetType;
   condition?: PushCondition;
 
   status: PushStatus;
   scheduledAt: string;
   createdAt: string;
-  
-  stats?: PushStats; // ✅ 追加
+
+  stats?: PushStats;
+  openTimeline?: PushOpenTimeBucket[];
 };

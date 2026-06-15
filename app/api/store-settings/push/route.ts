@@ -1,12 +1,28 @@
 // app/api/store-settings/push/route.ts
 
 import { NextResponse } from "next/server";
-import type { PushNotification } from "@/types/pushNotification";
+import type { PushNotification, PushOpenTimeBucket } from "@/types/pushNotification";
+
+// 配信後の時間別開封数のダミー生成 (送信直後にスパイクするカーブ)
+function generateOpenTimeline(openCount: number): PushOpenTimeBucket[] {
+  if (openCount <= 0) return [];
+  // 24 時間分: 0h で最大、徐々に減衰
+  const buckets: PushOpenTimeBucket[] = [];
+  const weights = Array.from({ length: 24 }, (_, h) => Math.exp(-h / 4));
+  const sum = weights.reduce((s, w) => s + w, 0);
+  let remaining = openCount;
+  for (let h = 0; h < 24; h++) {
+    const v = h === 23 ? remaining : Math.round((weights[h] / sum) * openCount);
+    buckets.push({ hourOffset: h, opens: Math.max(0, Math.min(v, remaining)) });
+    remaining -= v;
+  }
+  return buckets;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// ★ MOCK DATA
+// ★ MOCK DATA (画像は push 仕様の都合上扱わない)
 let MOCK_NOTIFICATIONS: PushNotification[] = [
   {
     id: "push_001",
@@ -16,37 +32,25 @@ let MOCK_NOTIFICATIONS: PushNotification[] = [
     status: "SENT",
     scheduledAt: "2023-12-25T10:00:00.000Z",
     createdAt: "2023-12-20T15:30:00.000Z",
-    // ✅ 追加
-    stats: {
-      targetCount: 1250,
-      sentCount: 1245,
-      openCount: 520,  // 開封率約41%
-      errorCount: 5,
-    }
+    stats: { targetCount: 1250, sentCount: 1245, openCount: 520, errorCount: 5 },
+    openTimeline: generateOpenTimeline(520),
   },
   {
     id: "push_002",
     title: "女性会員様限定！ヨガイベント開催",
     body: "来月開催の特別ヨガイベントのご案内です。先着順ですのでお早めに！",
-    imageUrl: "https://placehold.co/600x400/fbcfe8/be185d?text=Yoga+Event",
     targetType: "CONDITION",
     condition: { gender: ["female"], ageFrom: "20", ageTo: "40" },
     status: "SENT",
     scheduledAt: "2024-01-15T09:00:00.000Z",
     createdAt: "2024-01-10T11:00:00.000Z",
-    // ✅ 追加
-    stats: {
-      targetCount: 340,
-      sentCount: 338,
-      openCount: 180, // 開封率約53%
-      errorCount: 2,
-    }
+    stats: { targetCount: 340, sentCount: 338, openCount: 180, errorCount: 2 },
+    openTimeline: generateOpenTimeline(180),
   },
   {
     id: "push_003",
     title: "春の入会キャンペーン実施中",
     body: "今なら入会金0円！お友達紹介でさらに特典も。",
-    imageUrl: "",
     targetType: "ALL",
     status: "SCHEDULED",
     scheduledAt: "2026-04-01T10:00:00.000Z",
@@ -67,22 +71,19 @@ export async function POST(req: Request) {
     const body = await req.json();
     await new Promise((resolve) => setTimeout(resolve, 1000));
 
+    const targetCount = Number(body.targetCount) || 0;
     const newPush: PushNotification = {
       id: `push_${Date.now()}`,
       title: body.title,
       body: body.body,
-      imageUrl: body.imageUrl,
       targetType: body.targetType,
       condition: body.condition,
       status: body.isImmediate ? "SENT" : "SCHEDULED",
       scheduledAt: body.isImmediate ? new Date().toISOString() : body.scheduledAt,
       createdAt: new Date().toISOString(),
-      stats: body.isImmediate ? {
-        targetCount: 100,
-        sentCount: 100,
-        openCount: 0,
-        errorCount: 0
-      } : undefined,
+      stats: body.isImmediate
+        ? { targetCount, sentCount: targetCount, openCount: 0, errorCount: 0 }
+        : undefined,
     };
 
     MOCK_NOTIFICATIONS = [newPush, ...MOCK_NOTIFICATIONS];

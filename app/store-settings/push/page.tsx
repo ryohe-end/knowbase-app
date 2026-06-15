@@ -1,10 +1,11 @@
 // app/store-settings/push/page.tsx
 "use client";
 
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
-import type { PushNotification, PushTargetType, PushCondition } from "@/types/pushNotification";
+import type { PushNotification } from "@/types/pushNotification";
+import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 // --- モックデータ生成 ---
 const generateMockMembers = (count: number) => {
@@ -45,12 +46,11 @@ export default function PushSettingsPage() {
   const [viewMode, setViewMode] = useState<"create" | "detail">("create");
   const [selectedHistory, setSelectedHistory] = useState<PushNotification | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
   // フォームState
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  // 配信前最終確認モーダルの開閉
+  const [confirmOpen, setConfirmOpen] = useState(false);
   
   // 抽出条件
   const [condition, setCondition] = useState({
@@ -101,7 +101,6 @@ export default function PushSettingsPage() {
     setSelectedHistory(n);
     setTitle(n.title);
     setBody(n.body);
-    setImageUrl(n.imageUrl || "");
     setIsModalOpen(true);
   };
 
@@ -128,6 +127,44 @@ export default function PushSettingsPage() {
     setSelectedMemberIds(next);
   };
 
+  // KPI 計算
+  const kpis = useMemo(() => {
+    const sent = notifications.filter((n) => n.status === "SENT" && n.stats);
+    const totalSent = sent.length;
+    const avgOpenRate = sent.length === 0 ? 0
+      : sent.reduce((sum, n) => {
+          const s = n.stats!;
+          return sum + (s.sentCount > 0 ? s.openCount / s.sentCount : 0);
+        }, 0) / sent.length * 100;
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const thisWeek = sent.filter((n) => new Date(n.scheduledAt).getTime() >= weekStart.getTime()).length;
+    const errorRate = sent.length === 0 ? 0
+      : sent.reduce((sum, n) => {
+          const s = n.stats!;
+          return sum + (s.targetCount > 0 ? s.errorCount / s.targetCount : 0);
+        }, 0) / sent.length * 100;
+    return {
+      totalSent,
+      avgOpenRate: Math.round(avgOpenRate * 10) / 10,
+      thisWeek,
+      errorRate: Math.round(errorRate * 10) / 10,
+    };
+  }, [notifications]);
+
+  // 送信予定の人間可読化
+  const scheduledLabel = useMemo(() => {
+    if (isImmediate) return "今すぐ送信";
+    if (!scheduledDate || !scheduledTime) return "未設定";
+    const d = new Date(`${scheduledDate}T${scheduledTime}:00`);
+    return d.toLocaleString("ja-JP", {
+      year: "numeric", month: "long", day: "numeric",
+      weekday: "short", hour: "2-digit", minute: "2-digit",
+    });
+  }, [isImmediate, scheduledDate, scheduledTime]);
+
   const toggleConditionArray = (key: 'gender' | 'membershipStatus', value: string) => {
     setCondition(prev => {
       const current = prev[key];
@@ -136,41 +173,60 @@ export default function PushSettingsPage() {
     });
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setImageUrl(reader.result as string);
-      reader.readAsDataURL(file);
+  // 「配信を確定する」を押したら、まず最終確認モーダルを表示
+  const requestConfirm = () => {
+    if (!title || !body) return alert("タイトルと本文は必須です。");
+    if (selectedMemberIds.size === 0) return alert("配信対象を選択してください。");
+    if (!isImmediate && (!scheduledDate || !scheduledTime)) {
+      return alert("予約配信の場合は送信日時を指定してください。");
     }
+    setConfirmOpen(true);
   };
 
   const handleSubmit = async () => {
-    if (!title || !body) return alert("タイトルと本文は必須です。");
-    if (selectedMemberIds.size === 0) return alert("配信対象を選択してください。");
     setSending(true);
-    setTimeout(() => {
-      alert("配信予約を完了しました。");
+    try {
+      const scheduledAt = isImmediate
+        ? new Date().toISOString()
+        : new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString();
+      const res = await fetch("/api/store-settings/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          body,
+          targetType: "CONDITION",
+          condition,
+          isImmediate,
+          scheduledAt,
+          targetCount: selectedMemberIds.size,
+        }),
+      });
+      if (!res.ok) throw new Error("配信失敗");
+      setConfirmOpen(false);
       setIsModalOpen(false);
-      setSending(false);
       fetchData();
       resetForm();
-    }, 1500);
+      alert(isImmediate ? "配信を完了しました。" : "配信予約を完了しました。");
+    } catch (e: any) {
+      alert(e?.message || "送信エラー");
+    } finally {
+      setSending(false);
+    }
   };
 
   const resetForm = () => {
-    setTitle(""); setBody(""); setImageUrl(""); 
-    setCondition({ 
-      joinDateFrom: "", joinDateTo: "", 
-      leaveDateFrom: "", leaveDateTo: "", 
-      visitCountFrom: "", visitCountTo: "", 
-      gender: ["male", "female"], 
-      membershipStatus: ["stable", "leaver"], 
-      hasUnpaidOnly: false 
+    setTitle(""); setBody("");
+    setCondition({
+      joinDateFrom: "", joinDateTo: "",
+      leaveDateFrom: "", leaveDateTo: "",
+      visitCountFrom: "", visitCountTo: "",
+      gender: ["male", "female"],
+      membershipStatus: ["stable", "leaver"],
+      hasUnpaidOnly: false
     });
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   return (
@@ -199,6 +255,34 @@ export default function PushSettingsPage() {
       </header>
 
       <main className="push-main-content">
+        {/* KPI dashboard */}
+        <section className="push-kpi-section">
+          <div className="push-kpi-tile">
+            <div className="push-kpi-label">総送信数</div>
+            <div className="push-kpi-value">{kpis.totalSent}</div>
+            <div className="push-kpi-sub">SENT 累計</div>
+          </div>
+          <div className="push-kpi-tile">
+            <div className="push-kpi-label">平均開封率</div>
+            <div className="push-kpi-value">
+              {kpis.avgOpenRate}<small>%</small>
+            </div>
+            <div className="push-kpi-sub">配信成功者あたり</div>
+          </div>
+          <div className="push-kpi-tile">
+            <div className="push-kpi-label">今週送信数</div>
+            <div className="push-kpi-value">{kpis.thisWeek}</div>
+            <div className="push-kpi-sub">今週開始以降</div>
+          </div>
+          <div className="push-kpi-tile">
+            <div className="push-kpi-label">エラー率</div>
+            <div className="push-kpi-value">
+              {kpis.errorRate}<small>%</small>
+            </div>
+            <div className="push-kpi-sub">対象比 (端末未登録等)</div>
+          </div>
+        </section>
+
         <section className="push-history-section">
           <div className="push-table-container">
             <table className="push-history-table">
@@ -269,12 +353,9 @@ export default function PushSettingsPage() {
                         placeholder="通知の内容..." 
                       />
                     </div>
-                    {viewMode === 'create' && (
-                      <div className="push-field">
-                        <label>画像添付 (任意)</label>
-                        <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="push-file-input" />
-                      </div>
-                    )}
+                    <div className="push-hint">
+                      ※ PUSH 通知の仕様上、画像添付には別途配信基盤の設定が必要なため、本画面ではテキストのみ取り扱います。
+                    </div>
                   </div>
 
                   <div className="push-divider" />
@@ -444,6 +525,32 @@ export default function PushSettingsPage() {
                           <span className="err-val">{selectedHistory?.stats?.errorCount || 0}件</span>
                         </div>
                       </div>
+
+                      {/* 時系列開封チャート */}
+                      {selectedHistory?.openTimeline && selectedHistory.openTimeline.length > 0 && (
+                        <div className="push-chart-card">
+                          <div className="push-chart-title">送信後の時間別開封数</div>
+                          <div className="push-chart-wrap">
+                            <ResponsiveContainer width="100%" height={200}>
+                              <AreaChart data={selectedHistory.openTimeline}>
+                                <defs>
+                                  <linearGradient id="openGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.5} />
+                                    <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0} />
+                                  </linearGradient>
+                                </defs>
+                                <XAxis dataKey="hourOffset" tickFormatter={(h) => `+${h}h`} fontSize={11} />
+                                <YAxis fontSize={11} />
+                                <Tooltip
+                                  formatter={(v: any) => [`${v} 件`, "開封"]}
+                                  labelFormatter={(h) => `送信から ${h} 時間後`}
+                                />
+                                <Area type="monotone" dataKey="opens" stroke="#0ea5e9" fill="url(#openGradient)" strokeWidth={2} />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -471,7 +578,6 @@ export default function PushSettingsPage() {
                         <div className="push-bubble-content">
                           <div className="push-bubble-title">{title || "タイトル"}</div>
                           <div className="push-bubble-body">{body || "ここに通知の本文が表示されます。"}</div>
-                          {imageUrl && <img src={imageUrl} className="push-bubble-img" alt="" />}
                         </div>
                       </div>
 
@@ -486,10 +592,50 @@ export default function PushSettingsPage() {
                 {viewMode === 'create' ? 'キャンセル' : '閉じる'}
               </button>
               {viewMode === 'create' && (
-                <button className="push-modal-submit" onClick={handleSubmit} disabled={selectedMemberIds.size === 0 || !title}>
-                  配信を確定する ({selectedMemberIds.size}件)
+                <button className="push-modal-submit" onClick={requestConfirm} disabled={selectedMemberIds.size === 0 || !title}>
+                  内容を確認する ({selectedMemberIds.size}件)
                 </button>
               )}
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* 配信前最終確認モーダル */}
+      {confirmOpen && (
+        <div className="push-confirm-overlay" onClick={() => setConfirmOpen(false)}>
+          <div className="push-confirm-window" onClick={(e) => e.stopPropagation()}>
+            <header className="push-confirm-header">
+              <h3>配信内容の最終確認</h3>
+              <p>送信したら取り消せません。内容と送信時刻を確認してください。</p>
+            </header>
+            <div className="push-confirm-body">
+              <div className="push-confirm-row">
+                <span className="push-confirm-label">タイトル</span>
+                <span className="push-confirm-val">{title}</span>
+              </div>
+              <div className="push-confirm-row">
+                <span className="push-confirm-label">本文</span>
+                <span className="push-confirm-val multiline">{body}</span>
+              </div>
+              <div className="push-confirm-row">
+                <span className="push-confirm-label">配信対象</span>
+                <span className="push-confirm-val emphasis">{selectedMemberIds.size} 名</span>
+              </div>
+              <div className="push-confirm-row">
+                <span className="push-confirm-label">送信時刻</span>
+                <span className={`push-confirm-val ${isImmediate ? "emphasis warn" : "emphasis"}`}>
+                  {scheduledLabel}
+                </span>
+              </div>
+            </div>
+            <footer className="push-confirm-footer">
+              <button className="push-modal-cancel" onClick={() => setConfirmOpen(false)} disabled={sending}>
+                戻って修正する
+              </button>
+              <button className="push-modal-submit" onClick={handleSubmit} disabled={sending}>
+                {sending ? "送信中..." : isImmediate ? "今すぐ送信する" : "予約配信を確定する"}
+              </button>
             </footer>
           </div>
         </div>
@@ -498,6 +644,38 @@ export default function PushSettingsPage() {
       <style jsx global>{`
         /* BASE */
         .push-root { background: #f8fafc; min-height: 100vh; font-family: 'Inter', sans-serif; color: #1e293b; }
+
+        /* KPI dashboard */
+        .push-kpi-section { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+        .push-kpi-tile { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+        .push-kpi-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .push-kpi-value { font-size: 28px; font-weight: 800; color: #0f172a; line-height: 1.2; margin: 4px 0; }
+        .push-kpi-value small { font-size: 16px; color: #64748b; margin-left: 2px; }
+        .push-kpi-sub { font-size: 11px; color: #94a3b8; }
+        @media (max-width: 900px) { .push-kpi-section { grid-template-columns: repeat(2, 1fr); } }
+
+        /* Hint chip in form */
+        .push-hint { font-size: 11px; color: #64748b; background: #f1f5f9; padding: 8px 12px; border-radius: 6px; line-height: 1.5; margin-top: 8px; }
+
+        /* Chart card in detail report */
+        .push-chart-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-top: 12px; }
+        .push-chart-title { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 8px; }
+        .push-chart-wrap { width: 100%; }
+
+        /* Confirm modal */
+        .push-confirm-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+        .push-confirm-window { background: #fff; width: 90%; max-width: 520px; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+        .push-confirm-header { padding: 20px 24px 12px; border-bottom: 1px solid #e2e8f0; }
+        .push-confirm-header h3 { font-size: 17px; font-weight: 800; margin: 0 0 4px; color: #0f172a; }
+        .push-confirm-header p { font-size: 12px; color: #64748b; margin: 0; }
+        .push-confirm-body { padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow-y: auto; }
+        .push-confirm-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: start; }
+        .push-confirm-label { font-size: 11px; font-weight: 700; color: #64748b; padding-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .push-confirm-val { font-size: 13px; color: #0f172a; word-break: break-word; }
+        .push-confirm-val.multiline { white-space: pre-wrap; }
+        .push-confirm-val.emphasis { font-weight: 800; font-size: 14px; }
+        .push-confirm-val.warn { color: #b45309; }
+        .push-confirm-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
         
         /* HEADER */
         .push-header { background: #fff; border-bottom: 1px solid #e2e8f0; height: 64px; display: flex; align-items: center; position: sticky; top: 0; z-index: 100; }
