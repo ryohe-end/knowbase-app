@@ -918,9 +918,19 @@ export default function RefundApplicationPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
+                  {memberSearchLoading && <span className="rfa-search-status">検索中...</span>}
                 </div>
+                {memberSearchError && (
+                  <div className="rfa-error">
+                    <AlertCircle size={14} />
+                    <span>検索エラー: {memberSearchError}</span>
+                  </div>
+                )}
                 <div className="rfa-member-list">
-                  {filteredMembers.length === 0 && (
+                  {!searchQuery && (
+                    <div className="rfa-empty">会員番号・氏名・カナ・電話番号で検索してください</div>
+                  )}
+                  {searchQuery && !memberSearchLoading && !memberSearchError && filteredMembers.length === 0 && (
                     <div className="rfa-empty">条件に一致する会員が見つかりません</div>
                   )}
                   {filteredMembers.map((m) => (

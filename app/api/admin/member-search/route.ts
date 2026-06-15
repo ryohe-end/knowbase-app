@@ -96,9 +96,29 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const payload = (await upstream.json()) as { results?: MemberRow[]; count?: number };
-  const masked = (payload.results || []).map(maskRow);
-  const results = await enrichWithClubNames(masked);
+  let payload: { results?: MemberRow[]; count?: number };
+  try {
+    payload = await upstream.json();
+  } catch (e: any) {
+    console.error("upstream json parse failed", e);
+    return NextResponse.json(
+      { ok: false, error: "upstream_invalid_json", detail: e?.message },
+      { status: 502 }
+    );
+  }
+
+  let masked: ReturnType<typeof maskRow>[];
+  let results: any[];
+  try {
+    masked = (payload.results || []).map(maskRow);
+    results = await enrichWithClubNames(masked);
+  } catch (e: any) {
+    console.error("member-search post-process failed", e, "payload sample:", JSON.stringify(payload?.results?.[0] ?? null));
+    return NextResponse.json(
+      { ok: false, error: "post_process_failed", detail: e?.message },
+      { status: 500 }
+    );
+  }
 
   // ④ 監査ログ書き込み (失敗してもレスポンスは返す)
   const session = await readSessionFromReq(req);
