@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Search, Check, X, Database, Clock,
   Receipt, FileText, Calculator, DollarSign, Wallet, Calendar
 } from "lucide-react";
+import type { DepositApplication as ApiDepositApplication } from "@/types/depositApplication";
 
 type DepositApp = {
   id: string;
@@ -32,74 +33,86 @@ type DepositApp = {
   };
 };
 
-const MOCK_APPS: DepositApp[] = [
-  {
-    id: "DP-20260511-001",
-    applicantName: "遠藤 涼平", applicantDept: "旭川アモール 店舗", applicantEmail: "r-endo@okamoto-group.co.jp",
-    memberId: "M0001234", memberName: "山田 太郎",
-    items: [
-      { id: "u1", label: "月会費（2026年3月分）", amount: 7980, targetMonth: "2026-03", category: "月会費", oracleInvoiceId: "INV-202603-001234" },
-      { id: "u2", label: "FIT365あんしんサポート（3月分）", amount: 550, targetMonth: "2026-03", category: "オプション", oracleInvoiceId: "INV-202603-001235" },
-    ],
-    totalAmount: 8530,
-    paymentMethod: "現金",
-    scheduledDate: "2026-05-12",
-    memo: "来店時に現金で受領、領収書発行済",
-    approverName: "後藤 充洋", approvedAt: "2026-05-11 17:30", approverComment: "領収書確認済み",
-    status: "経理処理待ち",
-  },
-  {
-    id: "DP-20260511-002",
-    applicantName: "佐藤 由美", applicantDept: "旭川アモール 店舗", applicantEmail: "y-sato@okamoto-group.co.jp",
-    memberId: "M0004567", memberName: "高橋 美咲",
-    items: [
-      { id: "u5", label: "月会費（2026年2月分）", amount: 1980, targetMonth: "2026-02", category: "月会費", oracleInvoiceId: "INV-202602-004567" },
-      { id: "u6", label: "月会費（2026年3月分）", amount: 1980, targetMonth: "2026-03", category: "月会費", oracleInvoiceId: "INV-202603-004567" },
-      { id: "u8", label: "事務手数料", amount: 3300, targetMonth: "2026-02", category: "事務手数料", oracleInvoiceId: "INV-202602-004568" },
-    ],
-    totalAmount: 7260,
-    paymentMethod: "銀行振込",
-    scheduledDate: "2026-05-15",
-    approverName: "後藤 充洋", approvedAt: "2026-05-11 14:20",
-    status: "経理処理待ち",
-  },
-  {
-    id: "DP-20260411-003",
-    applicantName: "山本 美穂", applicantDept: "旭川アモール 店舗", applicantEmail: "m-yamamoto@okamoto-group.co.jp",
-    memberId: "M0008912", memberName: "松本 拓海",
-    items: [
-      { id: "h1", label: "月会費（2026年4月分）", amount: 7980, targetMonth: "2026-04", category: "月会費", oracleInvoiceId: "INV-202604-008912" },
-      { id: "h2", label: "FIT365あんしんサポート", amount: 1100, targetMonth: "2026-04", category: "オプション", oracleInvoiceId: "INV-202604-008913" },
-    ],
-    totalAmount: 9080,
-    paymentMethod: "現金",
-    scheduledDate: "2026-04-11",
-    approverName: "後藤 充洋", approvedAt: "2026-04-11 14:20",
-    status: "消込完了",
-    closing: {
-      closedAt: "2026-04-11 18:15",
-      receiptDate: "2026-04-11",
-      oracleBatchId: "BATCH-20260411-001",
-      operator: "経理部 担当",
-      note: "Oracle 消込完了",
-    },
-  },
-];
 
 const STATUS_COLOR: Record<DepositApp["status"], string> = {
   経理処理待ち: "#8b5cf6", 消込完了: "#10b981", 差戻し: "#ef4444",
 };
 
+// API → 画面用 status マッピング
+function deriveStatus(a: ApiDepositApplication): DepositApp["status"] {
+  if (a.status === "受付中") return "経理処理待ち";
+  if (a.status === "消込完了") return "消込完了";
+  if (a.status === "差戻し") return "差戻し";
+  return "経理処理待ち";
+}
+
+function apiToLocal(a: ApiDepositApplication): DepositApp {
+  const applicantStep = a.steps?.find((s) => s.role === "applicant");
+  return {
+    id: a.applicationId,
+    applicantName: a.createdByName || "—",
+    applicantDept: applicantStep?.dept || "—",
+    applicantEmail: applicantStep?.email || "",
+    memberId: a.memberNo,
+    memberName: a.memberName,
+    items: (a.unpaidItems ?? []).map((it) => ({
+      id: it.id,
+      label: it.label,
+      amount: it.amount,
+      targetMonth: it.targetMonth ?? "",
+      category: it.category ?? "その他",
+      oracleInvoiceId: it.oracleInvoiceId ?? "",
+    })),
+    totalAmount: a.totalAmount,
+    paymentMethod: a.paymentMethod,
+    scheduledDate: a.scheduledDate,
+    memo: a.memo,
+    approverName: "—",
+    approvedAt: applicantStep?.actedAt || (a.createdAt ?? "").slice(0, 16).replace("T", " "),
+    approverComment: applicantStep?.comment,
+    status: deriveStatus(a),
+    closing: a.closing,
+  };
+}
+
 export default function DepositFinancePage() {
   const today = new Date().toISOString().slice(0, 10);
-  const [apps, setApps] = useState<DepositApp[]>(MOCK_APPS);
+  const [apps, setApps] = useState<DepositApp[]>([]);
   const [tab, setTab] = useState<"pending" | "done" | "all">("pending");
   const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(MOCK_APPS[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [closeOpen, setCloseOpen] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState("");
+  const [acting, setActing] = useState(false);
   const [form, setForm] = useState({ receiptDate: today, oracleBatchId: "", note: "" });
+
+  const currentYm = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
+  const reload = async () => {
+    try {
+      const url = tab === "pending"
+        ? "/api/store-settings/refund-payment/deposit/applications?queue=finance"
+        : "/api/store-settings/refund-payment/deposit/applications?queue=all";
+      const res = await fetch(url, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      const local = (data.applications as ApiDepositApplication[]).map(apiToLocal);
+      setApps(local);
+      if (!local.find((a) => a.id === selectedId)) {
+        setSelectedId(local[0]?.id ?? null);
+      }
+    } catch (e) {
+      console.error("finance reload failed", e);
+    }
+  };
+  useEffect(() => {
+    reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const filtered = useMemo(() => {
     return apps.filter((a) => {
@@ -128,38 +141,67 @@ export default function DepositFinancePage() {
       pendingCount: pending.length,
       pendingAmount: pending.reduce((s, a) => s + a.totalAmount, 0),
       doneCount: done.length,
-      monthAmount: done.filter((a) => a.closing?.receiptDate?.startsWith("2026-05")).reduce((s, a) => s + a.totalAmount, 0),
+      monthAmount: done.filter((a) => a.closing?.receiptDate?.startsWith(currentYm)).reduce((s, a) => s + a.totalAmount, 0),
     };
-  }, [apps]);
+  }, [apps, currentYm]);
 
   const openClose = (id: string) => {
     const a = apps.find((x) => x.id === id);
+    const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
     setForm({
       receiptDate: a?.scheduledDate ?? today,
-      oracleBatchId: `BATCH-${today.replace(/-/g, "")}-${String(apps.length + 1).padStart(3, "0")}`,
+      oracleBatchId: `BATCH-${today.replace(/-/g, "")}-${rand}`,
       note: "",
     });
     setCloseOpen(id);
   };
 
-  const doClose = () => {
+  const doClose = async () => {
     if (!closeOpen) return;
     if (!form.receiptDate || !form.oracleBatchId) { alert("入金確認日とOracleバッチIDは必須です"); return; }
-    const now = new Date();
-    const stamp = now.toISOString().slice(0, 10) + " " + now.toTimeString().slice(0, 5);
-    setApps((prev) => prev.map((a) => a.id === closeOpen ? {
-      ...a,
-      status: "消込完了",
-      closing: { closedAt: stamp, receiptDate: form.receiptDate, oracleBatchId: form.oracleBatchId, operator: "経理部 担当", note: form.note || undefined },
-    } : a));
-    setCloseOpen(null);
+    setActing(true);
+    try {
+      const res = await fetch(`/api/store-settings/refund-payment/deposit/applications/${encodeURIComponent(closeOpen)}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "close",
+          receiptDate: form.receiptDate,
+          oracleBatchId: form.oracleBatchId,
+          note: form.note || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "消込失敗");
+      await reload();
+      setCloseOpen(null);
+    } catch (e: any) {
+      alert(e?.message || "エラー");
+    } finally {
+      setActing(false);
+    }
   };
 
-  const doReject = () => {
+  const doReject = async () => {
     if (!rejectOpen) return;
     if (!rejectComment.trim()) { alert("差戻し理由を入力してください"); return; }
-    setApps((prev) => prev.map((a) => a.id === rejectOpen ? { ...a, status: "差戻し" } : a));
-    setRejectOpen(null); setRejectComment("");
+    setActing(true);
+    try {
+      const res = await fetch(`/api/store-settings/refund-payment/deposit/applications/${encodeURIComponent(rejectOpen)}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject", comment: rejectComment, failureReason: rejectComment }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "差戻し失敗");
+      await reload();
+      setRejectOpen(null);
+      setRejectComment("");
+    } catch (e: any) {
+      alert(e?.message || "エラー");
+    } finally {
+      setActing(false);
+    }
   };
 
   return (
@@ -173,7 +215,7 @@ export default function DepositFinancePage() {
               <p className="dpf-sub-title">本部 経理部 ／ Oracle 消込担当</p>
             </div>
           </div>
-          <div className="dpf-data-badge"><Database size={14} /><span>Oracle 連携 / 入金消込</span></div>
+          <div className="dpf-data-badge"><Database size={14} /><span>DynamoDB 連携 / Oracle 消込</span></div>
         </div>
       </header>
 
@@ -192,7 +234,7 @@ export default function DepositFinancePage() {
           <div className="dpf-stat" style={{ ["--c" as any]: "#0ea5e9" }}>
             <div className="dpf-stat-label"><DollarSign size={14} /> 今月入金額</div>
             <div className="dpf-stat-num"><small>¥</small>{stats.monthAmount.toLocaleString()}</div>
-            <div className="dpf-stat-sub">2026年5月</div>
+            <div className="dpf-stat-sub">{currentYm.replace("-", "年")}月</div>
           </div>
           <div className="dpf-stat" style={{ ["--c" as any]: "#f59e0b" }}>
             <div className="dpf-stat-label"><Calculator size={14} /> Oracle連携</div>
@@ -288,7 +330,7 @@ export default function DepositFinancePage() {
               </div>
               <div className="dpf-modal-actions">
                 <button className="dpf-btn ghost" onClick={() => setCloseOpen(null)}>キャンセル</button>
-                <button className="dpf-btn primary" onClick={doClose}><Check size={14} /> 消込処理を実行</button>
+                <button className="dpf-btn primary" onClick={doClose} disabled={acting}>{acting ? "処理中..." : <><Check size={14} /> 消込処理を実行</>}</button>
               </div>
             </div>
           </div>
@@ -305,7 +347,7 @@ export default function DepositFinancePage() {
             <textarea className="dpf-modal-input" rows={4} value={rejectComment} onChange={(e) => setRejectComment(e.target.value)} placeholder="差戻し理由（必須）" />
             <div className="dpf-modal-actions">
               <button className="dpf-btn ghost" onClick={() => setRejectOpen(null)}>キャンセル</button>
-              <button className="dpf-btn danger" onClick={doReject}><X size={14} /> 差戻す</button>
+              <button className="dpf-btn danger" onClick={doReject} disabled={acting}>{acting ? "処理中..." : <><X size={14} /> 差戻す</>}</button>
             </div>
           </div>
         </div>

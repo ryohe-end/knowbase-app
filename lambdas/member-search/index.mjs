@@ -241,6 +241,58 @@ const REFUNDABLE_SQL = `
   FETCH FIRST 200 ROWS ONLY
 `;
 
+// --- 入金画面用: 未納項目 (請求はあるが未入金) ---
+// 返金 SQL のフィルタを反転させたもの。口座 (latest_account) は任意。
+const UNPAID_SQL = `
+  WITH latest_account AS (
+    SELECT 契約者SEQ, 銀行支店コード, 預金種目コード, 口座番号, 預金者名,
+           クレジットカードNO, 有効期限, ステータス1, ステータス2, ステータス3
+      FROM (
+        SELECT f.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY 契約者SEQ
+                 ORDER BY データ更新時刻 DESC NULLS LAST
+               ) AS rn
+          FROM FIT_ADMIN.会員契約者口座 f
+      )
+     WHERE rn = 1
+  )
+  SELECT
+    b.会員番号                                 AS MEMBER_NO,
+    b.個人SEQ                                  AS KOJIN_SEQ,
+    a.契約者SEQ                                AS KEIYAKUSHA_SEQ,
+    a.契約SEQ                                  AS KEIYAKU_SEQ,
+    c.クラブコード                             AS CLUB_CODE,
+    c.会員区分コード                           AS PLAN_CODE,
+    k.会員区分名                               AS PLAN_NAME,
+    k.法人フラグ                               AS IS_CORPORATE,
+    a.対応年月                                 AS TARGET_YYYYMM,
+    a.会費分類コード                           AS FEE_CATEGORY_CODE,
+    h.会費分類名                               AS FEE_CATEGORY_NAME,
+    a.月相当額                                 AS MONTHLY_AMOUNT,
+    a.請求額                                   AS BILLED_AMOUNT,
+    a.入金額                                   AS PAID_AMOUNT,
+    a.請求年月日                               AS BILLED_DATE,
+    a.会費支払方式コード                       AS PAYMENT_METHOD_CODE,
+    f.銀行支店コード                           AS BANK_BRANCH_CODE,
+    f.預金種目コード                           AS DEPOSIT_TYPE_CODE,
+    TRIM(f.口座番号)                           AS ACCOUNT_NUMBER,
+    TRIM(f.預金者名)                           AS HOLDER_NAME
+  FROM FIT_ADMIN.会員入金歴 a
+  INNER JOIN FIT_ADMIN.会員番号 b       ON a.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN.会員契約 c       ON a.契約SEQ   = c.契約SEQ
+  LEFT  JOIN FIT_ADMIN.会員区分 k       ON c.会員区分コード = k.会員区分コード
+  LEFT  JOIN FIT_ADMIN.会費分類 h       ON a.会費分類コード = h.会費分類コード
+  LEFT  JOIN latest_account f           ON a.契約者SEQ = f.契約者SEQ
+  WHERE b.会員番号 = :memberNo
+    AND c.クラブコード = :clubCode
+    AND a.対応年月 BETWEEN :fromMonth AND :toMonth
+    AND a.入金額 = 0
+    AND a.請求額 > 0
+  ORDER BY a.対応年月 ASC, a.会費分類コード
+  FETCH FIRST 200 ROWS ONLY
+`;
+
 // --- 入力正規化 --------------------------------------------------------------
 function normalize(type, q) {
   if (q == null) return q;
@@ -292,6 +344,40 @@ export const handler = async (event) => {
       return resp(200, { results: buildRefundableResult(rows) });
     } catch (err) {
       console.error("refundable error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // 入金画面用: 未納項目を 1ショットで返す
+  if (type === "unpaid") {
+    const memberNo = (params.memberNo || "").trim();
+    const clubCode = (params.clubCode || "").trim();
+    if (!memberNo || !clubCode) {
+      return resp(400, { error: "missing_params", required: ["memberNo", "clubCode"] });
+    }
+    // デフォルト期間: 直近 24 ヶ月 (未納はそれ以上遡るケースもあるが上限としては妥当)
+    const now = new Date();
+    const defaultTo = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const fromDate = new Date(now);
+    fromDate.setMonth(fromDate.getMonth() - 24);
+    const defaultFrom = `${fromDate.getFullYear()}${String(fromDate.getMonth() + 1).padStart(2, "0")}`;
+    const fromMonth = (params.fromMonth || defaultFrom).trim();
+    const toMonth = (params.toMonth || defaultTo).trim();
+
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const result = await conn.execute(
+        UNPAID_SQL,
+        { memberNo, clubCode, fromMonth: Number(fromMonth), toMonth: Number(toMonth) },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      return resp(200, { results: buildUnpaidResult(result.rows || []) });
+    } catch (err) {
+      console.error("unpaid error", err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }
@@ -434,6 +520,64 @@ function buildRefundableResult(rows) {
   });
 
   return { member, account, items };
+}
+
+// --- 入金画面用: SQL 結果を {member, items} に整形 (口座は不要) ---
+function buildUnpaidResult(rows) {
+  if (rows.length === 0) {
+    return { member: null, items: [] };
+  }
+  const first = rows[0];
+
+  const member = {
+    memberNo: first.MEMBER_NO != null ? String(first.MEMBER_NO) : null,
+    kojinSeq: first.KOJIN_SEQ != null ? String(first.KOJIN_SEQ) : null,
+    name: null,
+    kana: first.HOLDER_NAME != null ? String(first.HOLDER_NAME) : null,
+    phone: null,
+    plan: first.PLAN_NAME ?? null,
+    planCode: first.PLAN_CODE ?? null,
+    isCorporate: first.IS_CORPORATE === 1 || first.IS_CORPORATE === "1",
+    joinClubCode: first.CLUB_CODE != null ? String(first.CLUB_CODE) : null,
+  };
+
+  const today = new Date();
+  const items = rows.map((r) => {
+    const ymRaw = r.TARGET_YYYYMM != null ? String(r.TARGET_YYYYMM) : "";
+    const targetMonth = ymRaw.length === 6
+      ? `${ymRaw.slice(0, 4)}-${ymRaw.slice(4, 6)}`
+      : ymRaw;
+    const billedRaw = r.BILLED_DATE != null ? String(r.BILLED_DATE) : "";
+    // 請求年月日 (YYYYMMDD) → "YYYY-MM-DD"
+    const dueDate = billedRaw.length === 8
+      ? `${billedRaw.slice(0, 4)}-${billedRaw.slice(4, 6)}-${billedRaw.slice(6, 8)}`
+      : null;
+    // 経過日数 (請求日からの日数 — 厳密な支払期限ではないが目安)
+    let overdueDays = null;
+    if (dueDate) {
+      const d = new Date(dueDate);
+      if (!Number.isNaN(d.getTime())) {
+        overdueDays = Math.max(0, Math.floor((today.getTime() - d.getTime()) / 86400000));
+      }
+    }
+    const yyyy = ymRaw.slice(0, 4);
+    const mm = ymRaw.slice(4, 6);
+    const categoryName = r.FEE_CATEGORY_NAME ?? "その他";
+    return {
+      id: `${r.KEIYAKU_SEQ}-${ymRaw}-${r.FEE_CATEGORY_CODE}`,
+      label: `${categoryName} (${yyyy}年${mm}月分)`,
+      amount: Number(r.BILLED_AMOUNT) || 0,
+      targetMonth,
+      dueDate,
+      overdueDays,
+      category: categoryName,
+      categoryCode: r.FEE_CATEGORY_CODE ?? null,
+      contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+      oracleInvoiceId: `INV-${ymRaw}-${r.KOJIN_SEQ}-${r.FEE_CATEGORY_CODE}`,
+    };
+  });
+
+  return { member, items };
 }
 
 function rowToCamel(r) {

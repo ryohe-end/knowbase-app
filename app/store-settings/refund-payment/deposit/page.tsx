@@ -1,11 +1,16 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, ArrowRight, Check, Search, User, Wallet, ClipboardCheck,
   X, AlertCircle, FileText, Database, AlertTriangle
 } from "lucide-react";
+import type {
+  DepositApplication as ApiDepositApplication,
+  UnpaidItem as ApiUnpaidItem,
+  PaymentMethod,
+} from "@/types/depositApplication";
 
 type Member = {
   memberId: string;
@@ -22,10 +27,10 @@ type UnpaidItem = {
   amount: number;
   dueDate: string;
   overdueDays: number;
-  category: "月会費" | "オプション" | "事務手数料" | "違約金";
+  category: string;
 };
 
-type DepositApplication = {
+type DepositRow = {
   id: string;
   memberId: string;
   memberName: string;
@@ -33,82 +38,29 @@ type DepositApplication = {
   itemCount: number;
   paymentMethod: string;
   scheduledDate: string;
-  status: "登録済み" | "保留" | "差戻し";
+  status: ApiDepositApplication["status"];
   createdAt: string;
 };
 
-const MOCK_MEMBERS: Member[] = [
-  { memberId: "M0001234", name: "山田 太郎", kana: "ヤマダ タロウ", phone: "090-1234-5678", plan: "プレミアム" },
-  { memberId: "M0002345", name: "佐藤 花子", kana: "サトウ ハナコ", phone: "080-9876-5432", plan: "スタンダード" },
-  { memberId: "M0003456", name: "鈴木 一郎", kana: "スズキ イチロウ", phone: "070-1111-2222", plan: "プレミアム" },
-  { memberId: "M0004567", name: "高橋 美咲", kana: "タカハシ ミサキ", phone: "090-3333-4444", plan: "1980円会員" },
-  { memberId: "M0005678", name: "田中 健太", kana: "タナカ ケンタ", phone: "080-5555-6666", plan: "法人個人A" },
-];
+type ClubOption = { clubCode: string; clubName?: string; clubNameShort?: string };
 
-const MOCK_UNPAID: Record<string, UnpaidItem[]> = {
-  M0001234: [
-    { id: "u1", label: "月会費（2026年3月分）", targetMonth: "2026-03", amount: 7980, dueDate: "2026-03-27", overdueDays: 45, category: "月会費" },
-    { id: "u2", label: "FIT365あんしんサポート（3月分）", targetMonth: "2026-03", amount: 550, dueDate: "2026-03-27", overdueDays: 45, category: "オプション" },
-    { id: "u3", label: "月会費（2026年4月分）", targetMonth: "2026-04", amount: 7980, dueDate: "2026-04-27", overdueDays: 15, category: "月会費" },
-  ],
-  M0002345: [],
-  M0003456: [
-    { id: "u4", label: "月会費（2026年4月分）", targetMonth: "2026-04", amount: 7980, dueDate: "2026-04-27", overdueDays: 15, category: "月会費" },
-  ],
-  M0004567: [
-    { id: "u5", label: "月会費（2026年2月分）", targetMonth: "2026-02", amount: 1980, dueDate: "2026-02-27", overdueDays: 74, category: "月会費" },
-    { id: "u6", label: "月会費（2026年3月分）", targetMonth: "2026-03", amount: 1980, dueDate: "2026-03-27", overdueDays: 45, category: "月会費" },
-    { id: "u7", label: "月会費（2026年4月分）", targetMonth: "2026-04", amount: 1980, dueDate: "2026-04-27", overdueDays: 15, category: "月会費" },
-    { id: "u8", label: "事務手数料", targetMonth: "2026-02", amount: 3300, dueDate: "2026-02-27", overdueDays: 74, category: "事務手数料" },
-  ],
-  M0005678: [
-    { id: "u9", label: "違約金（中途解約）", targetMonth: "2026-04", amount: 5500, dueDate: "2026-04-30", overdueDays: 12, category: "違約金" },
-  ],
-};
-
-const MOCK_HISTORY: DepositApplication[] = [
-  {
-    id: "DP-20260411-001",
-    memberId: "M0008912",
-    memberName: "松本 拓海",
-    totalAmount: 9080,
-    itemCount: 2,
-    paymentMethod: "現金",
-    scheduledDate: "2026-04-11",
-    status: "登録済み",
-    createdAt: "2026-04-11",
-  },
-  {
-    id: "DP-20260409-002",
-    memberId: "M0001234",
-    memberName: "山田 太郎",
-    totalAmount: 7980,
-    itemCount: 1,
-    paymentMethod: "銀行振込",
-    scheduledDate: "2026-04-15",
-    status: "保留",
-    createdAt: "2026-04-09",
-  },
-  {
-    id: "DP-20260403-003",
-    memberId: "M0006543",
-    memberName: "渡辺 結衣",
-    totalAmount: 3300,
-    itemCount: 1,
-    paymentMethod: "クレジット再請求",
-    scheduledDate: "2026-04-20",
-    status: "差戻し",
-    createdAt: "2026-04-03",
-  },
-];
-
-const STATUS_COLOR: Record<DepositApplication["status"], string> = {
-  登録済み: "#10b981",
-  保留: "#f59e0b",
+const STATUS_COLOR: Record<ApiDepositApplication["status"], string> = {
+  下書き: "#94a3b8",
+  受付中: "#f59e0b",
+  消込完了: "#10b981",
   差戻し: "#ef4444",
 };
 
-const PAYMENT_METHODS = ["現金", "銀行振込", "クレジット再請求", "コンビニ収納", "店舗端末（PayPay等）"];
+const PAYMENT_METHODS: PaymentMethod[] = ["現金", "銀行振込", "クレジット再請求", "コンビニ収納", "店舗端末(PayPay等)"];
+
+function useDebounce<T>(value: T, delay = 300): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return v;
+}
 
 const STEPS = [
   { id: 1, label: "会員選択", icon: <User size={16} /> },
@@ -117,34 +69,161 @@ const STEPS = [
 ];
 
 export default function DepositApplicationPage() {
-  const shopName = "旭川アモール";
-  const shopId = "000121";
+  // クラブセレクタ
+  const [clubOptions, setClubOptions] = useState<ClubOption[]>([]);
+  const [shopId, setShopId] = useState<string>("");
+  const shopName = useMemo(() => {
+    const c = clubOptions.find((x) => x.clubCode === shopId);
+    return c?.clubNameShort || c?.clubName || "";
+  }, [clubOptions, shopId]);
 
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [paymentMethod, setPaymentMethod] = useState(PAYMENT_METHODS[0]);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PAYMENT_METHODS[0]);
   const [scheduledDate, setScheduledDate] = useState("");
   const [memo, setMemo] = useState("");
   const [successOpen, setSuccessOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // 会員検索 (API)
+  const [memberSearchResults, setMemberSearchResults] = useState<Member[]>([]);
+  const [memberSearchLoading, setMemberSearchLoading] = useState(false);
+  const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
+
+  // 未納項目 (API)
+  const [unpaidItemsApi, setUnpaidItemsApi] = useState<UnpaidItem[]>([]);
+  const [unpaidLoading, setUnpaidLoading] = useState(false);
+
+  // 履歴 (API)
+  const [history, setHistory] = useState<DepositRow[]>([]);
 
   // 今日のISO日付（デフォルト/最小値用）
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
-  const filteredMembers = useMemo(() => {
-    if (!searchQuery) return MOCK_MEMBERS;
-    const q = searchQuery.toLowerCase();
-    return MOCK_MEMBERS.filter(
-      (m) =>
-        m.name.toLowerCase().includes(q) ||
-        m.kana.toLowerCase().includes(q) ||
-        m.memberId.toLowerCase().includes(q) ||
-        m.phone.includes(q)
-    );
-  }, [searchQuery]);
+  // 初回ロード
+  useEffect(() => {
+    (async () => {
+      try {
+        const [hRes, cRes] = await Promise.all([
+          fetch("/api/store-settings/refund-payment/deposit/applications?queue=mine", { cache: "no-store" }),
+          fetch("/api/store-settings/refund-payment/clubs", { cache: "no-store" }),
+        ]);
+        const hData = await hRes.json();
+        if (hData.ok && Array.isArray(hData.applications)) {
+          setHistory(hData.applications.map((a: ApiDepositApplication): DepositRow => ({
+            id: a.applicationId,
+            memberId: a.memberNo,
+            memberName: a.memberName,
+            totalAmount: a.totalAmount,
+            itemCount: a.unpaidItems?.length ?? 0,
+            paymentMethod: a.paymentMethod,
+            scheduledDate: a.scheduledDate,
+            status: a.status,
+            createdAt: (a.createdAt ?? "").slice(0, 10),
+          })));
+        }
+        const cData = await cRes.json();
+        if (cData.ok && Array.isArray(cData.clubs)) {
+          setClubOptions(cData.clubs);
+          if (cData.clubs.length === 1) setShopId(cData.clubs[0].clubCode);
+        }
+      } catch (e) {
+        console.error("deposit initial load failed", e);
+      }
+    })();
+  }, []);
 
-  const unpaidItems = selectedMember ? MOCK_UNPAID[selectedMember.memberId] ?? [] : [];
+  // 会員検索: /api/admin/member-search (debounce)
+  const debouncedQuery = useDebounce(searchQuery, 300);
+  useEffect(() => {
+    const q = debouncedQuery.trim();
+    if (!q) {
+      setMemberSearchResults([]);
+      setMemberSearchError(null);
+      return;
+    }
+    const inferType = (val: string): string => {
+      if (/^M\d+$/i.test(val) || /^\d{6,}$/.test(val)) return "member_no";
+      if (/^[\d-]+$/.test(val)) return "phone";
+      if (/^[ァ-ヶー\s]+$/.test(val)) return "name_kana";
+      return "name_kanji";
+    };
+    const ctrl = new AbortController();
+    setMemberSearchLoading(true);
+    setMemberSearchError(null);
+    (async () => {
+      try {
+        const url = `/api/admin/member-search?type=${inferType(q)}&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data?.error || "検索失敗");
+        const rows = Array.isArray(data.results) ? data.results : [];
+        const members: Member[] = rows.map((m: any) => ({
+          memberId: String(m.memberNo ?? m.kojinSeq ?? ""),
+          name: String(m.nameKanji ?? ""),
+          kana: String([m.nameKanaSei, m.nameKanaMei].filter(Boolean).join(" ")),
+          phone: String(m.phone ?? ""),
+          plan: String(m.plan ?? ""),
+        }));
+        setMemberSearchResults(members);
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          setMemberSearchError(e?.message || "検索エラー");
+          setMemberSearchResults([]);
+        }
+      } finally {
+        setMemberSearchLoading(false);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [debouncedQuery]);
+  const filteredMembers = memberSearchResults;
+
+  // 会員選択 → 未納項目取得 (API)
+  useEffect(() => {
+    if (!selectedMember || !shopId) {
+      setUnpaidItemsApi([]);
+      return;
+    }
+    const ctrl = new AbortController();
+    setUnpaidLoading(true);
+    (async () => {
+      try {
+        const url = `/api/store-settings/refund-payment/deposit/unpaid?memberNo=${encodeURIComponent(selectedMember.memberId)}&clubCode=${encodeURIComponent(shopId)}`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        const data = await res.json();
+        if (data.ok) {
+          const items: UnpaidItem[] = (data.items as ApiUnpaidItem[] ?? []).map((it) => ({
+            id: it.id,
+            label: it.label,
+            targetMonth: it.targetMonth ?? "",
+            amount: it.amount,
+            dueDate: it.dueDate ?? "",
+            overdueDays: it.overdueDays ?? 0,
+            category: it.category ?? "その他",
+          }));
+          setUnpaidItemsApi(items);
+          if (data.member?.plan && !selectedMember.plan) {
+            setSelectedMember({ ...selectedMember, plan: data.member.plan });
+          }
+        }
+      } catch (e: any) {
+        if (e?.name !== "AbortError") console.error("unpaid fetch error", e);
+      } finally {
+        setUnpaidLoading(false);
+      }
+    })();
+    return () => ctrl.abort();
+  }, [selectedMember, shopId]);
+
+  // 会員選択変更時は選択項目をクリア
+  useEffect(() => {
+    setSelectedItemIds(new Set());
+  }, [selectedMember?.memberId]);
+
+  const unpaidItems = unpaidItemsApi;
 
   const totalAmount = useMemo(() => {
     return unpaidItems
@@ -153,10 +232,87 @@ export default function DepositApplicationPage() {
   }, [selectedItemIds, unpaidItems]);
 
   const canNext = () => {
+    if (!shopId) return false;
     if (step === 1) return !!selectedMember;
     if (step === 2) return selectedItemIds.size > 0;
     if (step === 3) return !!paymentMethod && !!scheduledDate;
     return false;
+  };
+
+  // 履歴 reload
+  const reloadHistory = async () => {
+    try {
+      const res = await fetch("/api/store-settings/refund-payment/deposit/applications?queue=mine", { cache: "no-store" });
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.applications)) {
+        setHistory(data.applications.map((a: ApiDepositApplication): DepositRow => ({
+          id: a.applicationId,
+          memberId: a.memberNo,
+          memberName: a.memberName,
+          totalAmount: a.totalAmount,
+          itemCount: a.unpaidItems?.length ?? 0,
+          paymentMethod: a.paymentMethod,
+          scheduledDate: a.scheduledDate,
+          status: a.status,
+          createdAt: (a.createdAt ?? "").slice(0, 10),
+        })));
+      }
+    } catch (e) {
+      console.error("history reload failed", e);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!selectedMember || !shopId) return;
+    const items = unpaidItems.filter((it) => selectedItemIds.has(it.id));
+    setSubmitting(true);
+    try {
+      const saveRes = await fetch("/api/store-settings/refund-payment/deposit/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clubCode: shopId,
+          memberNo: selectedMember.memberId,
+          memberName: selectedMember.name,
+          memberKana: selectedMember.kana,
+          memberPhone: selectedMember.phone,
+          memberPlan: selectedMember.plan,
+          unpaidItems: items.map((i) => ({
+            id: i.id,
+            label: i.label,
+            amount: i.amount,
+            targetMonth: i.targetMonth,
+            dueDate: i.dueDate,
+            overdueDays: i.overdueDays,
+            category: i.category,
+          })),
+          paymentMethod,
+          scheduledDate,
+          memo,
+        }),
+      });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok || !saveData.ok) throw new Error(saveData?.error || "保存失敗");
+      const saved: ApiDepositApplication = saveData.application;
+
+      // submit transition
+      const trRes = await fetch(
+        `/api/store-settings/refund-payment/deposit/applications/${encodeURIComponent(saved.applicationId)}/transition`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "submit", comment: "店舗から連絡を受け申請しました" }),
+        }
+      );
+      const trData = await trRes.json();
+      if (!trRes.ok || !trData.ok) throw new Error(trData?.error || "送信失敗");
+      setSuccessOpen(true);
+      reloadHistory().catch((e) => console.error("post-submit reload failed", e));
+    } catch (e: any) {
+      alert(e?.message || "送信エラー");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const reset = () => {
@@ -196,12 +352,27 @@ export default function DepositApplicationPage() {
             </Link>
             <div className="dp-title-group">
               <h1 className="dp-main-title">入金申請（未納金登録）</h1>
-              <p className="dp-sub-title">{shopId} {shopName}</p>
+              <p className="dp-sub-title">{shopId ? `${shopId} ${shopName}` : "クラブ未選択"}</p>
             </div>
+          </div>
+          <div className="dp-club-selector">
+            <label>クラブ:</label>
+            <select
+              value={shopId}
+              onChange={(e) => setShopId(e.target.value)}
+              className="dp-club-select"
+            >
+              <option value="">選択してください</option>
+              {clubOptions.map((c) => (
+                <option key={c.clubCode} value={c.clubCode}>
+                  {c.clubCode} {c.clubNameShort || c.clubName || ""}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="dp-data-badge">
             <Database size={14} />
-            <span>Oracle 連携（モック）</span>
+            <span>DynamoDB 連携</span>
           </div>
         </div>
       </header>
@@ -241,14 +412,22 @@ export default function DepositApplicationPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
+                  {memberSearchLoading && <span className="dp-search-status">検索中...</span>}
                 </div>
+                {memberSearchError && (
+                  <div className="dp-hint" style={{ background: "#fef2f2", color: "#b91c1c", borderColor: "#fecaca" }}>
+                    <AlertCircle size={14} />
+                    <span>検索エラー: {memberSearchError}</span>
+                  </div>
+                )}
                 <div className="dp-member-list">
-                  {filteredMembers.length === 0 && (
+                  {!searchQuery && (
+                    <div className="dp-empty">会員番号・氏名・カナ・電話番号で検索してください</div>
+                  )}
+                  {searchQuery && !memberSearchLoading && filteredMembers.length === 0 && !memberSearchError && (
                     <div className="dp-empty">条件に一致する会員が見つかりません</div>
                   )}
                   {filteredMembers.map((m) => {
-                    const unpaidCount = (MOCK_UNPAID[m.memberId] ?? []).length;
-                    const unpaidTotal = (MOCK_UNPAID[m.memberId] ?? []).reduce((s, i) => s + i.amount, 0);
                     return (
                       <button
                         key={m.memberId}
@@ -261,16 +440,7 @@ export default function DepositApplicationPage() {
                           <div className="dp-member-kana">{m.kana}</div>
                         </div>
                         <div className="dp-member-plan">{m.plan}</div>
-                        <div className="dp-member-unpaid">
-                          {unpaidCount > 0 ? (
-                            <>
-                              <AlertTriangle size={12} />
-                              <span>未納 {unpaidCount}件 / ¥{unpaidTotal.toLocaleString()}</span>
-                            </>
-                          ) : (
-                            <span className="dp-no-unpaid">未納なし</span>
-                          )}
-                        </div>
+                        <div className="dp-member-phone">{m.phone}</div>
                         <div className="dp-member-radio">
                           {selectedMember?.memberId === m.memberId ? <Check size={16} /> : null}
                         </div>
@@ -296,7 +466,12 @@ export default function DepositApplicationPage() {
                   )}
                 </div>
 
-                {unpaidItems.length === 0 ? (
+                {unpaidLoading ? (
+                  <div className="dp-empty-state">
+                    <div className="dp-empty-icon">⏳</div>
+                    <h3>未納項目を取得中...</h3>
+                  </div>
+                ) : unpaidItems.length === 0 ? (
                   <div className="dp-empty-state">
                     <div className="dp-empty-icon">🎉</div>
                     <h3>未納はありません</h3>
@@ -481,10 +656,10 @@ export default function DepositApplicationPage() {
               {step === 3 && (
                 <button
                   className="dp-btn primary"
-                  disabled={!canNext()}
-                  onClick={() => setSuccessOpen(true)}
+                  disabled={!canNext() || submitting}
+                  onClick={handleSubmit}
                 >
-                  入金を登録する <Check size={16} />
+                  {submitting ? "送信中..." : "入金を登録する"} <Check size={16} />
                 </button>
               )}
             </div>
@@ -507,7 +682,7 @@ export default function DepositApplicationPage() {
                 <span>ステータス</span>
                 <span>登録日</span>
               </div>
-              {MOCK_HISTORY.map((h) => (
+              {history.slice(0, 3).map((h) => (
                 <div className="dp-history-tr" key={h.id}>
                   <span className="mono">{h.id}</span>
                   <span>
@@ -539,7 +714,7 @@ export default function DepositApplicationPage() {
               <X size={18} />
             </button>
             <div className="dp-modal-icon"><Check size={32} /></div>
-            <h3>入金を登録しました（モック）</h3>
+            <h3>入金を登録しました</h3>
             <p>Oracle 側の入金テーブルへ反映されます。</p>
             <button className="dp-btn primary" onClick={() => { setSuccessOpen(false); reset(); }}>
               続けて登録
@@ -559,6 +734,10 @@ export default function DepositApplicationPage() {
         .dp-main-title { font-size: 18px; font-weight: 800; margin: 0; color: #1e293b; }
         .dp-sub-title { font-size: 13px; color: #64748b; font-weight: 600; margin: 0; }
         .dp-data-badge { display: flex; align-items: center; gap: 6px; background: #ecfdf5; color: #047857; padding: 6px 12px; border-radius: 20px; border: 1px solid #a7f3d0; font-size: 11px; font-weight: 700; }
+        .dp-club-selector { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #475569; font-weight: 600; }
+        .dp-club-select { padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; font-weight: 600; color: #0f172a; background: #fff; min-width: 200px; }
+        .dp-club-select:focus { outline: none; border-color: #10b981; }
+        .dp-search-status { font-size: 11px; color: #94a3b8; font-weight: 600; margin-left: 8px; }
 
         .dp-container { max-width: 1100px; margin: 0 auto; padding: 32px 24px 64px; }
 

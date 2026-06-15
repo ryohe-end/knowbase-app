@@ -50,12 +50,7 @@ export default function RefundPaymentTopPage() {
           icon: <ClipboardCheck size={26} />,
           bullets: ["承認待ち申請の一覧", "詳細確認 / 承認・差戻し", "差戻しコメント入力"],
         },
-        {
-          title: "入金 承認",
-          href: "/store-settings/refund-payment/deposit/approver",
-          icon: <ClipboardCheck size={26} />,
-          bullets: ["入金登録の一覧", "金額・予定日の確認", "承認・差戻し"],
-        },
+        // 入金は承認ステップ不要 (店舗→経理) のためここには出さない
       ],
     },
     {
