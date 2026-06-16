@@ -611,6 +611,7 @@ export default function RefundApplicationPage() {
   }, [selectedMember?.memberId]);
 
   // 会員が選択されたら member-detail (Oracle 経由) で口座+項目+プランを取得
+  // Step 1 で選んだ対象期間を fromMonth/toMonth (YYYYMM) で渡して Oracle 側を絞る
   useEffect(() => {
     if (!selectedMember || !shopId) {
       setApiRefundableItems([]);
@@ -619,9 +620,13 @@ export default function RefundApplicationPage() {
     const ctrl = new AbortController();
     (async () => {
       try {
-        const url =
+        const fromMonth = targetMonthFrom ? targetMonthFrom.replace("-", "") : "";
+        const toMonth = targetMonthTo ? targetMonthTo.replace("-", "") : "";
+        let url =
           `/api/store-settings/refund-payment/member-detail?memberNo=${encodeURIComponent(selectedMember.memberId)}` +
           `&clubCode=${encodeURIComponent(shopId)}`;
+        if (fromMonth) url += `&fromMonth=${fromMonth}`;
+        if (toMonth) url += `&toMonth=${toMonth}`;
         const res = await fetch(url, { signal: ctrl.signal });
         const data = await res.json();
         if (data.ok) {
@@ -640,7 +645,7 @@ export default function RefundApplicationPage() {
       }
     })();
     return () => ctrl.abort();
-  }, [selectedMember, shopId]);
+  }, [selectedMember, shopId, targetMonthFrom, targetMonthTo]);
 
   const refundableItems = useMemo(() => {
     return apiRefundableItems.filter((it) => {
