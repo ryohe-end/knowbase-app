@@ -20,7 +20,12 @@ type PointTransaction = {
   reference?: string;
   note?: string;
   operatorName?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
 };
+
+const POINT_REASONS = ["歩数", "イベント", "パーソナルトレーニング", "ボーナス", "その他"] as const;
+type PointReason = typeof POINT_REASONS[number];
 
 type MemberPointInfo = {
   memberCode: string;
@@ -118,6 +123,18 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
   const [isDemo, setIsDemo] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"all" | PointTxType>("all");
 
+  // 付与モーダル
+  const [grantOpen, setGrantOpen] = useState(false);
+  const [grantPoints, setGrantPoints] = useState("");
+  const [grantReason, setGrantReason] = useState<PointReason>("歩数");
+  const [grantNote, setGrantNote] = useState("");
+  const [granting, setGranting] = useState(false);
+
+  // 取消モーダル
+  const [cancelTarget, setCancelTarget] = useState<PointTransaction | null>(null);
+  const [cancelNote, setCancelNote] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+
   const doSearch = useCallback(
     async (code: string, demo: boolean) => {
       const trimmed = code.trim();
@@ -156,6 +173,72 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
     if (typeFilter === "all") return member.transactions;
     return member.transactions.filter((t) => t.type === typeFilter);
   }, [member, typeFilter]);
+
+  // 付与実行
+  const doGrant = async () => {
+    if (!member) return;
+    const pts = Number(grantPoints.replace(/[^\d]/g, ""));
+    if (!Number.isFinite(pts) || pts <= 0) {
+      showToast("ポイントを正の整数で入力してください。", "error");
+      return;
+    }
+    setGranting(true);
+    try {
+      const res = await fetch("/api/store-settings/points/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "grant",
+          clubCode,
+          memberCode: member.memberCode,
+          points: pts,
+          reason: grantReason,
+          note: grantNote || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "付与失敗");
+      showToast(`${pts}pt を付与しました。`, "success");
+      setGrantOpen(false);
+      setGrantPoints("");
+      setGrantNote("");
+      // 再取得
+      await doSearch(member.memberCode, isDemo);
+    } catch (e: any) {
+      showToast(e?.message || "付与に失敗しました。", "error");
+    } finally {
+      setGranting(false);
+    }
+  };
+
+  // 取り消し実行
+  const doCancel = async () => {
+    if (!member || !cancelTarget) return;
+    setCancelling(true);
+    try {
+      const res = await fetch("/api/store-settings/points/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "cancel",
+          clubCode,
+          memberCode: member.memberCode,
+          sourceTransactionId: cancelTarget.id,
+          note: cancelNote || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取り消し失敗");
+      showToast(`${formatPoints(cancelTarget.points)} を取り消しました。`, "success");
+      setCancelTarget(null);
+      setCancelNote("");
+      await doSearch(member.memberCode, isDemo);
+    } catch (e: any) {
+      showToast(e?.message || "取り消しに失敗しました。", "error");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <>
@@ -251,6 +334,13 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
               <div className="pt-balance-big">
                 <span className="pt-balance-label">現在残高</span>
                 <span className="pt-balance-value">{formatBalance(member.currentBalance)}</span>
+                <button
+                  type="button"
+                  className="pt-grant-btn"
+                  onClick={() => setGrantOpen(true)}
+                >
+                  + ポイント付与
+                </button>
               </div>
             </div>
 
@@ -333,14 +423,17 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                       <th style={{ textAlign: "right" }}>変動</th>
                       <th style={{ textAlign: "right" }}>残高</th>
                       <th>取得元</th>
-                      <th>参照ID</th>
                       <th>担当</th>
                       <th>備考</th>
+                      <th style={{ width: 100 }}>操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredTx.map((t) => (
-                      <tr key={t.id}>
+                    {filteredTx.map((t) => {
+                      const isCancellable = t.type === "earned" && !t.cancelledBy;
+                      const isCancelled = !!t.cancelledBy;
+                      return (
+                      <tr key={t.id} className={isCancelled ? "is-cancelled" : ""}>
                         <td className="pt-date-cell">{formatDateTime(t.occurredAt)}</td>
                         <td>
                           <span
@@ -349,25 +442,131 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                           >
                             {TX_META[t.type].label}
                           </span>
+                          {isCancelled && <span className="pt-cancelled-chip">取消済</span>}
                         </td>
                         <td className={`pt-pts-cell ${t.points >= 0 ? "pos" : "neg"}`}>
                           {formatPoints(t.points)}
                         </td>
                         <td className="pt-bal-cell">{formatBalance(t.balanceAfter)}</td>
                         <td className="pt-src-cell">{t.source}</td>
-                        <td>
-                          {t.reference ? <code className="pt-ref">{t.reference}</code> : <span className="pt-na">—</span>}
-                        </td>
                         <td className="pt-op-cell">{t.operatorName ?? <span className="pt-na">—</span>}</td>
                         <td className="pt-note-cell">{t.note ?? <span className="pt-na">—</span>}</td>
+                        <td>
+                          {isCancellable ? (
+                            <button className="pt-cancel-btn" onClick={() => setCancelTarget(t)}>
+                              取消
+                            </button>
+                          ) : (
+                            <span className="pt-na">—</span>
+                          )}
+                        </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
           </section>
         </>
+      )}
+
+      {/* 付与モーダル */}
+      {grantOpen && member && (
+        <div className="pt-modal-overlay" onClick={() => !granting && setGrantOpen(false)}>
+          <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pt-modal-header">
+              <h3>ポイントを付与</h3>
+              <p>{member.memberName} 様 ({member.memberCode}) に付与します。</p>
+            </header>
+            <div className="pt-modal-body">
+              <div className="pt-field">
+                <label>付与理由 <span style={{ color: "#ef4444" }}>*</span></label>
+                <select
+                  className="pt-input"
+                  value={grantReason}
+                  onChange={(e) => setGrantReason(e.target.value as PointReason)}
+                >
+                  {POINT_REASONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="pt-field">
+                <label>付与ポイント <span style={{ color: "#ef4444" }}>*</span></label>
+                <div className="pt-amount-row">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="pt-input pt-amount-input"
+                    value={grantPoints}
+                    onChange={(e) => setGrantPoints(e.target.value)}
+                    placeholder="例) 500"
+                  />
+                  <span className="pt-amount-unit">pt</span>
+                </div>
+              </div>
+              <div className="pt-field">
+                <label>備考（任意）</label>
+                <textarea
+                  className="pt-input pt-textarea"
+                  rows={3}
+                  value={grantNote}
+                  onChange={(e) => setGrantNote(e.target.value)}
+                  placeholder="例) 月間目標達成 / イベント参加賞 など"
+                />
+              </div>
+            </div>
+            <footer className="pt-modal-footer">
+              <button className="pt-modal-cancel" onClick={() => setGrantOpen(false)} disabled={granting}>
+                キャンセル
+              </button>
+              <button className="pt-modal-submit" onClick={doGrant} disabled={granting || !grantPoints}>
+                {granting ? "送信中..." : "付与する"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {/* 取消モーダル */}
+      {cancelTarget && member && (
+        <div className="pt-modal-overlay" onClick={() => !cancelling && setCancelTarget(null)}>
+          <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pt-modal-header">
+              <h3>ポイント付与を取り消す</h3>
+              <p>取り消すと残高は減算されます。元には戻せません。</p>
+            </header>
+            <div className="pt-modal-body">
+              <div className="pt-confirm-row">
+                <span>対象</span>
+                <span>{formatDateTime(cancelTarget.occurredAt)} / {cancelTarget.source}</span>
+              </div>
+              <div className="pt-confirm-row">
+                <span>付与ポイント</span>
+                <span style={{ fontWeight: 800, color: "#047857" }}>{formatPoints(cancelTarget.points)}</span>
+              </div>
+              <div className="pt-field">
+                <label>取消理由（任意）</label>
+                <textarea
+                  className="pt-input pt-textarea"
+                  rows={3}
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value)}
+                  placeholder="例) 入力誤り / 重複付与"
+                />
+              </div>
+            </div>
+            <footer className="pt-modal-footer">
+              <button className="pt-modal-cancel" onClick={() => setCancelTarget(null)} disabled={cancelling}>
+                戻る
+              </button>
+              <button className="pt-modal-submit pt-modal-danger" onClick={doCancel} disabled={cancelling}>
+                {cancelling ? "送信中..." : "取り消す"}
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
     </>
   );
@@ -798,6 +997,39 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .pt-member-status.status-dormant { background: #fef3c7; color: #b45309; }
         .pt-member-status.status-withdrawn { background: #fee2e2; color: #dc2626; }
         .pt-balance-big { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+        .pt-grant-btn { margin-top: 8px; padding: 8px 16px; border-radius: 8px; border: none; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.15s; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3); }
+        .pt-grant-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }
+        .pt-cancel-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid #fecaca; background: #fff; color: #b91c1c; font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.15s; }
+        .pt-cancel-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+        .pt-cancelled-chip { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #e2e8f0; color: #64748b; font-size: 10px; font-weight: 700; }
+        .pt-table tr.is-cancelled { opacity: 0.55; text-decoration: line-through; }
+        .pt-table tr.is-cancelled .pt-cancelled-chip { text-decoration: none; }
+
+        /* 付与/取消モーダル */
+        .pt-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+        .pt-modal { background: #fff; width: 90%; max-width: 480px; border-radius: 14px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+        .pt-modal-header { padding: 20px 24px 12px; border-bottom: 1px solid #e2e8f0; }
+        .pt-modal-header h3 { font-size: 16px; font-weight: 800; margin: 0 0 4px; color: #0f172a; }
+        .pt-modal-header p { font-size: 12px; color: #64748b; margin: 0; }
+        .pt-modal-body { padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto; }
+        .pt-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 20px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+        .pt-modal-cancel { background: #fff; color: #475569; border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px; }
+        .pt-modal-cancel:hover:not(:disabled) { background: #f1f5f9; }
+        .pt-modal-submit { background: #047857; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 12px; }
+        .pt-modal-submit:hover:not(:disabled) { background: #065f46; }
+        .pt-modal-submit.pt-modal-danger { background: #b91c1c; }
+        .pt-modal-submit.pt-modal-danger:hover:not(:disabled) { background: #991b1b; }
+        .pt-modal-submit:disabled, .pt-modal-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+        .pt-field { display: flex; flex-direction: column; gap: 6px; }
+        .pt-field label { font-size: 11px; font-weight: 700; color: #475569; }
+        .pt-input { padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; background: #fff; color: #0f172a; outline: none; font-family: inherit; }
+        .pt-input:focus { border-color: #047857; }
+        .pt-textarea { resize: vertical; }
+        .pt-amount-row { display: flex; align-items: center; gap: 8px; }
+        .pt-amount-input { flex: 1; font-size: 18px; font-weight: 700; text-align: right; }
+        .pt-amount-unit { font-size: 14px; font-weight: 800; color: #047857; }
+        .pt-confirm-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed #e2e8f0; }
+        .pt-confirm-row span:first-child { color: #64748b; font-size: 11px; font-weight: 700; }
         .pt-balance-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
         .pt-balance-value { font-size: 32px; font-weight: 800; color: #047857; font-variant-numeric: tabular-nums; line-height: 1; }
 

@@ -1,8 +1,42 @@
 // app/api/store-settings/points/member/route.ts
 import { NextResponse } from "next/server";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import type { PointTransaction as PersistedTx } from "@/types/pointTransaction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const REGION = process.env.AWS_REGION || "us-east-1";
+const PT_TABLE = process.env.DYNAMO_POINT_TRANSACTIONS_TABLE || "yamauchi-PointTransactions";
+const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: REGION }),
+  { marshallOptions: { removeUndefinedValues: true } }
+);
+
+// DDB の PointTransaction を画面用 PointTransaction 形式に変換
+function persistedToView(t: PersistedTx, balanceAfter: number) {
+  const labelMap: Record<string, string> = {
+    earned: "ポイント付与",
+    adjusted: t.cancelledOf ? "ポイント取り消し" : "ポイント調整",
+    used: "ポイント利用",
+    expired: "ポイント失効",
+    refunded: "ポイント返還",
+  };
+  return {
+    id: t.transactionId,
+    occurredAt: t.occurredAt,
+    type: t.type,
+    points: t.points,
+    balanceAfter,
+    source: t.reason ?? labelMap[t.type] ?? "—",
+    reference: t.cancelledOf,
+    note: t.note,
+    operatorName: t.operatorName,
+    cancelledBy: t.cancelledBy,
+    cancelledAt: t.cancelledAt,
+  };
+}
 
 export type PointTxType = "earned" | "used" | "expired" | "adjusted" | "refunded";
 
@@ -16,6 +50,8 @@ export type PointTransaction = {
   reference?: string;
   note?: string;
   operatorName?: string;
+  cancelledBy?: string;  // 取り消されている場合の対応 transactionId
+  cancelledAt?: string;
 };
 
 export type MemberPointInfo = {
@@ -133,6 +169,63 @@ function generateDemoMember(clubCode: string, memberCode: string): MemberPointIn
   };
 }
 
+// DDB に保存された付与/取り消しを取得 (会員別)
+async function fetchPersisted(clubCode: string, memberCode: string): Promise<PersistedTx[]> {
+  try {
+    const res = await ddb.send(new ScanCommand({ TableName: PT_TABLE }));
+    return ((res.Items ?? []) as PersistedTx[]).filter(
+      (t) => t.clubCode === clubCode && t.memberCode === memberCode
+    );
+  } catch (e) {
+    console.error("[points member] persisted scan failed", e);
+    return [];
+  }
+}
+
+// 履歴 (demo + DDB) をマージし、新しい順に並べて balanceAfter を再計算
+function mergeAndRecompute(demo: MemberPointInfo | null, persisted: PersistedTx[]): MemberPointInfo {
+  const base: MemberPointInfo = demo ?? {
+    memberCode: persisted[0]?.memberCode ?? "",
+    memberName: persisted[0]?.memberCode ?? "",
+    email: null,
+    phone: null,
+    joinedAt: new Date().toISOString(),
+    status: "active",
+    currentBalance: 0,
+    lifetimeEarned: 0,
+    lifetimeUsed: 0,
+    lifetimeExpired: 0,
+    expiringNextMonth: 0,
+    expiringIn3Months: 0,
+    transactions: [],
+  };
+
+  const demoTxs = base.transactions ?? [];
+  const persistedView = persisted.map((p) => persistedToView(p, 0));
+
+  // 古い順に並べ、累積で balanceAfter を再計算
+  const all = [...demoTxs, ...persistedView].sort(
+    (a, b) => (a.occurredAt > b.occurredAt ? 1 : -1)
+  );
+  let balance = 0;
+  for (const t of all) {
+    balance += t.points;
+    t.balanceAfter = balance;
+  }
+
+  // 新しい順
+  all.sort((a, b) => (a.occurredAt > b.occurredAt ? -1 : 1));
+
+  return {
+    ...base,
+    currentBalance: balance,
+    lifetimeEarned: all.filter((t) => t.points > 0).reduce((s, t) => s + t.points, 0),
+    lifetimeUsed: -all.filter((t) => t.type === "used").reduce((s, t) => s + t.points, 0),
+    lifetimeExpired: -all.filter((t) => t.type === "expired").reduce((s, t) => s + t.points, 0),
+    transactions: all,
+  };
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const clubCode = searchParams.get("clubCode");
@@ -146,12 +239,13 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "memberCode is required" }, { status: 400 });
   }
 
-  if (demo === "1") {
-    return NextResponse.json({
-      member: generateDemoMember(clubCode, memberCode),
-      isDemo: true,
-    });
+  const demoMember = demo === "1" ? generateDemoMember(clubCode, memberCode) : null;
+  const persisted = await fetchPersisted(clubCode, memberCode);
+
+  if (!demoMember && persisted.length === 0) {
+    return NextResponse.json({ member: null, isDemo: false });
   }
 
-  return NextResponse.json({ member: null, isDemo: false });
+  const member = mergeAndRecompute(demoMember, persisted);
+  return NextResponse.json({ member, isDemo: !!demoMember });
 }
