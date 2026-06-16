@@ -59,7 +59,13 @@ let MOCK_NOTIFICATIONS: PushNotification[] = [
 ];
 
 export async function GET(req: Request) {
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get("id");
+  if (id) {
+    const item = MOCK_NOTIFICATIONS.find((n) => n.id === id) ?? null;
+    return NextResponse.json({ notification: item });
+  }
   const sorted = [...MOCK_NOTIFICATIONS].sort(
     (a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()
   );
