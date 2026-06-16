@@ -107,7 +107,7 @@ export default function DepositApplicationPage() {
     (async () => {
       try {
         const [hRes, cRes] = await Promise.all([
-          fetch("/api/store-settings/refund-payment/deposit/applications?queue=mine", { cache: "no-store" }),
+          fetch("/api/store-settings/refund-payment/deposit/applications?queue=all", { cache: "no-store" }),
           fetch("/api/store-settings/refund-payment/clubs", { cache: "no-store" }),
         ]);
         const hData = await hRes.json();
@@ -242,7 +242,7 @@ export default function DepositApplicationPage() {
   // 履歴 reload
   const reloadHistory = async () => {
     try {
-      const res = await fetch("/api/store-settings/refund-payment/deposit/applications?queue=mine", { cache: "no-store" });
+      const res = await fetch("/api/store-settings/refund-payment/deposit/applications?queue=all", { cache: "no-store" });
       const data = await res.json();
       if (data.ok && Array.isArray(data.applications)) {
         setHistory(data.applications.map((a: ApiDepositApplication): DepositRow => ({

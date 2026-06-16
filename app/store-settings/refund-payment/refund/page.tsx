@@ -452,7 +452,7 @@ export default function RefundApplicationPage() {
     (async () => {
       try {
         const [appRes, clubRes] = await Promise.all([
-          fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" }),
+          fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" }),
           fetch("/api/store-settings/refund-payment/clubs", { cache: "no-store" }),
         ]);
         const appData = await appRes.json();
@@ -478,7 +478,7 @@ export default function RefundApplicationPage() {
   // 履歴のみ再取得 (submit 後など)
   const reloadHistory = async () => {
     try {
-      const res = await fetch("/api/store-settings/refund-payment/applications?queue=mine", { cache: "no-store" });
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
       const data = await res.json();
       if (data.ok && Array.isArray(data.applications)) {
         setHistory(data.applications.map((a: ApiApplication) => apiToUi(a)));
