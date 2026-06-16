@@ -219,9 +219,9 @@ const refundSamples = [
   },
 ];
 
-// ============ 入金 サンプル ============
+// ============ 入金 サンプル (シンプル: 会員 + 金額 + 予定日 のみ) ============
 const depositSamples = [
-  // 1) 受付中 (店舗から申請、経理対応中)
+  // 1) 受付中
   {
     applicationId: `DP-${ymd(1).replace(/-/g, "")}-SEEDD001`,
     clubCode: CLUB_CODE,
@@ -230,9 +230,6 @@ const depositSamples = [
     memberName: "横内 みちつな",
     memberKana: "ﾖｺｳﾁ ﾐﾁﾂﾅ",
     memberPlan: "フィットネス",
-    unpaidItems: [
-      { id: "u1", label: "会費 (先月分)", amount: 5280, targetMonth: ymMonth(1), dueDate: ymd(20), overdueDays: 20, category: "会費" },
-    ],
     totalAmount: 5280,
     paymentMethod: "銀行振込",
     scheduledDate: ymd(-2),
@@ -244,7 +241,7 @@ const depositSamples = [
     createdBy: APPLICANT.userId, createdByName: APPLICANT.userName,
     createdAt: isoMinusDays(1, 16, 40), updatedAt: isoMinusDays(1, 16, 40),
   },
-  // 2) 受付中 (複数項目まとめ)
+  // 2) 受付中 (複数月まとめての連絡)
   {
     applicationId: `DP-${ymd(3).replace(/-/g, "")}-SEEDD002`,
     clubCode: CLUB_CODE,
@@ -253,15 +250,10 @@ const depositSamples = [
     memberName: "高橋 美咲",
     memberKana: "ﾀｶﾊｼ ﾐｻｷ",
     memberPlan: "1980円会員",
-    unpaidItems: [
-      { id: "u1", label: "会費 (2ヶ月前分)",  amount: 1980, targetMonth: ymMonth(2), dueDate: ymd(40), overdueDays: 40, category: "会費" },
-      { id: "u2", label: "会費 (先月分)",      amount: 1980, targetMonth: ymMonth(1), dueDate: ymd(20), overdueDays: 20, category: "会費" },
-      { id: "u3", label: "事務手数料",        amount: 3300, targetMonth: ymMonth(2), dueDate: ymd(40), overdueDays: 40, category: "事務手数料" },
-    ],
     totalAmount: 7260,
     paymentMethod: "銀行振込",
     scheduledDate: ymd(-3),
-    memo: "まとめて振込予定との連絡あり",
+    memo: "2か月分まとめて振込予定との連絡あり",
     steps: [
       { role: "applicant", ...APPLICANT, state: "完了",   actedAt: actedAt(3, 11, 20), comment: "店舗で受付しました" },
       { role: "finance",   ...FINANCE,   state: "対応中" },
@@ -269,7 +261,7 @@ const depositSamples = [
     createdBy: APPLICANT.userId, createdByName: APPLICANT.userName,
     createdAt: isoMinusDays(3, 11, 20), updatedAt: isoMinusDays(3, 11, 20),
   },
-  // 3) 消込完了
+  // 3) 消込完了 (バッチ ID 付き → 申請者画面で 入金済+ID 表示)
   {
     applicationId: `DP-${ymd(12).replace(/-/g, "")}-SEEDD003`,
     clubCode: CLUB_CODE,
@@ -278,10 +270,6 @@ const depositSamples = [
     memberName: "松本 拓海",
     memberKana: "ﾏﾂﾓﾄ ﾀｸﾐ",
     memberPlan: "プレミアム",
-    unpaidItems: [
-      { id: "u1", label: "会費 (先々月分)", amount: 7980, targetMonth: ymMonth(2), dueDate: ymd(40), overdueDays: 40, category: "会費" },
-      { id: "u2", label: "FIT365あんしんサポート", amount: 1100, targetMonth: ymMonth(2), dueDate: ymd(40), overdueDays: 40, category: "オプション" },
-    ],
     totalAmount: 9080,
     paymentMethod: "現金",
     scheduledDate: ymd(12),
@@ -289,7 +277,7 @@ const depositSamples = [
     closing: {
       closedAt: isoMinusDays(8, 18, 15),
       receiptDate: ymd(10),
-      oracleBatchId: `BATCH-${ymd(10).replace(/-/g, "")}-SEEDD`,
+      oracleBatchId: `BATCH-${ymd(10).replace(/-/g, "")}-1815-SEEDD`,
       operator: FINANCE.userName,
       note: "Oracle 消込完了",
     },
@@ -309,16 +297,13 @@ const depositSamples = [
     memberName: "渡辺 結衣",
     memberKana: "ﾜﾀﾅﾍﾞ ﾕｲ",
     memberPlan: "スタンダード",
-    unpaidItems: [
-      { id: "u1", label: "会費 (3ヶ月前分)", amount: 5980, targetMonth: ymMonth(3), dueDate: ymd(70), overdueDays: 70, category: "会費" },
-    ],
     totalAmount: 5980,
     paymentMethod: "銀行振込",
     scheduledDate: ymd(22),
     closing: {
       closedAt: isoMinusDays(21, 11, 0),
       receiptDate: ymd(22),
-      oracleBatchId: `BATCH-${ymd(22).replace(/-/g, "")}-SEEDD`,
+      oracleBatchId: `BATCH-${ymd(22).replace(/-/g, "")}-1100-SEEDD`,
       operator: FINANCE.userName,
     },
     steps: [
@@ -337,9 +322,6 @@ const depositSamples = [
     memberName: "森 健二",
     memberKana: "ﾓﾘ ｹﾝｼﾞ",
     memberPlan: "プレミアム",
-    unpaidItems: [
-      { id: "u1", label: "会費 (先月分)", amount: 7980, targetMonth: ymMonth(1), dueDate: ymd(20), overdueDays: 20, category: "会費" },
-    ],
     totalAmount: 7980,
     paymentMethod: "クレジット再請求",
     scheduledDate: ymd(-5),

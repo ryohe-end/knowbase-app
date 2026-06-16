@@ -64,7 +64,7 @@ function apiToLocal(a: ApiDepositApplication): DepositApp {
       oracleInvoiceId: it.oracleInvoiceId ?? "",
     })),
     totalAmount: a.totalAmount,
-    paymentMethod: a.paymentMethod,
+    paymentMethod: a.paymentMethod ?? "",
     scheduledDate: a.scheduledDate,
     memo: a.memo,
     approverName: "—",
@@ -467,6 +467,7 @@ function DepositFinanceDetail({ app, onClose, onReject }: { app: DepositApp; onC
         <div className="dfp-field"><div className="dfp-label">承認者</div><div className="dfp-value">{app.approverName}<br /><span className="dfp-value-sub mono">{app.approvedAt}</span></div></div>
       </div>
 
+      {app.items.length > 0 && (
       <section className="dfp-section">
         <div className="dfp-section-title"><Receipt size={14} /> 消込対象（Oracle請求テーブル）</div>
         <div className="dfp-items">
@@ -485,6 +486,7 @@ function DepositFinanceDetail({ app, onClose, onReject }: { app: DepositApp; onC
           ))}
         </div>
       </section>
+      )}
 
       {(app.memo || app.approverComment) && (
         <section className="dfp-section">

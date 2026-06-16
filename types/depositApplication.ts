@@ -62,9 +62,11 @@ export type DepositApplication = {
   memberPhone?: string;
   memberPlan?: string;
 
-  unpaidItems: UnpaidItem[];    // 申請対象に選んだ未納項目
-  totalAmount: number;
-  paymentMethod: PaymentMethod;
+  // 入金フローは "会員から会費を振込む連絡が来た" を経理に伝えるだけ。
+  // 未納明細との突き合わせは経理消込で行うため、申請時の項目選択は不要。
+  unpaidItems?: UnpaidItem[];   // 任意 (過去データ互換のため optional)
+  totalAmount: number;          // 連絡を受けた入金額 (店舗が直接入力)
+  paymentMethod?: PaymentMethod;// 任意 (情報として残せるが必須ではない)
   scheduledDate: string;        // 入金予定日
   memo?: string;
 

@@ -35,11 +35,12 @@ type DepositRow = {
   memberId: string;
   memberName: string;
   totalAmount: number;
-  itemCount: number;
   paymentMethod: string;
   scheduledDate: string;
   status: ApiDepositApplication["status"];
   createdAt: string;
+  oracleBatchId?: string;     // 経理が消込時に採番
+  receiptDate?: string;       // 実際の入金確認日
 };
 
 type ClubOption = { clubCode: string; clubName?: string; clubNameShort?: string };
@@ -64,7 +65,7 @@ function useDebounce<T>(value: T, delay = 300): T {
 
 const STEPS = [
   { id: 1, label: "会員選択", icon: <User size={16} /> },
-  { id: 2, label: "未納項目", icon: <Wallet size={16} /> },
+  { id: 2, label: "金額・予定日", icon: <Wallet size={16} /> },
   { id: 3, label: "確認", icon: <ClipboardCheck size={16} /> },
 ];
 
@@ -80,7 +81,8 @@ export default function DepositApplicationPage() {
   const [step, setStep] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // 入金金額 (店舗が直接入力)
+  const [amountInput, setAmountInput] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(PAYMENT_METHODS[0]);
   const [scheduledDate, setScheduledDate] = useState("");
   const [memo, setMemo] = useState("");
@@ -91,10 +93,6 @@ export default function DepositApplicationPage() {
   const [memberSearchResults, setMemberSearchResults] = useState<Member[]>([]);
   const [memberSearchLoading, setMemberSearchLoading] = useState(false);
   const [memberSearchError, setMemberSearchError] = useState<string | null>(null);
-
-  // 未納項目 (API)
-  const [unpaidItemsApi, setUnpaidItemsApi] = useState<UnpaidItem[]>([]);
-  const [unpaidLoading, setUnpaidLoading] = useState(false);
 
   // 履歴 (API)
   const [history, setHistory] = useState<DepositRow[]>([]);
@@ -117,10 +115,11 @@ export default function DepositApplicationPage() {
             memberId: a.memberNo,
             memberName: a.memberName,
             totalAmount: a.totalAmount,
-            itemCount: a.unpaidItems?.length ?? 0,
-            paymentMethod: a.paymentMethod,
+            paymentMethod: a.paymentMethod ?? "",
             scheduledDate: a.scheduledDate,
             status: a.status,
+            oracleBatchId: a.closing?.oracleBatchId,
+            receiptDate: a.closing?.receiptDate,
             createdAt: (a.createdAt ?? "").slice(0, 10),
           })));
         }
@@ -181,61 +180,22 @@ export default function DepositApplicationPage() {
   }, [debouncedQuery]);
   const filteredMembers = memberSearchResults;
 
-  // 会員選択 → 未納項目取得 (API)
+  // 会員選択変更時は金額をクリア
   useEffect(() => {
-    if (!selectedMember || !shopId) {
-      setUnpaidItemsApi([]);
-      return;
-    }
-    const ctrl = new AbortController();
-    setUnpaidLoading(true);
-    (async () => {
-      try {
-        const url = `/api/store-settings/refund-payment/deposit/unpaid?memberNo=${encodeURIComponent(selectedMember.memberId)}&clubCode=${encodeURIComponent(shopId)}`;
-        const res = await fetch(url, { signal: ctrl.signal });
-        const data = await res.json();
-        if (data.ok) {
-          const items: UnpaidItem[] = (data.items as ApiUnpaidItem[] ?? []).map((it) => ({
-            id: it.id,
-            label: it.label,
-            targetMonth: it.targetMonth ?? "",
-            amount: it.amount,
-            dueDate: it.dueDate ?? "",
-            overdueDays: it.overdueDays ?? 0,
-            category: it.category ?? "その他",
-          }));
-          setUnpaidItemsApi(items);
-          if (data.member?.plan && !selectedMember.plan) {
-            setSelectedMember({ ...selectedMember, plan: data.member.plan });
-          }
-        }
-      } catch (e: any) {
-        if (e?.name !== "AbortError") console.error("unpaid fetch error", e);
-      } finally {
-        setUnpaidLoading(false);
-      }
-    })();
-    return () => ctrl.abort();
-  }, [selectedMember, shopId]);
-
-  // 会員選択変更時は選択項目をクリア
-  useEffect(() => {
-    setSelectedItemIds(new Set());
+    setAmountInput("");
   }, [selectedMember?.memberId]);
 
-  const unpaidItems = unpaidItemsApi;
-
+  // 入力金額を数値で正規化 (カンマ・空白を除去)
   const totalAmount = useMemo(() => {
-    return unpaidItems
-      .filter((it) => selectedItemIds.has(it.id))
-      .reduce((sum, it) => sum + it.amount, 0);
-  }, [selectedItemIds, unpaidItems]);
+    const cleaned = amountInput.replace(/[^\d]/g, "");
+    return Number(cleaned) || 0;
+  }, [amountInput]);
 
   const canNext = () => {
     if (!shopId) return false;
     if (step === 1) return !!selectedMember;
-    if (step === 2) return selectedItemIds.size > 0;
-    if (step === 3) return !!paymentMethod && !!scheduledDate;
+    if (step === 2) return totalAmount > 0 && !!scheduledDate;
+    if (step === 3) return totalAmount > 0 && !!scheduledDate;
     return false;
   };
 
@@ -250,10 +210,11 @@ export default function DepositApplicationPage() {
           memberId: a.memberNo,
           memberName: a.memberName,
           totalAmount: a.totalAmount,
-          itemCount: a.unpaidItems?.length ?? 0,
-          paymentMethod: a.paymentMethod,
+          paymentMethod: a.paymentMethod ?? "",
           scheduledDate: a.scheduledDate,
           status: a.status,
+          oracleBatchId: a.closing?.oracleBatchId,
+          receiptDate: a.closing?.receiptDate,
           createdAt: (a.createdAt ?? "").slice(0, 10),
         })));
       }
@@ -263,8 +224,7 @@ export default function DepositApplicationPage() {
   };
 
   const handleSubmit = async () => {
-    if (!selectedMember || !shopId) return;
-    const items = unpaidItems.filter((it) => selectedItemIds.has(it.id));
+    if (!selectedMember || !shopId || totalAmount <= 0) return;
     setSubmitting(true);
     try {
       const saveRes = await fetch("/api/store-settings/refund-payment/deposit/applications", {
@@ -277,15 +237,8 @@ export default function DepositApplicationPage() {
           memberKana: selectedMember.kana,
           memberPhone: selectedMember.phone,
           memberPlan: selectedMember.plan,
-          unpaidItems: items.map((i) => ({
-            id: i.id,
-            label: i.label,
-            amount: i.amount,
-            targetMonth: i.targetMonth,
-            dueDate: i.dueDate,
-            overdueDays: i.overdueDays,
-            category: i.category,
-          })),
+          // 未納項目選択なし: 金額のみ直接入力
+          totalAmount,
           paymentMethod,
           scheduledDate,
           memo,
@@ -319,27 +272,10 @@ export default function DepositApplicationPage() {
     setStep(1);
     setSearchQuery("");
     setSelectedMember(null);
-    setSelectedItemIds(new Set());
+    setAmountInput("");
     setPaymentMethod(PAYMENT_METHODS[0]);
     setScheduledDate("");
     setMemo("");
-  };
-
-  const toggleItem = (id: string) => {
-    setSelectedItemIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const selectAll = () => {
-    if (selectedItemIds.size === unpaidItems.length) {
-      setSelectedItemIds(new Set());
-    } else {
-      setSelectedItemIds(new Set(unpaidItems.map((i) => i.id)));
-    }
   };
 
   return (
@@ -351,7 +287,7 @@ export default function DepositApplicationPage() {
               <ArrowLeft size={20} />
             </Link>
             <div className="dp-title-group">
-              <h1 className="dp-main-title">入金申請（未納金登録）</h1>
+              <h1 className="dp-main-title">入金連絡 (店舗 → 経理)</h1>
               <p className="dp-sub-title">{shopId ? `${shopId} ${shopName}` : "クラブ未選択"}</p>
             </div>
           </div>
@@ -451,125 +387,30 @@ export default function DepositApplicationPage() {
               </div>
             )}
 
-            {/* Step 2 */}
+            {/* Step 2: 金額・予定日・メモ入力 */}
             {step === 2 && selectedMember && (
               <div className="dp-step-body">
-                <div className="dp-step-head-row">
-                  <div className="dp-step-head">
-                    <h2>Step 2. 未納項目の選択</h2>
-                    <p>{selectedMember.name} 様の未納項目です。入金する項目を選択してください。</p>
-                  </div>
-                  {unpaidItems.length > 0 && (
-                    <button className="dp-link-btn" onClick={selectAll}>
-                      {selectedItemIds.size === unpaidItems.length ? "全選択解除" : "すべて選択"}
-                    </button>
-                  )}
-                </div>
-
-                {unpaidLoading ? (
-                  <div className="dp-empty-state">
-                    <div className="dp-empty-icon">⏳</div>
-                    <h3>未納項目を取得中...</h3>
-                  </div>
-                ) : unpaidItems.length === 0 ? (
-                  <div className="dp-empty-state">
-                    <div className="dp-empty-icon">🎉</div>
-                    <h3>未納はありません</h3>
-                    <p>この会員には現在登録できる未納項目がありません。</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="dp-items">
-                      {unpaidItems.map((it) => {
-                        const checked = selectedItemIds.has(it.id);
-                        return (
-                          <div key={it.id} className={`dp-item-row ${checked ? "checked" : ""}`}>
-                            <label className="dp-item-check">
-                              <input type="checkbox" checked={checked} onChange={() => toggleItem(it.id)} />
-                              <span className="dp-item-checkbox" />
-                            </label>
-                            <div className="dp-item-main">
-                              <div className="dp-item-label">{it.label}</div>
-                              <div className="dp-item-meta">
-                                <span className={`dp-item-cat cat-${it.category}`}>{it.category}</span>
-                                <span>請求月: {it.targetMonth}</span>
-                                <span>引落予定日: {it.dueDate}</span>
-                                {it.overdueDays > 0 && (
-                                  <span className="dp-overdue">{it.overdueDays}日経過</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="dp-item-amount">
-                              ¥ {it.amount.toLocaleString()}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="dp-total">
-                      <span>入金合計</span>
-                      <span className="dp-total-amount">¥ {totalAmount.toLocaleString()}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Step 3 */}
-            {step === 3 && selectedMember && (
-              <div className="dp-step-body">
                 <div className="dp-step-head">
-                  <h2>Step 3. 入金内容の確認</h2>
-                  <p>入金方法を選択し、内容を確認して登録してください。</p>
-                </div>
-
-                <div className="dp-summary">
-                  <div className="dp-summary-row">
-                    <span>会員</span>
-                    <span>
-                      {selectedMember.memberId} / {selectedMember.name}（{selectedMember.plan}）
-                    </span>
-                  </div>
-                  <div className="dp-summary-row">
-                    <span>入金対象</span>
-                    <div className="dp-summary-items">
-                      {unpaidItems
-                        .filter((it) => selectedItemIds.has(it.id))
-                        .map((it) => (
-                          <div key={it.id}>
-                            ・{it.label} — ¥{it.amount.toLocaleString()}
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                  {scheduledDate && (
-                    <div className="dp-summary-row">
-                      <span>入金予定日</span>
-                      <span>{scheduledDate}</span>
-                    </div>
-                  )}
-                  <div className="dp-summary-row total-row">
-                    <span>入金合計</span>
-                    <span className="dp-total-amount">¥ {totalAmount.toLocaleString()}</span>
-                  </div>
+                  <h2>Step 2. 入金額と予定日を入力</h2>
+                  <p>
+                    {selectedMember.memberId} / {selectedMember.name}{selectedMember.plan ? `（${selectedMember.plan}）` : ""} 様から連絡を受けた入金額と予定日を入力してください。
+                  </p>
                 </div>
 
                 <div className="dp-form-row">
-                  <label>入金方法 <span className="dp-required">*</span></label>
-                  <div className="dp-method-grid">
-                    {PAYMENT_METHODS.map((m) => (
-                      <label key={m} className={`dp-method-chip ${paymentMethod === m ? "selected" : ""}`}>
-                        <input
-                          type="radio"
-                          name="payment"
-                          value={m}
-                          checked={paymentMethod === m}
-                          onChange={() => setPaymentMethod(m)}
-                        />
-                        <span>{m}</span>
-                      </label>
-                    ))}
+                  <label>入金額 <span className="dp-required">*</span></label>
+                  <div className="dp-amount-row">
+                    <span className="dp-amount-yen">¥</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      className="dp-input dp-amount"
+                      value={amountInput}
+                      onChange={(e) => setAmountInput(e.target.value)}
+                      placeholder="例) 7980"
+                    />
                   </div>
+                  <div className="dp-date-hint">会員から連絡を受けた金額をそのまま入力してください。</div>
                 </div>
 
                 <div className="dp-form-row">
@@ -609,8 +450,23 @@ export default function DepositApplicationPage() {
                       ))}
                     </div>
                   </div>
-                  <div className="dp-date-hint">
-                    実際に入金が確認できる日付を指定してください。Oracle 側ではこの日付で消込処理されます。
+                </div>
+
+                <div className="dp-form-row">
+                  <label>入金方法（任意）</label>
+                  <div className="dp-method-grid">
+                    {PAYMENT_METHODS.map((m) => (
+                      <label key={m} className={`dp-method-chip ${paymentMethod === m ? "selected" : ""}`}>
+                        <input
+                          type="radio"
+                          name="payment"
+                          value={m}
+                          checked={paymentMethod === m}
+                          onChange={() => setPaymentMethod(m)}
+                        />
+                        <span>{m}</span>
+                      </label>
+                    ))}
                   </div>
                 </div>
 
@@ -621,13 +477,50 @@ export default function DepositApplicationPage() {
                     rows={3}
                     value={memo}
                     onChange={(e) => setMemo(e.target.value)}
-                    placeholder="例) 来店時に現金で受領、領収書発行済 など"
+                    placeholder="例) 振込連絡あり、明日着金予定 など"
                   />
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: 確認 */}
+            {step === 3 && selectedMember && (
+              <div className="dp-step-body">
+                <div className="dp-step-head">
+                  <h2>Step 3. 内容の確認</h2>
+                  <p>下記内容で経理部に連絡します。問題なければ「経理に連絡する」を押してください。</p>
+                </div>
+
+                <div className="dp-summary">
+                  <div className="dp-summary-row">
+                    <span>会員</span>
+                    <span>
+                      {selectedMember.memberId} / {selectedMember.name}{selectedMember.plan ? `（${selectedMember.plan}）` : ""}
+                    </span>
+                  </div>
+                  <div className="dp-summary-row">
+                    <span>入金予定日</span>
+                    <span>{scheduledDate}</span>
+                  </div>
+                  <div className="dp-summary-row">
+                    <span>入金方法</span>
+                    <span>{paymentMethod}</span>
+                  </div>
+                  {memo && (
+                    <div className="dp-summary-row">
+                      <span>備考</span>
+                      <span style={{ whiteSpace: "pre-wrap" }}>{memo}</span>
+                    </div>
+                  )}
+                  <div className="dp-summary-row total-row">
+                    <span>入金額</span>
+                    <span className="dp-total-amount">¥ {totalAmount.toLocaleString()}</span>
+                  </div>
                 </div>
 
                 <div className="dp-hint">
                   <AlertCircle size={14} />
-                  <span>登録すると Oracle 側の入金テーブルに反映され、対象項目は「入金済み」状態になります。</span>
+                  <span>「経理に連絡する」を押すと経理画面に同じ情報が届きます。経理が入金確認・消込を行うと申請履歴に「入金済」とバッチIDが表示されます。</span>
                 </div>
               </div>
             )}
@@ -659,7 +552,7 @@ export default function DepositApplicationPage() {
                   disabled={!canNext() || submitting}
                   onClick={handleSubmit}
                 >
-                  {submitting ? "送信中..." : "入金を登録する"} <Check size={16} />
+                  {submitting ? "送信中..." : "経理に連絡する"} <Check size={16} />
                 </button>
               )}
             </div>
@@ -673,30 +566,37 @@ export default function DepositApplicationPage() {
             </div>
             <div className="dp-history-table">
               <div className="dp-history-th">
-                <span>登録ID</span>
+                <span>連絡ID</span>
                 <span>会員</span>
-                <span>件数</span>
-                <span>合計金額</span>
+                <span>入金額</span>
                 <span>入金方法</span>
-                <span>入金予定日</span>
+                <span>予定日</span>
                 <span>ステータス</span>
+                <span>消込結果</span>
                 <span>登録日</span>
               </div>
-              {history.slice(0, 3).map((h) => (
+              {history.slice(0, 5).map((h) => (
                 <div className="dp-history-tr" key={h.id}>
                   <span className="mono">{h.id}</span>
                   <span>
                     {h.memberName}
                     <span className="dp-history-sub">{h.memberId}</span>
                   </span>
-                  <span>{h.itemCount}件</span>
                   <span>¥{h.totalAmount.toLocaleString()}</span>
-                  <span>{h.paymentMethod}</span>
+                  <span>{h.paymentMethod || "—"}</span>
                   <span className="mono">{h.scheduledDate}</span>
                   <span>
                     <span className="dp-status-chip" style={{ background: `${STATUS_COLOR[h.status]}15`, color: STATUS_COLOR[h.status] }}>
                       {h.status}
                     </span>
+                  </span>
+                  <span>
+                    {h.status === "消込完了" && h.oracleBatchId ? (
+                      <div className="dp-batch-info">
+                        <span className="dp-batch-tag">入金済</span>
+                        <span className="mono dp-history-sub" title={h.oracleBatchId}>{h.oracleBatchId.slice(-12)}</span>
+                      </div>
+                    ) : "—"}
                   </span>
                   <span>{h.createdAt}</span>
                 </div>
@@ -846,7 +746,12 @@ export default function DepositApplicationPage() {
         .dp-history-head h2 { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 800; margin: 0; color: #1e293b; }
         .dp-history-meta { font-size: 11px; color: #94a3b8; font-weight: 600; }
         .dp-history-table { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
-        .dp-history-th, .dp-history-tr { display: grid; grid-template-columns: 150px 1.2fr 60px 100px 120px 110px 90px 90px; gap: 12px; padding: 12px 20px; align-items: center; }
+        .dp-history-th, .dp-history-tr { display: grid; grid-template-columns: 170px 1.2fr 100px 100px 110px 90px 1fr 90px; gap: 12px; padding: 12px 20px; align-items: center; }
+        .dp-amount-row { display: flex; align-items: center; gap: 8px; }
+        .dp-amount-yen { font-size: 18px; font-weight: 800; color: #047857; }
+        .dp-amount { font-size: 18px; font-weight: 700; text-align: right; padding: 10px 14px; font-family: inherit; }
+        .dp-batch-info { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
+        .dp-batch-tag { display: inline-block; background: #d1fae5; color: #047857; padding: 1px 8px; border-radius: 99px; font-size: 10px; font-weight: 800; width: fit-content; }
         .dp-history-th { background: #f8fafc; font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #e2e8f0; }
         .dp-history-tr { border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 600; }
         .dp-history-tr:last-child { border-bottom: none; }

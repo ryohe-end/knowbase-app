@@ -133,7 +133,8 @@ export async function POST(req: Request) {
   }
 
   const items = Array.isArray(body.unpaidItems) ? body.unpaidItems : [];
-  const totalAmount = computeTotalAmount(items);
+  // items が指定されていればそこから再計算、なければクライアントが直接入れた金額を採用
+  const totalAmount = items.length > 0 ? computeTotalAmount(items) : Number(body.totalAmount) || 0;
 
   const initialSteps: DepositStep[] = [
     { role: "applicant", userId: user.userId, userName: user.name, dept: user.dept ?? "", email: user.email, state: "未対応" },
@@ -154,9 +155,9 @@ export async function POST(req: Request) {
     memberPhone: body.memberPhone,
     memberPlan: body.memberPlan,
 
-    unpaidItems: items,
+    unpaidItems: items.length > 0 ? items : undefined,
     totalAmount,
-    paymentMethod: (body.paymentMethod ?? "銀行振込") as DepositApplication["paymentMethod"],
+    paymentMethod: body.paymentMethod as DepositApplication["paymentMethod"] | undefined,
     scheduledDate: body.scheduledDate || "",
     memo: body.memo,
 
