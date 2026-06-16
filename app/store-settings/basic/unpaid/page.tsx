@@ -80,7 +80,24 @@ type UnpaidSummary = {
   recentReminders: { id: string; memberCode: string; memberName: string; amount: number; remindedAt: string; channel: "email" | "sms" | "phone" | "letter" }[];
 };
 
-type TabKey = "member" | "dashboard";
+type TabKey = "member" | "list" | "dashboard";
+
+// 未納者一覧 (ListTab 用)
+type UnpaidMemberRow = {
+  memberCode: string;
+  memberName: string;
+  memberKana: string;
+  phone: string | null;
+  email: string | null;
+  plan: string;
+  status: "active" | "dormant" | "withdrawn";
+  totalUnpaid: number;
+  unpaidCount: number;
+  oldestUnpaidAt: string;
+  oldestUnpaidDays: number;
+  categories: { category: UnpaidCategory; count: number; amount: number }[];
+  lastRemindedAt: string | null;
+};
 
 // --- 定数 ---
 const CATEGORY_META: Record<UnpaidCategory, { label: string; color: string; bg: string }> = {
@@ -473,6 +490,286 @@ function MemberTab({ clubCode }: { clubCode: string }) {
 }
 
 // --- ダッシュボードタブ ---
+// --- 未納者一覧タブ ---
+function ListTab({ clubCode }: { clubCode: string }) {
+  const { showToast } = useToast();
+  const [members, setMembers] = useState<UnpaidMemberRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [isDemo, setIsDemo] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | UnpaidMemberRow["status"]>("all");
+  const [sortKey, setSortKey] = useState<"oldest" | "amount" | "count">("oldest");
+
+  const doLoad = useCallback(
+    async (demo: boolean) => {
+      setLoading(true);
+      setSearched(true);
+      try {
+        const q = new URLSearchParams({ clubCode });
+        if (demo) q.set("demo", "1");
+        const res = await fetch(`/api/store-settings/unpaid/list?${q}`);
+        if (res.ok) {
+          const data = await res.json();
+          setMembers(data.members || []);
+          setIsDemo(!!data.isDemo);
+        }
+      } catch (e) {
+        console.error(e);
+        showToast("一覧の取得に失敗しました。", "error");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [clubCode, showToast]
+  );
+
+  const filteredMembers = useMemo(() => {
+    let xs = members;
+    if (statusFilter !== "all") xs = xs.filter((m) => m.status === statusFilter);
+    if (query.trim()) {
+      const q = query.trim().toLowerCase();
+      xs = xs.filter(
+        (m) =>
+          m.memberCode.toLowerCase().includes(q) ||
+          m.memberName.toLowerCase().includes(q) ||
+          m.memberKana.toLowerCase().includes(q)
+      );
+    }
+    const sorted = [...xs];
+    if (sortKey === "oldest") sorted.sort((a, b) => b.oldestUnpaidDays - a.oldestUnpaidDays);
+    else if (sortKey === "amount") sorted.sort((a, b) => b.totalUnpaid - a.totalUnpaid);
+    else if (sortKey === "count") sorted.sort((a, b) => b.unpaidCount - a.unpaidCount);
+    return sorted;
+  }, [members, statusFilter, query, sortKey]);
+
+  const totals = useMemo(
+    () => ({
+      members: filteredMembers.length,
+      amount: filteredMembers.reduce((s, m) => s + m.totalUnpaid, 0),
+      items: filteredMembers.reduce((s, m) => s + m.unpaidCount, 0),
+    }),
+    [filteredMembers]
+  );
+
+  function downloadCsv() {
+    if (filteredMembers.length === 0) {
+      showToast("ダウンロード対象がありません。", "error");
+      return;
+    }
+    const headers = [
+      "会員番号", "会員名", "カナ", "電話", "メール", "プラン", "ステータス",
+      "未納合計金額", "未納件数", "最古未納発生日", "経過日数", "主カテゴリ", "最終督促日",
+    ];
+    const rows = filteredMembers.map((m) => {
+      const topCat = m.categories.slice().sort((a, b) => b.amount - a.amount)[0];
+      return [
+        m.memberCode,
+        m.memberName,
+        m.memberKana,
+        m.phone ?? "",
+        m.email ?? "",
+        m.plan,
+        m.status === "active" ? "在籍" : m.status === "dormant" ? "休会" : "退会",
+        String(m.totalUnpaid),
+        String(m.unpaidCount),
+        m.oldestUnpaidAt.slice(0, 10),
+        String(m.oldestUnpaidDays),
+        topCat ? CATEGORY_META[topCat.category].label : "",
+        m.lastRemindedAt ? m.lastRemindedAt.slice(0, 10) : "",
+      ];
+    });
+    const csv = [headers, ...rows]
+      .map((r) => r.map(csvField).join(","))
+      .join("\r\n");
+    const bom = "﻿"; // Excel 文字化け回避
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `unpaid_members_${clubCode}_${ymd}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast(`${filteredMembers.length} 件を CSV で出力しました。`, "success");
+  }
+
+  return (
+    <>
+      <section className="up-search-card">
+        <div className="up-list-controls">
+          <div className="up-list-search">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16, color: "#94a3b8" }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              placeholder="会員番号 / 氏名 / カナ で検索"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div className="up-list-actions">
+            <select
+              className="up-list-select"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+            >
+              <option value="all">全ステータス</option>
+              <option value="active">在籍中</option>
+              <option value="dormant">休会</option>
+              <option value="withdrawn">退会</option>
+            </select>
+            <select
+              className="up-list-select"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as any)}
+            >
+              <option value="oldest">古い順 (経過日数)</option>
+              <option value="amount">金額の多い順</option>
+              <option value="count">件数の多い順</option>
+            </select>
+            <button
+              type="button"
+              className="up-search-btn"
+              onClick={() => doLoad(false)}
+              disabled={loading}
+            >
+              {loading ? "取得中..." : "未納者を取得"}
+            </button>
+            <button
+              type="button"
+              className="up-search-demo"
+              onClick={() => doLoad(true)}
+            >
+              サンプル表示
+            </button>
+            <button
+              type="button"
+              className="up-csv-btn"
+              onClick={downloadCsv}
+              disabled={filteredMembers.length === 0}
+              title="CSV ダウンロード"
+            >
+              CSV ダウンロード
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {!searched && (
+        <section className="up-empty-state">
+          <div className="up-empty-icon">📋</div>
+          <h3 className="up-empty-title">未納者の一覧を取得</h3>
+          <p className="up-empty-text">「未納者を取得」で本番データを取得、「サンプル表示」で擬似データを確認できます。取得後は CSV エクスポートが可能です。</p>
+        </section>
+      )}
+
+      {searched && !loading && members.length === 0 && (
+        <section className="up-empty-state">
+          <div className="up-empty-icon">🎉</div>
+          <h3 className="up-empty-title">未納者はいません</h3>
+          <p className="up-empty-text">このクラブには現在未納者がいません。</p>
+        </section>
+      )}
+
+      {members.length > 0 && (
+        <>
+          {isDemo && (
+            <div className="up-demo-banner">
+              ⚠ サンプルデータを表示中です (Oracle 連携前のためデモ値)
+            </div>
+          )}
+
+          <section className="up-list-summary">
+            <div className="up-list-summary-cell">
+              <div className="up-list-summary-label">対象会員</div>
+              <div className="up-list-summary-value">{totals.members}<small>名</small></div>
+            </div>
+            <div className="up-list-summary-cell">
+              <div className="up-list-summary-label">未納合計</div>
+              <div className="up-list-summary-value">{formatYen(totals.amount)}</div>
+            </div>
+            <div className="up-list-summary-cell">
+              <div className="up-list-summary-label">未納件数</div>
+              <div className="up-list-summary-value">{totals.items}<small>件</small></div>
+            </div>
+          </section>
+
+          <section className="up-list-table-wrap">
+            <table className="up-list-table">
+              <thead>
+                <tr>
+                  <th>会員番号</th>
+                  <th>会員名</th>
+                  <th>プラン</th>
+                  <th>ステータス</th>
+                  <th className="num">未納合計</th>
+                  <th className="num">件数</th>
+                  <th>最古未納</th>
+                  <th className="num">経過日数</th>
+                  <th>主カテゴリ</th>
+                  <th>最終督促</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMembers.map((m) => {
+                  const topCat = m.categories.slice().sort((a, b) => b.amount - a.amount)[0];
+                  const statusLabel = m.status === "active" ? "在籍" : m.status === "dormant" ? "休会" : "退会";
+                  const statusClass = m.status === "active" ? "active" : m.status === "dormant" ? "dormant" : "withdrawn";
+                  return (
+                    <tr key={m.memberCode}>
+                      <td className="mono">{m.memberCode}</td>
+                      <td>
+                        <div className="up-list-name">
+                          <strong>{m.memberName}</strong>
+                          <small>{m.memberKana}</small>
+                        </div>
+                      </td>
+                      <td>{m.plan}</td>
+                      <td><span className={`up-status-chip ${statusClass}`}>{statusLabel}</span></td>
+                      <td className="num">{formatYen(m.totalUnpaid)}</td>
+                      <td className="num">{m.unpaidCount}</td>
+                      <td>{formatDate(m.oldestUnpaidAt)}</td>
+                      <td className="num">
+                        <span className={`up-overdue ${m.oldestUnpaidDays >= 90 ? "danger" : m.oldestUnpaidDays >= 60 ? "warn" : ""}`}>
+                          {m.oldestUnpaidDays}日
+                        </span>
+                      </td>
+                      <td>
+                        {topCat && (
+                          <span
+                            className="up-cat-chip"
+                            style={{ background: CATEGORY_META[topCat.category].bg, color: CATEGORY_META[topCat.category].color }}
+                          >
+                            {CATEGORY_META[topCat.category].label}
+                          </span>
+                        )}
+                      </td>
+                      <td>{m.lastRemindedAt ? formatDate(m.lastRemindedAt) : <span className="up-empty-dash">未送信</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+// CSV エスケープ
+function csvField(v: string): string {
+  const s = String(v ?? "");
+  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
 function DashboardTab({ clubCode }: { clubCode: string }) {
   const [summary, setSummary] = useState<UnpaidSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -825,6 +1122,16 @@ function UnpaidManager({ clubCode, initialTab }: { clubCode: string; initialTab:
           </button>
           <button
             type="button"
+            className={`up-tab ${tab === "list" ? "active" : ""}`}
+            onClick={() => setTab("list")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+            </svg>
+            未納者一覧
+          </button>
+          <button
+            type="button"
             className={`up-tab ${tab === "dashboard" ? "active" : ""}`}
             onClick={() => setTab("dashboard")}
           >
@@ -835,7 +1142,9 @@ function UnpaidManager({ clubCode, initialTab }: { clubCode: string; initialTab:
           </button>
         </div>
 
-        {tab === "member" ? <MemberTab clubCode={clubCode} /> : <DashboardTab clubCode={clubCode} />}
+        {tab === "member" && <MemberTab clubCode={clubCode} />}
+        {tab === "list" && <ListTab clubCode={clubCode} />}
+        {tab === "dashboard" && <DashboardTab clubCode={clubCode} />}
       </main>
 
       <style jsx global>{`
@@ -886,6 +1195,45 @@ function UnpaidManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .up-search-demo { padding: 10px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; background: #fef2f2; color: #b91c1c; border: 1.5px solid #fecaca; cursor: pointer; transition: 0.15s; }
         .up-search-demo:hover { background: #fee2e2; border-color: #fca5a5; }
         .up-search-hint { font-size: 12px; color: #94a3b8; margin-top: 10px; }
+
+        /* 未納者一覧タブ */
+        .up-list-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .up-list-search { flex: 1; min-width: 240px; display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; }
+        .up-list-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 13px; color: #0f172a; }
+        .up-list-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .up-list-select { padding: 9px 12px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; color: #475569; cursor: pointer; }
+        .up-list-select:focus { outline: none; border-color: #ef4444; }
+        .up-csv-btn { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #047857, #065f46); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s; }
+        .up-csv-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(4, 120, 87, 0.3); }
+        .up-csv-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .up-demo-banner { background: linear-gradient(90deg, #fef3c7, #fde68a); color: #92400e; border-radius: 10px; padding: 10px 16px; font-size: 12px; font-weight: 700; margin-bottom: 14px; border: 1px solid #fcd34d; }
+
+        .up-list-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+        .up-list-summary-cell { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+        .up-list-summary-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
+        .up-list-summary-value { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+        .up-list-summary-value small { font-size: 13px; color: #64748b; font-weight: 700; margin-left: 4px; }
+
+        .up-list-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .up-list-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1080px; }
+        .up-list-table th { background: #f8fafc; padding: 11px 14px; text-align: left; font-weight: 800; font-size: 10.5px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        .up-list-table th.num { text-align: right; }
+        .up-list-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; color: #0f172a; vertical-align: middle; }
+        .up-list-table td.num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .up-list-table td.mono { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #475569; }
+        .up-list-table tr:hover { background: #fafbfc; }
+        .up-list-name strong { font-size: 13px; color: #0f172a; }
+        .up-list-name small { display: block; font-size: 10.5px; color: #94a3b8; margin-top: 1px; }
+        .up-status-chip { padding: 3px 10px; border-radius: 99px; font-size: 10.5px; font-weight: 700; }
+        .up-status-chip.active { background: #ecfdf5; color: #047857; }
+        .up-status-chip.dormant { background: #fef3c7; color: #b45309; }
+        .up-status-chip.withdrawn { background: #f1f5f9; color: #64748b; }
+        .up-overdue { font-weight: 700; color: #475569; }
+        .up-overdue.warn { color: #b45309; }
+        .up-overdue.danger { color: #b91c1c; }
+        .up-cat-chip { padding: 3px 10px; border-radius: 99px; font-size: 10.5px; font-weight: 700; }
+        .up-empty-dash { color: #cbd5e1; font-weight: 600; }
 
         /* 空状態 */
         .up-empty-state { background: #fff; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 60px 30px; text-align: center; }
