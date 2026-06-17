@@ -15,9 +15,9 @@ import { verifySignedValue } from "@/lib/auth";
 
 export type KbUserRole = "admin" | "editor" | "viewer";
 
-// permissions は機能単位の特殊権限。現状は "member_search" のみ。
+// permissions は機能単位の特殊権限。
 // role: admin と独立しており、admin でも明示付与が必要。
-export type KbPermission = "member_search";
+export type KbPermission = "member_search" | "public_pdf";
 
 export type KbUser = {
   userId: string;
@@ -382,7 +382,7 @@ export async function POST(req: NextRequest) {
   resetPassword ? true :
   (existing?.mustChangePassword ?? false);
 
-const KNOWN_PERMISSIONS: KbPermission[] = ["member_search"];
+const KNOWN_PERMISSIONS: KbPermission[] = ["member_search", "public_pdf"];
 const requestedPermissions = Array.isArray(user.permissions) ? user.permissions : [];
 const sanitizedPermissions = KNOWN_PERMISSIONS.filter((p) =>
   requestedPermissions.includes(p)
