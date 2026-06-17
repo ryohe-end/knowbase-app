@@ -284,6 +284,55 @@ export default function AdminUsersPage() {
     return [...inList, ...notInList];
   }, [filteredClubs, form.clubCodes]);
 
+  // 選択中クラブ (オブジェクト) — 削除可能なタグ表示用
+  const selectedClubObjs = useMemo(() => {
+    const map = new Map(clubs.map((c) => [c.clubCode, c] as const));
+    return (form.clubCodes ?? [])
+      .map((code) => map.get(code))
+      .filter((c): c is Club => !!c);
+  }, [clubs, form.clubCodes]);
+
+  // フィルタ後のクラブを companyGroup (なければ "(その他)") で集約
+  const clubGroups = useMemo(() => {
+    const map = new Map<string, Club[]>();
+    for (const c of filteredClubs) {
+      const key = c.companyGroup?.trim() || "(その他)";
+      const arr = map.get(key) ?? [];
+      arr.push(c);
+      map.set(key, arr);
+    }
+    return Array.from(map.entries())
+      .map(([groupName, items]) => ({
+        groupName,
+        items: items.slice().sort((a, b) => a.clubCode.localeCompare(b.clubCode)),
+      }))
+      .sort((a, b) => a.groupName.localeCompare(b.groupName, "ja"));
+  }, [filteredClubs]);
+
+  // 一括選択ヘルパ
+  const setClubCodes = (next: string[]) => {
+    setForm((prev) => ({ ...prev, clubCodes: Array.from(new Set(next)) }));
+  };
+  const handleSelectAllFiltered = () => {
+    const cur = new Set(form.clubCodes ?? []);
+    for (const c of filteredClubs) cur.add(c.clubCode);
+    setClubCodes(Array.from(cur));
+  };
+  const handleClearAllFiltered = () => {
+    const filteredSet = new Set(filteredClubs.map((c) => c.clubCode));
+    setClubCodes((form.clubCodes ?? []).filter((c) => !filteredSet.has(c)));
+  };
+  const handleSelectGroup = (groupItems: Club[]) => {
+    const cur = new Set(form.clubCodes ?? []);
+    const allSelected = groupItems.every((c) => cur.has(c.clubCode));
+    if (allSelected) {
+      for (const c of groupItems) cur.delete(c.clubCode);
+    } else {
+      for (const c of groupItems) cur.add(c.clubCode);
+    }
+    setClubCodes(Array.from(cur));
+  };
+
   // ====== 保存（作成 / 更新） ======
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -889,53 +938,116 @@ export default function AdminUsersPage() {
 
               {/* 担当クラブ (複数選択可) */}
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">
-                  担当クラブ ({(form.clubCodes ?? []).length} / {clubs.length})
-                </label>
-                <input
-                  type="text"
-                  className="kb-input full"
-                  placeholder="クラブ名 / コード / カンパニーで絞り込み"
-                  value={clubSearch}
-                  onChange={(e) => setClubSearch(e.target.value)}
-                  disabled={saving}
-                  style={{ marginBottom: 6 }}
-                />
-                <div
-                  className="kb-chip-list full"
-                  style={{
-                    marginBottom: 4,
-                    maxHeight: 220,
-                    overflowY: "auto",
-                    padding: 4,
-                    border: "1px solid #e5e7eb",
-                    borderRadius: 6,
-                  }}
-                >
-                  {sortedClubs.length === 0 && (
-                    <div style={{ fontSize: 12, color: "#9ca3af", padding: 8 }}>
-                      該当するクラブがありません
+                <label className="kb-admin-label full">担当クラブ</label>
+                <div className="kb-club-picker">
+                  {/* ヘッダー: 選択数 + 検索 + 一括操作 */}
+                  <div className="kb-club-picker-toolbar">
+                    <div className="kb-club-picker-stats">
+                      <span className="kb-club-count-main">{(form.clubCodes ?? []).length}</span>
+                      <span className="kb-club-count-sub">/ {clubs.length} クラブ選択中</span>
+                    </div>
+                    <input
+                      type="text"
+                      className="kb-club-picker-search"
+                      placeholder="クラブ名 / コード / カンパニーで検索"
+                      value={clubSearch}
+                      onChange={(e) => setClubSearch(e.target.value)}
+                      disabled={saving}
+                    />
+                    <div className="kb-club-picker-bulk">
+                      <button
+                        type="button"
+                        className="kb-club-bulk-btn"
+                        onClick={handleSelectAllFiltered}
+                        disabled={saving || filteredClubs.length === 0}
+                      >
+                        絞り込み中を全選択
+                      </button>
+                      <button
+                        type="button"
+                        className="kb-club-bulk-btn ghost"
+                        onClick={handleClearAllFiltered}
+                        disabled={saving || filteredClubs.length === 0}
+                      >
+                        絞り込み中を解除
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 選択中タグ */}
+                  {selectedClubObjs.length > 0 && (
+                    <div className="kb-club-selected-row">
+                      <span className="kb-club-selected-label">選択中:</span>
+                      <div className="kb-club-selected-tags">
+                        {selectedClubObjs.map((c) => (
+                          <button
+                            key={c.clubCode}
+                            type="button"
+                            className="kb-club-tag"
+                            onClick={() => handleClubToggle(c.clubCode)}
+                            disabled={saving}
+                            title="クリックで解除"
+                          >
+                            <span className="kb-club-tag-code">{c.clubCode}</span>
+                            <span className="kb-club-tag-name">{c.clubNameShort ?? c.clubName ?? c.clubCode}</span>
+                            <span className="kb-club-tag-x">×</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   )}
-                  {sortedClubs.map((c) => {
-                    const isSelected = (form.clubCodes ?? []).includes(c.clubCode);
-                    return (
-                      <button
-                        key={c.clubCode}
-                        type="button"
-                        className={`kb-chip small ${
-                          isSelected ? "kb-chip-active" : ""
-                        }`}
-                        onClick={() => handleClubToggle(c.clubCode)}
-                        disabled={saving}
-                        title={`${c.clubCode} / ${c.companyGroup ?? ""} / ${c.companyName ?? ""}`}
-                      >
-                        {c.clubCode}: {c.clubNameShort ?? c.clubName ?? c.clubCode}
-                      </button>
-                    );
-                  })}
+
+                  {/* グループ別リスト */}
+                  <div className="kb-club-picker-list">
+                    {clubGroups.length === 0 && (
+                      <div className="kb-club-picker-empty">該当するクラブがありません</div>
+                    )}
+                    {clubGroups.map((g) => {
+                      const selectedInGroup = g.items.filter((c) =>
+                        (form.clubCodes ?? []).includes(c.clubCode)
+                      ).length;
+                      const allSelected = selectedInGroup === g.items.length;
+                      return (
+                        <div key={g.groupName} className="kb-club-group">
+                          <div className="kb-club-group-header">
+                            <span className="kb-club-group-name">{g.groupName}</span>
+                            <span className="kb-club-group-count">
+                              {selectedInGroup}/{g.items.length}
+                            </span>
+                            <button
+                              type="button"
+                              className="kb-club-group-toggle"
+                              onClick={() => handleSelectGroup(g.items)}
+                              disabled={saving}
+                            >
+                              {allSelected ? "全解除" : "全選択"}
+                            </button>
+                          </div>
+                          <div className="kb-club-group-items">
+                            {g.items.map((c) => {
+                              const isSelected = (form.clubCodes ?? []).includes(c.clubCode);
+                              return (
+                                <button
+                                  key={c.clubCode}
+                                  type="button"
+                                  className={`kb-club-item ${isSelected ? "is-selected" : ""}`}
+                                  onClick={() => handleClubToggle(c.clubCode)}
+                                  disabled={saving}
+                                  title={`${c.clubCode} / ${c.companyName ?? ""} / ${c.businessType ?? ""}`}
+                                >
+                                  <span className="kb-club-item-check">{isSelected ? "✓" : ""}</span>
+                                  <span className="kb-club-item-code">{c.clubCode}</span>
+                                  <span className="kb-club-item-name">{c.clubNameShort ?? c.clubName ?? c.clubCode}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                <div className="kb-subnote full" style={{ marginTop: 6 }}>
                   ※ クラブ単位で store-settings の表示範囲を制限します。
                   <strong>未指定 かつ admin</strong> なら全クラブ表示。
                 </div>
