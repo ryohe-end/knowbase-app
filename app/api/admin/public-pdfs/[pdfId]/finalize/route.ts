@@ -6,7 +6,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, HeadObjectCommand } from "@aws-sdk/client-s3";
-import { isAdminRequest } from "@/lib/auth";
+import { requestHasPermission } from "@/lib/auth";
+
+const REQUIRED_PERM = "public_pdf";
 import type { PublicPdf } from "@/types/publicPdf";
 
 export const runtime = "nodejs";
@@ -23,8 +25,11 @@ const ddb = DynamoDBDocumentClient.from(
 const s3 = new S3Client({ region: S3_REGION });
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ pdfId: string }> }) {
-  if (!(await isAdminRequest(req))) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!(await requestHasPermission(req, REQUIRED_PERM))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: REQUIRED_PERM },
+      { status: 403 }
+    );
   }
   const { pdfId } = await params;
 

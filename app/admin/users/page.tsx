@@ -6,7 +6,7 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
 /* ========= 型 ========= */
 export type KbUserRole = "admin" | "editor" | "viewer";
-export type KbPermission = "member_search";
+export type KbPermission = "member_search" | "public_pdf";
 export type KbUser = {
   userId: string;
   name: string;
@@ -37,6 +37,11 @@ const PERMISSION_OPTIONS: { value: KbPermission; label: string; desc: string }[]
     value: "member_search",
     label: "会員照会",
     desc: "FIT会員情報の検索・閲覧 (/admin/member-search)",
+  },
+  {
+    value: "public_pdf",
+    label: "外部公開 PDF 管理",
+    desc: "S3 への PDF アップロードと公開 URL 発行 (/admin/public-pdfs)",
   },
 ];
 

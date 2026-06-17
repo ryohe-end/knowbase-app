@@ -10,8 +10,10 @@ import {
   PutCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { isAdminRequest } from "@/lib/auth";
+import { requestHasPermission } from "@/lib/auth";
 import type { PublicPdf } from "@/types/publicPdf";
+
+const REQUIRED_PERM = "public_pdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,10 +30,17 @@ const ddb = DynamoDBDocumentClient.from(
 const s3 = new S3Client({ region: S3_REGION });
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pdfId: string }> }) {
-  if (!(await isAdminRequest(req))) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!(await requestHasPermission(req, REQUIRED_PERM))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: REQUIRED_PERM },
+      { status: 403 }
+    );
   }
   const { pdfId } = await params;
+  // S3-only エントリ (DDB 未登録) は編集対象外
+  if (pdfId.startsWith("s3:")) {
+    return NextResponse.json({ ok: false, error: "S3 直登録のファイルはタイトル編集できません" }, { status: 400 });
+  }
   let body: { title?: string; description?: string };
   try { body = await req.json(); }
   catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
@@ -55,10 +64,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ pd
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ pdfId: string }> }) {
-  if (!(await isAdminRequest(req))) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!(await requestHasPermission(req, REQUIRED_PERM))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: REQUIRED_PERM },
+      { status: 403 }
+    );
   }
   const { pdfId } = await params;
+
+  // S3 直登録のファイル (DDB 未登録) の場合は S3 のみ削除
+  if (pdfId.startsWith("s3:")) {
+    const s3Key = pdfId.slice(3);
+    try {
+      await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: s3Key }));
+      return NextResponse.json({ ok: true });
+    } catch (e: any) {
+      console.error("[public-pdfs] S3-only delete failed:", e);
+      return NextResponse.json({ ok: false, error: e?.message || "S3 error" }, { status: 500 });
+    }
+  }
+
   try {
     const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { pdfId } }));
     const item = res.Item as PublicPdf | undefined;

@@ -14,11 +14,13 @@ import {
   ScanCommand,
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
-import { isAdminRequest, verifySignedValue } from "@/lib/auth";
+import { requestHasPermission, verifySignedValue } from "@/lib/auth";
 import type { PublicPdf } from "@/types/publicPdf";
+
+const REQUIRED_PERM = "public_pdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,16 +77,76 @@ async function getCurrentUser() {
   }
 }
 
+// バケット全体を ListObjectsV2 で取得して、DDB に未登録のオブジェクトも
+// 一覧に統合する。
+async function listAllS3Objects(): Promise<{ key: string; size: number; lastModified: string }[]> {
+  const out: { key: string; size: number; lastModified: string }[] = [];
+  let token: string | undefined;
+  for (let i = 0; i < 10; i++) {
+    const res = await s3.send(
+      new ListObjectsV2Command({ Bucket: S3_BUCKET, ContinuationToken: token, MaxKeys: 1000 })
+    );
+    for (const c of res.Contents ?? []) {
+      if (!c.Key) continue;
+      // PDF のみ表示 (大文字小文字無視)
+      if (!/\.pdf$/i.test(c.Key)) continue;
+      out.push({
+        key: c.Key,
+        size: Number(c.Size ?? 0),
+        lastModified: c.LastModified ? c.LastModified.toISOString() : "",
+      });
+    }
+    if (!res.IsTruncated) break;
+    token = res.NextContinuationToken;
+  }
+  return out;
+}
+
 // 一覧
 export async function GET(req: NextRequest) {
-  if (!(await isAdminRequest(req))) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!(await requestHasPermission(req, REQUIRED_PERM))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: REQUIRED_PERM },
+      { status: 403 }
+    );
   }
   try {
-    const res = await ddb.send(new ScanCommand({ TableName: TABLE }));
-    const items = ((res.Items ?? []) as PublicPdf[])
-      .filter((p) => p.status === "ready")
-      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    const [ddbRes, s3Objs] = await Promise.all([
+      ddb.send(new ScanCommand({ TableName: TABLE })),
+      listAllS3Objects().catch((e) => {
+        console.error("[public-pdfs] S3 list failed:", e);
+        return [] as { key: string; size: number; lastModified: string }[];
+      }),
+    ]);
+    const ddbItems = ((ddbRes.Items ?? []) as PublicPdf[]).filter((p) => p.status === "ready");
+    const ddbKeys = new Set(ddbItems.map((i) => i.s3Key));
+    // S3 にあって DDB に無いものを取り込み用エントリとして合成
+    const s3Only: PublicPdf[] = s3Objs
+      .filter((o) => !ddbKeys.has(o.key))
+      .map((o) => {
+        const baseName = o.key.split("/").pop() || o.key;
+        return {
+          pdfId: `s3:${o.key}`,           // S3 専用 ID (pdfId に s3: プレフィックス)
+          s3Key: o.key,
+          s3Bucket: S3_BUCKET,
+          s3Region: S3_REGION,
+          publicUrl: publicUrlFor(o.key),
+          title: baseName,
+          description: undefined,
+          originalName: baseName,
+          contentType: "application/pdf",
+          sizeBytes: o.size,
+          status: "ready",
+          uploadedById: "",
+          uploadedByName: "—",
+          uploadedByEmail: "",
+          createdAt: o.lastModified,
+          updatedAt: o.lastModified,
+        };
+      });
+    const items = [...ddbItems, ...s3Only].sort(
+      (a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")
+    );
     return NextResponse.json({ ok: true, items });
   } catch (e: any) {
     console.error("[public-pdfs] GET error:", e);
@@ -94,8 +156,11 @@ export async function GET(req: NextRequest) {
 
 // 署名付き PUT URL 発行 (アップロード初期化)
 export async function POST(req: NextRequest) {
-  if (!(await isAdminRequest(req))) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!(await requestHasPermission(req, REQUIRED_PERM))) {
+    return NextResponse.json(
+      { ok: false, error: "permission_denied", required: REQUIRED_PERM },
+      { status: 403 }
+    );
   }
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

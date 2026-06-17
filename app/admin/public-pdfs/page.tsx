@@ -22,6 +22,7 @@ type Toast = { message: string; type: "success" | "error" } | null;
 export default function PublicPdfsPage() {
   const [items, setItems] = useState<PublicPdf[]>([]);
   const [loading, setLoading] = useState(true);
+  const [denied, setDenied] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [titleInput, setTitleInput] = useState("");
@@ -39,9 +40,15 @@ export default function PublicPdfsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/public-pdfs", { cache: "no-store" });
+      if (res.status === 403) {
+        setDenied(true);
+        setItems([]);
+        return;
+      }
       const data = await res.json();
       if (data.ok && Array.isArray(data.items)) {
         setItems(data.items);
+        setDenied(false);
       }
     } catch (e) {
       console.error(e);
@@ -167,6 +174,14 @@ export default function PublicPdfsPage() {
       </header>
 
       <main className="pp-main">
+        {denied && (
+          <div className="pp-denied">
+            <strong>権限がありません。</strong>
+            この機能を利用するには、管理者にユーザー画面で「外部公開 PDF 管理」権限を付与してもらってください。
+          </div>
+        )}
+        {!denied && (
+        <>
         <section className="pp-upload-card">
           <h2 className="pp-section-title">新規アップロード</h2>
           <div className="pp-form-grid">
@@ -251,11 +266,16 @@ export default function PublicPdfsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((p) => (
+                  {filtered.map((p) => {
+                    const isS3Only = p.pdfId.startsWith("s3:");
+                    return (
                     <tr key={p.pdfId}>
                       <td>
                         <div className="pp-title-cell">
-                          <strong>{p.title}</strong>
+                          <strong>
+                            {p.title}
+                            {isS3Only && <span className="pp-s3-badge" title="S3 直登録 (本画面外でアップロード)">S3 直登録</span>}
+                          </strong>
                           {p.description && <small>{p.description}</small>}
                         </div>
                       </td>
@@ -279,12 +299,15 @@ export default function PublicPdfsPage() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </section>
+        </>
+        )}
       </main>
 
       {toast && (
@@ -352,6 +375,10 @@ export default function PublicPdfsPage() {
         .pp-copy-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
         .pp-delete-btn { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #b91c1c; background: #fff; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; }
         .pp-delete-btn:hover { background: #fef2f2; }
+
+        .pp-denied { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 12px; padding: 20px 24px; font-size: 13px; line-height: 1.7; }
+        .pp-denied strong { display: block; font-size: 14px; margin-bottom: 4px; }
+        .pp-s3-badge { display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 4px; background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 700; vertical-align: middle; }
 
         .pp-toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 22px; border-radius: 10px; font-size: 13px; font-weight: 700; z-index: 9999; box-shadow: 0 6px 16px rgba(0,0,0,0.15); animation: slideUp 0.3s ease; }
         .pp-toast-success { background: #10b981; color: #fff; }

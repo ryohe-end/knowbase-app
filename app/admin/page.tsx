@@ -105,13 +105,6 @@ export default function AdminHome() {
       color: "#10b981",
     },
     {
-      href: "/admin/public-pdfs",
-      label: "6-B. PUBLIC PDF",
-      title: "外部公開 PDF 管理",
-      desc: "PDF を S3 にアップロードし、外部公開用 URL を発行します",
-      color: "#0284c7",
-    },
-    {
       href: "/admin/analytics",
       label: "7. ANALYTICS",
       title: "分析ダッシュボード",
@@ -133,6 +126,17 @@ export default function AdminHome() {
             title: "会員情報照会",
             desc: "UDID・会員番号・氏名等から FIT 会員情報を検索・閲覧します",
             color: "#06b6d4",
+          },
+        ]
+      : []),
+    ...(permissions.includes("public_pdf")
+      ? [
+          {
+            href: "/admin/public-pdfs",
+            label: "10. PUBLIC PDF",
+            title: "外部公開 PDF 管理",
+            desc: "PDF を S3 にアップロードし、外部公開用 URL を発行します",
+            color: "#0284c7",
           },
         ]
       : []),
