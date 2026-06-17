@@ -105,6 +105,13 @@ export default function AdminHome() {
       color: "#10b981",
     },
     {
+      href: "/admin/public-pdfs",
+      label: "6-B. PUBLIC PDF",
+      title: "外部公開 PDF 管理",
+      desc: "PDF を S3 にアップロードし、外部公開用 URL を発行します",
+      color: "#0284c7",
+    },
+    {
       href: "/admin/analytics",
       label: "7. ANALYTICS",
       title: "分析ダッシュボード",
