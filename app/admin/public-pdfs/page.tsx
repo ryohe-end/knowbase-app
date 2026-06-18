@@ -103,7 +103,6 @@ export default function PublicPdfsPage() {
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", initData.presignedUrl);
         xhr.setRequestHeader("Content-Type", file.type);
-        xhr.setRequestHeader("x-amz-acl", "public-read");
         xhr.upload.onprogress = (ev) => {
           if (ev.lengthComputable) {
             setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
@@ -261,7 +260,7 @@ export default function PublicPdfsPage() {
                     <th style={{ textAlign: "right" }}>サイズ</th>
                     <th>登録者</th>
                     <th>登録日時</th>
-                    <th>公開 URL</th>
+                    <th style={{ minWidth: 160 }}>公開 URL</th>
                     <th style={{ width: 80 }}>操作</th>
                   </tr>
                 </thead>
@@ -368,10 +367,10 @@ export default function PublicPdfsPage() {
         .pp-title-cell small { display: block; font-size: 11px; color: #94a3b8; margin-top: 2px; }
         .pp-filename { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .pp-date-cell { color: #475569; white-space: nowrap; }
-        .pp-url-cell { display: flex; gap: 6px; align-items: center; }
-        .pp-url-link { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #0ea5e9; background: #eff6ff; border-radius: 6px; text-decoration: none; }
+        .pp-url-cell { display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+        .pp-url-link { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #0ea5e9; background: #eff6ff; border-radius: 6px; text-decoration: none; white-space: nowrap; line-height: 1.4; }
         .pp-url-link:hover { background: #dbeafe; }
-        .pp-copy-btn { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; }
+        .pp-copy-btn { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #475569; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; white-space: nowrap; line-height: 1.4; }
         .pp-copy-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
         .pp-delete-btn { padding: 4px 10px; font-size: 11px; font-weight: 700; color: #b91c1c; background: #fff; border: 1px solid #fecaca; border-radius: 6px; cursor: pointer; }
         .pp-delete-btn:hover { background: #fef2f2; }

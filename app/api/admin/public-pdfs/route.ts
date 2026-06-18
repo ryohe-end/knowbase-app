@@ -203,7 +203,6 @@ export async function POST(req: NextRequest) {
         Key: s3Key,
         ContentType: contentType,
         ContentLength: sizeBytes,
-        ACL: "public-read",
       }),
       { expiresIn: 60 * 10 } // 10 分
     );
@@ -253,7 +252,6 @@ export async function POST(req: NextRequest) {
     s3Key,
     requiredHeaders: {
       "Content-Type": contentType,
-      "x-amz-acl": "public-read",
     },
   });
 }
