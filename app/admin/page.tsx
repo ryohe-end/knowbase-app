@@ -149,12 +149,12 @@ export default function AdminHome() {
         <div className="kb-topbar-inner">
           <div className="kb-topbar-left">
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+              src="/logos/KnowBase_icon.png"
               alt="Logo"
               className="kb-logo-icon"
             />
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
+              src="/logos/KnowBase_CR.png"
               alt="Know Base"
               className="kb-logo-text"
             />

@@ -82,8 +82,8 @@ export default function AdminDeptsPage() {
       <div className="kb-topbar">
         <Link href="/admin" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
+            <img src="/logos/KnowBase_icon.png" alt="Logo" style={{ width: 48, height: 48, objectFit: "contain" }} />
+            <img src="/logos/KnowBase_CR.png" alt="LogoText" style={{ height: 22, objectFit: "contain" }} />
           </div>
         </Link>
         <div className="kb-topbar-center" style={{ fontSize: 18, fontWeight: 700 }}>部署・メーリングリスト管理</div>

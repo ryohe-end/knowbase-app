@@ -88,7 +88,7 @@ export default function ContactList({ contacts, contactSearch, setContactSearch,
                   
                   <a href={gmailUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', flexShrink: 0 }}>
                     <img
-                      src="https://houjin-manual.s3.us-east-2.amazonaws.com/gmail-new.png"
+                      src="/logos/gmail-new.png"
                       alt="Gmail"
                       width={16}
                       height={16}

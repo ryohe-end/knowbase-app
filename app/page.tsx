@@ -1265,7 +1265,7 @@ export default function HomePage() {
     return (
       <div className="kb-loading-root">
         <div className="kb-loading-container">
-          <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="Logo" className="kb-loading-logo" />
+          <img src="/logos/KnowBase_icon.png" alt="Logo" className="kb-loading-logo" />
           <div className="kb-loading-spinner"></div>
           <p className="kb-loading-text">KnowBase を起動中...</p>
         </div>
@@ -1287,8 +1287,8 @@ export default function HomePage() {
       <div className="kb-topbar">
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png" alt="KB Logo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
-            <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png" alt="KnowBase Text Logo" style={{ height: "22px", objectFit: "contain" }} />
+            <img src="/logos/KnowBase_icon.png" alt="KB Logo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
+            <img src="/logos/KnowBase_CR.png" alt="KnowBase Text Logo" style={{ height: "22px", objectFit: "contain" }} />
           </div>
         </Link>
 
@@ -1495,7 +1495,7 @@ export default function HomePage() {
             <div className="kb-card-header">
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div className="kb-avatar">
-                  <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/Knowble_icon.png" alt="Knowbie アイコン" style={{ width: 32, height: 32, objectFit: "contain" }} />
+                  <img src="/logos/Knowble_icon.png" alt="Knowbie アイコン" style={{ width: 32, height: 32, objectFit: "contain" }} />
                 </div>
                 <div>
                   <div className="kb-card-title">Knowbie（ノウビー）</div>
@@ -1517,7 +1517,7 @@ export default function HomePage() {
                       </div>
                     ) : (
                       <>
-                        <img src="https://houjin-manual.s3.us-east-2.amazonaws.com/Knowble_icon.png" alt="Knowbie Icon" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 999, flexShrink: 0 }} />
+                        <img src="/logos/Knowble_icon.png" alt="Knowbie Icon" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 999, flexShrink: 0 }} />
                         <div style={{ padding: "8px 12px", borderRadius: 12, fontSize: 13, background: "#334155", color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
                           <div style={{ fontWeight: 600, marginBottom: 4, color: "#60a5fa" }}>Knowbie:</div>
                           {msg.content}

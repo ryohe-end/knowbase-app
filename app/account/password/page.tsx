@@ -142,12 +142,12 @@ function PasswordPageContent() {
             style={{ display: "flex", alignItems: "center", gap: "20px" }}
           >
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+              src="/logos/KnowBase_icon.png"
               alt="Logo"
               style={{ width: 48, height: 48, objectFit: "contain" }}
             />
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
+              src="/logos/KnowBase_CR.png"
               alt="LogoText"
               style={{ height: 22, objectFit: "contain" }}
             />

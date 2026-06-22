@@ -26,7 +26,7 @@ export default function Loading() {
           style={{ position: "relative", width: 80, height: 80, marginBottom: 24 }}
         >
           <img
-            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+            src="/logos/KnowBase_icon.png"
             alt="Loading Logo"
             className="kb-spin-logo"
             style={{

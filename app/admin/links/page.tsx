@@ -239,7 +239,7 @@ export default function ExternalLinksAdminPage() {
           }}
         >
           <img
-            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+            src="/logos/KnowBase_icon.png"
             alt="Logo"
             style={{ width: 44, height: 44 }}
           />

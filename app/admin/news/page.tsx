@@ -162,7 +162,7 @@ function BusyOverlay({ text }: { text: string }) {
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ position: "relative", width: 80, height: 80, marginBottom: 24 }}>
           <img
-            src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+            src="/logos/KnowBase_icon.png"
             alt="Loading Logo"
             style={{
               width: 40,
@@ -551,12 +551,12 @@ export default function AdminNewsPage() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+              src="/logos/KnowBase_icon.png"
               alt="Logo"
               style={{ width: 48, height: 48, objectFit: "contain" }}
             />
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
+              src="/logos/KnowBase_CR.png"
               alt="LogoText"
               style={{ height: 22, objectFit: "contain" }}
             />

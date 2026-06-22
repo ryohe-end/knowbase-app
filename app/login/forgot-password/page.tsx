@@ -63,12 +63,12 @@ const ForgotPasswordPage = () => {
         <div className="kb-login-header-new">
           <div className="kb-login-logo-wrap">
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_icon.png"
+              src="/logos/KnowBase_icon.png"
               alt="KB Logo"
               style={{ width: "48px", height: "48px", objectFit: "contain" }}
             />
             <img
-              src="https://houjin-manual.s3.us-east-2.amazonaws.com/KnowBase_CR.png"
+              src="/logos/KnowBase_CR.png"
               alt="KnowBase Text Logo"
               style={{ height: "22px", objectFit: "contain" }}
             />
