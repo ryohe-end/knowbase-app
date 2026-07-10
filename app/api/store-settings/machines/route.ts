@@ -1,23 +1,13 @@
 // app/api/store-settings/machines/route.ts
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
+import { query } from "@/lib/memberDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PG_CONNECTION = process.env.PG_DATABASE_URL
-  || "postgres://wf_member_app_prod:UA5JAaqYeyVGUpD@188.93.146.126:5432/wf_member_app_prod";
-
-const pool = new Pool({
-  connectionString: PG_CONNECTION,
-  max: 5,
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000,
-});
-
 export async function GET() {
   try {
-    const result = await pool.query(`
+    const result = await query(`
       SELECT
         machine_name__c AS "name",
         COALESCE(body_region__c, 'その他') AS "bodyRegion",

@@ -1,0 +1,11 @@
+{
+  "name": "db-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "VPC 内で会員DBへ問い合わせる薄いプロキシ Lambda (固定EIP egress)",
+  "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.947.0",
+    "pg": "^8.20.0"
+  }
+}
