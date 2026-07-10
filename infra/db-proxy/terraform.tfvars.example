@@ -11,8 +11,13 @@ pg_database_url = "postgres://wf_member_app_prod:PASSWORD@188.93.146.126:5432/wf
 # 指定すると pg_database_url からの新規作成はスキップされる。
 # pg_secret_arn = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:xxx"
 
-# 会員DB のホスト IP (SG egress をこの IP/32 に限定)
-pg_host = "188.93.146.126"
+# member 以外の追加接続先 (両方プロキシ経由)。{ target名 = 接続文字列 }。
+# additional_db_targets = {
+#   newdb = "postgres://user:pass@newhost:5432/dbname"
+# }
+
+# Lambda の 5432 egress 許可先。複数DB対応で既定は全許可。絞るなら各DBの IP/32 を列挙。
+# db_egress_cidrs = ["188.93.146.126/32", "<newdb-ip>/32"]
 
 # Amplify SSR 実行ロール名 (分かっていれば。空なら invoke 権限は手動付与)
 # 例: "amplifyconsole-backend-role" など。IAM コンソールで確認して入れる。

@@ -108,11 +108,11 @@ resource "aws_security_group" "lambda" {
   vpc_id      = aws_vpc.this.id
 
   egress {
-    description = "PostgreSQL to member DB"
+    description = "PostgreSQL to configured DBs"
     from_port   = var.pg_port
     to_port     = var.pg_port
     protocol    = "tcp"
-    cidr_blocks = ["${var.pg_host}/32"]
+    cidr_blocks = var.db_egress_cidrs
   }
 
   # Secrets Manager / STS など AWS API 呼び出し用 (NAT 経由で HTTPS)。
@@ -143,7 +143,30 @@ resource "aws_secretsmanager_secret_version" "pg" {
 }
 
 locals {
+  # target名の集合。接続文字列は機密なので、for_each には名前 (非機密) のみ使う。
+  extra_target_names = nonsensitive(toset(keys(var.additional_db_targets)))
+}
+
+# member 以外の追加接続先。target ごとに個別シークレットを作成。
+resource "aws_secretsmanager_secret" "extra" {
+  for_each = local.extra_target_names
+  name     = "${var.name_prefix}/pg-${each.key}"
+}
+
+resource "aws_secretsmanager_secret_version" "extra" {
+  for_each      = local.extra_target_names
+  secret_id     = aws_secretsmanager_secret.extra[each.key].id
+  secret_string = var.additional_db_targets[each.key]
+}
+
+locals {
   pg_secret_arn = var.pg_secret_arn != "" ? var.pg_secret_arn : aws_secretsmanager_secret.pg[0].arn
+
+  # target名 -> シークレット ARN のマップ (member + 追加分)
+  db_target_secret_arns = merge(
+    { member = local.pg_secret_arn },
+    { for k in local.extra_target_names : k => aws_secretsmanager_secret.extra[k].arn }
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -179,7 +202,7 @@ resource "aws_iam_role_policy" "secret_read" {
     Statement = [{
       Effect   = "Allow"
       Action   = "secretsmanager:GetSecretValue"
-      Resource = local.pg_secret_arn
+      Resource = values(local.db_target_secret_arns)
     }]
   })
 }
@@ -211,7 +234,8 @@ resource "aws_lambda_function" "proxy" {
   environment {
     variables = {
       # 平文の接続文字列は渡さない。Lambda は実行時に Secrets Manager から取得する。
-      PG_SECRET_ID = local.pg_secret_arn
+      # target名 -> シークレット ARN のマップ (member + 追加分)。
+      DB_TARGETS = jsonencode(local.db_target_secret_arns)
     }
   }
 }

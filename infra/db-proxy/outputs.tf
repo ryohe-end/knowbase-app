@@ -3,6 +3,11 @@ output "egress_ip" {
   value       = aws_eip.nat.public_ip
 }
 
+output "db_target_secret_arns" {
+  description = "target名 -> Secrets Manager シークレット ARN。新DBの接続文字列を入れる先の確認用。"
+  value       = local.db_target_secret_arns
+}
+
 output "proxy_function_name" {
   description = "Amplify の環境変数 DB_PROXY_FUNCTION_NAME に設定する値"
   value       = aws_lambda_function.proxy.function_name

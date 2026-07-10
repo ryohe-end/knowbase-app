@@ -47,19 +47,28 @@ function getLambda(): LambdaClient {
   return lambda;
 }
 
+// 接続先 (target) の既定。プロキシ Lambda 側の DB_TARGETS のキーと一致させる。
+const DEFAULT_TARGET = "member";
+
 /**
- * 会員DB に対してパラメータ化クエリを実行する。pg の `pool.query(text, params)` と
- * 同じ呼び出し形・戻り値 ({ rows, rowCount }) を保つので、呼び出し側は経路を意識しない。
+ * 指定 target の PostgreSQL に対してパラメータ化クエリを実行する。pg の
+ * `pool.query(text, params)` と同じ呼び出し形・戻り値 ({ rows, rowCount }) を保つ。
+ *
+ * @param target 接続先名。既定は "member" (会員DB)。プロキシに登録した別DBを使う場合に指定。
+ *
+ * プロキシ経路 (DB_PROXY_FUNCTION_NAME あり) では target ごとに別DBへルーティングされる。
+ * 直結経路 (プロキシ無し=ローカル開発) は既定 target のみ対応し、それ以外はエラーにする。
  */
 export async function query<T extends Row = Row>(
   text: string,
-  params: any[] = []
+  params: any[] = [],
+  target: string = DEFAULT_TARGET
 ): Promise<QueryResult<T>> {
   if (PROXY_FN) {
     const res = await getLambda().send(
       new InvokeCommand({
         FunctionName: PROXY_FN,
-        Payload: Buffer.from(JSON.stringify({ text, params })),
+        Payload: Buffer.from(JSON.stringify({ text, params, target })),
       })
     );
 
@@ -82,6 +91,12 @@ export async function query<T extends Row = Row>(
     return { rows: (payload.rows ?? []) as T[], rowCount: payload.rowCount ?? 0 };
   }
 
+  // 直結経路 (ローカル開発): 既定 target のみ対応。
+  if (target !== DEFAULT_TARGET) {
+    throw new Error(
+      `target "${target}" は直結経路では利用できません。DB_PROXY_FUNCTION_NAME を設定してプロキシ経由で実行してください。`
+    );
+  }
   const r = await getPool().query(text, params);
   return { rows: r.rows as T[], rowCount: r.rowCount ?? 0 };
 }

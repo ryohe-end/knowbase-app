@@ -41,16 +41,23 @@ variable "pg_secret_arn" {
   default     = ""
 }
 
-variable "pg_host" {
-  description = "会員DB のホスト IP。SG の egress をこの IP に絞るため。"
-  type        = string
-  default     = "188.93.146.126"
+variable "additional_db_targets" {
+  description = "member 以外の追加接続先。{ target名 = 接続文字列 } のマップ。各 target ごとに Secrets Manager シークレットを作成する。例: { newdb = \"postgres://...\" }"
+  type        = map(string)
+  default     = {}
+  sensitive   = true
 }
 
 variable "pg_port" {
-  description = "会員DB のポート"
+  description = "PostgreSQL のポート"
   type        = number
   default     = 5432
+}
+
+variable "db_egress_cidrs" {
+  description = "Lambda が 5432 で接続を許可する宛先 CIDR。複数DB対応のため既定は全許可。特定IPに絞るなら各DBのIP/32を列挙する。"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
 }
 
 variable "amplify_ssr_role_name" {
