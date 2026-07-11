@@ -372,6 +372,65 @@ const UNPAID_PAID_SQL = `
   FETCH FIRST 20000 ROWS ONLY
 `;
 
+// ダッシュボード全体数値: クラブ(複数可)×振替年月 を 回収/未納/貸倒予定 に分類集計。
+// 回収 = 振替結果コード='0'(当月振替成功) / 未納 = ≠'0' / 貸倒予定 = 強制退会(退会理由=42)。
+// ※ 全体数値は参考SQLに準拠し会員入金歴の入金照合はしない(振替結果ベース)。
+function unpaidSummarySql(clubBindNames) {
+  return `
+  SELECT
+    f.振替年月 AS YM,
+    CASE
+      WHEN TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason THEN 'writeoff'
+      WHEN TRIM(f.振替結果コード) = '0' THEN 'collected'
+      ELSE 'unpaid'
+    END AS BUCKET,
+    COUNT(*) AS CNT,
+    SUM(${UNPAID_NET_EXPR}) AS AMT
+  FROM FIT_ADMIN."振替契約別" f
+  LEFT JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ = f.契約SEQ
+  WHERE f.クラブコード IN (${clubBindNames.join(",")})
+    AND f.振替年月 BETWEEN :fromYm AND :toYm
+    AND f.振替結果コード IS NOT NULL
+    AND ABS(${UNPAID_NET_EXPR}) > 1
+  GROUP BY f.振替年月,
+    CASE
+      WHEN TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason THEN 'writeoff'
+      WHEN TRIM(f.振替結果コード) = '0' THEN 'collected'
+      ELSE 'unpaid'
+    END
+  ORDER BY f.振替年月`;
+}
+
+function buildUnpaidSummary(rows) {
+  const monthMap = new Map(); // ym -> {collected,unpaid,writeoff}{cnt,amt}
+  const tot = {
+    unpaidCount: 0, unpaidAmount: 0, collectedCount: 0, collectedAmount: 0,
+    writeoffCount: 0, writeoffAmount: 0,
+  };
+  for (const r of rows) {
+    const ym = r.YM != null ? String(r.YM) : "";
+    const month = ym.length === 6 ? `${ym.slice(0, 4)}-${ym.slice(4, 6)}` : ym;
+    const cnt = Number(r.CNT) || 0;
+    const amt = Number(r.AMT) || 0;
+    const bucket = r.BUCKET;
+    let m = monthMap.get(month);
+    if (!m) { m = { month, unpaidCount: 0, unpaidAmount: 0, collectedCount: 0, collectedAmount: 0, writeoffCount: 0, writeoffAmount: 0 }; monthMap.set(month, m); }
+    if (bucket === "collected") { m.collectedCount += cnt; m.collectedAmount += amt; tot.collectedCount += cnt; tot.collectedAmount += amt; }
+    else if (bucket === "writeoff") { m.writeoffCount += cnt; m.writeoffAmount += amt; tot.writeoffCount += cnt; tot.writeoffAmount += amt; }
+    else { m.unpaidCount += cnt; m.unpaidAmount += amt; tot.unpaidCount += cnt; tot.unpaidAmount += amt; }
+  }
+  const denom = tot.collectedAmount + tot.unpaidAmount;
+  return {
+    // 貸倒予定を除いた全体数値
+    unpaidCount: tot.unpaidCount, unpaidAmount: tot.unpaidAmount,
+    collectedCount: tot.collectedCount, collectedAmount: tot.collectedAmount,
+    collectionRate: denom > 0 ? Math.round((tot.collectedAmount / denom) * 100) : 0,
+    // 貸倒予定(強制退会)
+    writeoffCount: tot.writeoffCount, writeoffAmount: tot.writeoffAmount,
+    byMonth: [...monthMap.values()].sort((a, b) => (a.month < b.month ? -1 : 1)),
+  };
+}
+
 function _fmtYmd(raw) { const s = raw != null ? String(raw) : ""; return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : null; }
 function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length === 6 ? `${s.slice(0,4)}-${s.slice(4,6)}` : s; }
 
@@ -549,6 +608,38 @@ export const handler = async (event) => {
       return resp(200, { results: buildUnpaidResult(result.rows || []) });
     } catch (err) {
       console.error("unpaid error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // 未納管理 ダッシュボード全体数値 (クラブ複数可・エリア合算用)
+  if (type === "unpaid_summary") {
+    const clubs = (params.clubCodes || params.clubCode || "")
+      .split(",").map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !Number.isNaN(n));
+    if (clubs.length === 0) {
+      return resp(400, { error: "missing_params", required: ["clubCode or clubCodes"] });
+    }
+    const ym = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const now = new Date();
+    const from = new Date(now); from.setMonth(from.getMonth() - 11); // 既定: 直近12ヶ月
+    const forcedReason = (params.forcedReason || "42").trim();
+    const clubBindNames = clubs.map((_, i) => `:club${i}`);
+    const binds = {
+      forcedReason,
+      fromYm: Number(params.fromYm || ym(from)),
+      toYm: Number(params.toYm || ym(now)),
+    };
+    clubs.forEach((c, i) => { binds[`club${i}`] = c; });
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(unpaidSummarySql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      return resp(200, buildUnpaidSummary(r.rows || []));
+    } catch (err) {
+      console.error("unpaid_summary error", err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }

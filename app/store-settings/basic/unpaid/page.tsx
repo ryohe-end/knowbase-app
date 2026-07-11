@@ -2,1432 +2,336 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import StoreSelector from "@/components/StoreSelector";
-import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
-import { ToastProvider, useToast } from "@/components/Toast";
+import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Users } from "lucide-react";
 
-// --- 型 ---
-type UnpaidCategory = "monthly_fee" | "option" | "onetime_pass" | "penalty" | "other";
-type UnpaidStatus = "unpaid" | "reminded" | "negotiating" | "paid" | "written_off";
-
-type UnpaidItem = {
-  id: string;
-  occurredAt: string;
-  dueAt: string;
-  category: UnpaidCategory;
-  amount: number;
-  description: string;
-  status: UnpaidStatus;
-  lastRemindedAt: string | null;
-  remindCount: number;
-  paidAt: string | null;
-  paymentMethod: string | null;
-  note: string | null;
-};
-
-type PaymentRecord = {
-  id: string;
-  paidAt: string;
-  amount: number;
-  method: string;
-  reference: string | null;
-};
-
-type MemberUnpaidInfo = {
-  memberCode: string;
-  memberName: string;
-  email: string | null;
-  phone: string | null;
-  joinedAt: string;
-  status: "active" | "dormant" | "withdrawn";
-  totalUnpaid: number;
-  unpaidCount: number;
-  oldestUnpaidAt: string | null;
-  lifetimePaid: number;
-  items: UnpaidItem[];
-  paymentHistory: PaymentRecord[];
-};
-
-type StoreSummary = {
-  clubCode: string;
-  clubName: string;
-  brand: string;
-  businessType: string;
-  prefecture: string;
-};
-
-type AgingBucket = {
-  key: "0-30" | "31-60" | "61-90" | "91+";
-  label: string;
-  count: number;
-  amount: number;
-};
-
-type UnpaidSummary = {
-  totalUnpaidAmount: number;
-  totalUnpaidMembers: number;
-  totalUnpaidCount: number;
-  thisMonthOccurred: number;
-  thisMonthCollected: number;
-  collectionRate: number;
-  averageDaysOverdue: number;
-  oldestUnpaidDays: number;
-  aging: AgingBucket[];
-  byCategory: { category: UnpaidCategory; count: number; amount: number }[];
-  monthlyTrend: { month: string; occurred: number; collected: number }[];
-  topUnpaid: { memberCode: string; memberName: string; amount: number; oldestUnpaidAt: string; unpaidCount: number }[];
-  recentReminders: { id: string; memberCode: string; memberName: string; amount: number; remindedAt: string; channel: "email" | "sms" | "phone" | "letter" }[];
-};
-
-type TabKey = "member" | "list" | "dashboard";
-
-// 未納者一覧 (ListTab 用)
-type UnpaidMemberRow = {
-  memberCode: string;
-  memberName: string;
-  memberKana: string;
-  phone: string | null;
-  email: string | null;
-  plan: string;
-  status: "active" | "dormant" | "withdrawn";
-  totalUnpaid: number;
-  unpaidCount: number;
-  oldestUnpaidAt: string;
-  oldestUnpaidDays: number;
-  categories: { category: UnpaidCategory; count: number; amount: number }[];
-  lastRemindedAt: string | null;
-};
-
-// --- 定数 ---
-const CATEGORY_META: Record<UnpaidCategory, { label: string; color: string; bg: string }> = {
-  monthly_fee: { label: "会費", color: "#b91c1c", bg: "#fee2e2" },
-  option: { label: "オプション", color: "#7c3aed", bg: "#ede9fe" },
-  onetime_pass: { label: "都度利用", color: "#b45309", bg: "#fef3c7" },
-  penalty: { label: "遅延手数料", color: "#be185d", bg: "#fdf2f8" },
-  other: { label: "その他", color: "#475569", bg: "#f1f5f9" },
-};
-
-const STATUS_META: Record<UnpaidStatus, { label: string; color: string; bg: string }> = {
-  unpaid: { label: "未納", color: "#b91c1c", bg: "#fee2e2" },
-  reminded: { label: "督促中", color: "#b45309", bg: "#fef3c7" },
-  negotiating: { label: "交渉中", color: "#7c3aed", bg: "#ede9fe" },
-  paid: { label: "支払済", color: "#047857", bg: "#d1fae5" },
-  written_off: { label: "貸倒", color: "#64748b", bg: "#e2e8f0" },
-};
-
-const CHANNEL_META: Record<"email" | "sms" | "phone" | "letter", string> = {
-  email: "メール",
-  sms: "SMS",
-  phone: "電話",
-  letter: "郵送",
-};
-
-// --- ヘルパー ---
-function formatYen(n: number): string {
-  return `¥${n.toLocaleString("ja-JP")}`;
+// ---- 型 ----
+interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
+interface MonthRow { month: string; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number; writeoffCount: number; writeoffAmount: number }
+interface Summary {
+  unpaidCount: number; unpaidAmount: number;
+  collectedCount: number; collectedAmount: number; collectionRate: number;
+  writeoffCount: number; writeoffAmount: number;
+  byMonth: MonthRow[];
 }
-function formatDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-  } catch {
-    return iso;
-  }
-}
-function formatDateTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  } catch {
-    return iso;
-  }
-}
-function daysSince(iso: string): number {
-  const d = new Date(iso);
-  const ms = Date.now() - d.getTime();
-  return Math.floor(ms / (24 * 3600 * 1000));
+interface Member {
+  memberNo: string; memberName: string | null; kana: string | null;
+  email: string | null; phone: string | null; plan: string | null;
+  status: string; outstanding: number; unpaidCount: number; unpaidMonths: number;
+  monthlyBreakdown: { month: string; amount: number }[];
+  annualFeeTotal: number; hasSecurityFee: boolean;
 }
 
-// --- 個人別タブ ---
-function MemberTab({ clubCode }: { clubCode: string }) {
-  const { showToast } = useToast();
-  const [memberCodeInput, setMemberCodeInput] = useState("");
-  const [searched, setSearched] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [member, setMember] = useState<MemberUnpaidInfo | null>(null);
-  const [isDemo, setIsDemo] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<"all" | UnpaidStatus>("all");
+const yen = (n: number) => "¥" + (n || 0).toLocaleString();
 
-  const doSearch = useCallback(
-    async (code: string, demo: boolean) => {
-      const trimmed = code.trim();
-      if (!trimmed) {
-        showToast("会員番号を入力してください。", "error");
-        return;
-      }
-      setLoading(true);
-      setSearched(true);
-      try {
-        const q = new URLSearchParams({ clubCode, memberCode: trimmed });
-        if (demo) q.set("demo", "1");
-        const res = await fetch(`/api/store-settings/unpaid/member?${q}`);
-        if (res.ok) {
-          const data = await res.json();
-          setMember(data.member);
-          setIsDemo(!!data.isDemo);
-        }
-      } catch (e) {
-        console.error(e);
-        showToast("検索に失敗しました。", "error");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [clubCode, showToast]
-  );
+function csvEscape(v: string | number): string {
+  const s = String(v ?? "");
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    doSearch(memberCodeInput, false);
+function UnpaidManager() {
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [mode, setMode] = useState<"club" | "group" | "brand">("club");
+  const [clubCode, setClubCode] = useState("");
+  const [group, setGroup] = useState("");
+  const [brand, setBrand] = useState("");
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [clubCount, setClubCount] = useState(0);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [bucket, setBucket] = useState<"current" | "writeoff">("current");
+  const [tab, setTab] = useState<"dashboard" | "list" | "csv">("dashboard");
+  const [loadingSum, setLoadingSum] = useState(false);
+  const [loadingList, setLoadingList] = useState(false);
+  const [err, setErr] = useState("");
+
+  // クラブ辞書
+  useEffect(() => {
+    fetch("/api/clubs", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setClubs(d.clubs || []); })
+      .catch(() => {});
+  }, []);
+
+  const groups = useMemo(() => [...new Set(clubs.map((c) => c.companyGroup).filter(Boolean))].sort() as string[], [clubs]);
+  const brands = useMemo(() => [...new Set(clubs.map((c) => c.businessType).filter(Boolean))].sort() as string[], [clubs]);
+
+  const filterQuery = useCallback(() => {
+    const p = new URLSearchParams();
+    if (mode === "club" && clubCode) p.set("clubCode", clubCode);
+    if (mode === "group" && group) p.set("group", group);
+    if (mode === "brand" && brand) p.set("brand", brand);
+    return p;
+  }, [mode, clubCode, group, brand]);
+
+  const hasSelection = (mode === "club" && !!clubCode) || (mode === "group" && !!group) || (mode === "brand" && !!brand);
+
+  // ダッシュボード数値
+  const loadSummary = useCallback(async () => {
+    if (!hasSelection) { setSummary(null); return; }
+    setLoadingSum(true); setErr("");
+    try {
+      const res = await fetch(`/api/store-settings/unpaid/summary?${filterQuery()}`, { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d?.error || "取得失敗");
+      setSummary(d.summary || null);
+      setClubCount(d.clubCount || 0);
+    } catch (e: any) { setErr(e?.message || "エラー"); setSummary(null); }
+    finally { setLoadingSum(false); }
+  }, [filterQuery, hasSelection]);
+
+  // 一覧 (店舗単位のみ)
+  const loadList = useCallback(async () => {
+    if (mode !== "club" || !clubCode) { setMembers([]); return; }
+    setLoadingList(true);
+    try {
+      const res = await fetch(`/api/store-settings/unpaid/list?clubCode=${clubCode}&bucket=${bucket}`, { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d?.error || "取得失敗");
+      setMembers(d.members || []);
+    } catch (e: any) { setErr(e?.message || "エラー"); setMembers([]); }
+    finally { setLoadingList(false); }
+  }, [mode, clubCode, bucket]);
+
+  useEffect(() => { loadSummary(); }, [loadSummary]);
+  useEffect(() => { if (tab === "list" || tab === "csv") loadList(); }, [tab, loadList]);
+
+  // CSV出力
+  const downloadCsv = async () => {
+    if (mode !== "club" || !clubCode) { alert("CSVは店舗を選択して出力してください"); return; }
+    let rows = members;
+    if (rows.length === 0) {
+      const res = await fetch(`/api/store-settings/unpaid/list?clubCode=${clubCode}&bucket=${bucket}`, { cache: "no-store" });
+      const d = await res.json();
+      rows = d.members || [];
+    }
+    const header = ["会員区分", "ステータス", "会員番号", "名前", "未納金額", "1ヶ月目", "2ヶ月目", "3ヶ月目", "4ヶ月目以降", "電話番号", "メールアドレス", "セキュリティ費(年管理費)"];
+    const lines = rows.map((m) => {
+      const b = m.monthlyBreakdown || [];
+      const m1 = b[0]?.amount ?? 0;
+      const m2 = b[1]?.amount ?? 0;
+      const m3 = b[2]?.amount ?? 0;
+      const rest = b.slice(3).reduce((s, x) => s + x.amount, 0);
+      return [
+        m.plan ?? "", m.status, m.memberNo, m.memberName ?? "",
+        m.outstanding, m1, m2, m3, rest,
+        m.phone ?? "", m.email ?? "", m.annualFeeTotal,
+      ].map(csvEscape).join(",");
+    });
+    const csv = "﻿" + [header.join(","), ...lines].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const label = bucket === "writeoff" ? "貸倒予定" : "未納者";
+    a.href = url; a.download = `${label}_${clubCode}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
-  const filteredItems = useMemo(() => {
-    if (!member) return [];
-    if (statusFilter === "all") return member.items;
-    return member.items.filter((i) => i.status === statusFilter);
-  }, [member, statusFilter]);
-
-  return (
-    <>
-      <section className="up-search-card">
-        <form className="up-search-form" onSubmit={handleSubmit}>
-          <div className="up-search-label">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 18, height: 18 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <span>会員番号で検索</span>
-          </div>
-          <input
-            type="text"
-            className="up-search-input"
-            placeholder="例: M012345"
-            value={memberCodeInput}
-            onChange={(e) => setMemberCodeInput(e.target.value)}
-            autoFocus
-          />
-          <button type="submit" className="up-search-btn" disabled={loading}>
-            {loading ? "検索中..." : "検索"}
-          </button>
-          <button
-            type="button"
-            className="up-search-demo"
-            onClick={() => doSearch(memberCodeInput || "M012345", true)}
-          >
-            サンプル表示
-          </button>
-        </form>
-        <div className="up-search-hint">
-          会員番号を入力して、その会員の未納明細・督促履歴・支払履歴を確認できます。
-        </div>
-      </section>
-
-      {!searched && (
-        <section className="up-empty-state">
-          <div className="up-empty-icon">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: 64, height: 64 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </div>
-          <div className="up-empty-text">
-            会員番号を検索すると、ここに未納金の明細が表示されます。
-          </div>
-        </section>
-      )}
-
-      {searched && !loading && !member && (
-        <section className="up-empty-state">
-          <div className="up-empty-icon error">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: 64, height: 64 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-            </svg>
-          </div>
-          <div className="up-empty-text">
-            会員番号「<strong>{memberCodeInput}</strong>」の未納情報は見つかりませんでした。
-          </div>
-          <button
-            type="button"
-            className="up-empty-btn"
-            onClick={() => doSearch(memberCodeInput || "M012345", true)}
-          >
-            サンプルデータで表示
-          </button>
-        </section>
-      )}
-
-      {member && (
-        <>
-          {/* 会員サマリー */}
-          <section className="up-member-card">
-            {isDemo && <div className="up-demo-banner">サンプルデータを表示中</div>}
-
-            <div className="up-member-top">
-              <div className="up-member-id">
-                <div className="up-member-avatar">{member.memberName.charAt(0)}</div>
-                <div>
-                  <div className="up-member-name">{member.memberName}</div>
-                  <div className="up-member-meta">
-                    <code className="up-member-code">{member.memberCode}</code>
-                    <span className={`up-member-status status-${member.status}`}>
-                      {member.status === "active" ? "稼働中" : member.status === "dormant" ? "休会中" : "退会済"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <div className="up-balance-big">
-                <span className="up-balance-label">未納合計</span>
-                <span className={`up-balance-value ${member.totalUnpaid > 0 ? "danger" : "ok"}`}>
-                  {formatYen(member.totalUnpaid)}
-                </span>
-                {member.totalUnpaid > 0 && (
-                  <span className="up-balance-sub">{member.unpaidCount}件 未処理</span>
-                )}
-              </div>
-            </div>
-
-            <div className="up-member-stats">
-              <div className="up-stat">
-                <div className="up-stat-label">最古の未納</div>
-                <div className="up-stat-value">
-                  {member.oldestUnpaidAt ? (
-                    <>
-                      {daysSince(member.oldestUnpaidAt)}<span className="up-stat-unit">日経過</span>
-                    </>
-                  ) : (
-                    "—"
-                  )}
-                </div>
-                {member.oldestUnpaidAt && (
-                  <div className="up-stat-sub">{formatDate(member.oldestUnpaidAt)}〜</div>
-                )}
-              </div>
-              <div className="up-stat">
-                <div className="up-stat-label">未納件数</div>
-                <div className="up-stat-value warn">{member.unpaidCount}</div>
-                <div className="up-stat-sub">件</div>
-              </div>
-              <div className="up-stat">
-                <div className="up-stat-label">累計支払額</div>
-                <div className="up-stat-value paid">{formatYen(member.lifetimePaid)}</div>
-              </div>
-              <div className="up-stat">
-                <div className="up-stat-label">入会日</div>
-                <div className="up-stat-value plain">{formatDate(member.joinedAt)}</div>
-              </div>
-            </div>
-
-            <div className="up-member-contact">
-              {member.email && (
-                <div className="up-contact-item">
-                  <span className="up-contact-label">メール:</span>
-                  <span>{member.email}</span>
-                </div>
-              )}
-              {member.phone && (
-                <div className="up-contact-item">
-                  <span className="up-contact-label">電話:</span>
-                  <span>{member.phone}</span>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* 明細リスト */}
-          <section className="up-list-card">
-            <div className="up-list-header">
-              <h2 className="up-list-title">
-                未納金明細
-                <span className="up-count">{filteredItems.length}</span>
-              </h2>
-              <div className="up-tx-filters">
-                <button
-                  type="button"
-                  className={`up-filter-chip ${statusFilter === "all" ? "active" : ""}`}
-                  onClick={() => setStatusFilter("all")}
-                >
-                  すべて
-                </button>
-                {(["unpaid", "reminded", "negotiating", "paid"] as UnpaidStatus[]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`up-filter-chip ${statusFilter === s ? "active" : ""}`}
-                    onClick={() => setStatusFilter(s)}
-                  >
-                    {STATUS_META[s].label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {filteredItems.length === 0 ? (
-              <div className="up-empty-inline">該当する明細はありません。</div>
-            ) : (
-              <div className="up-table-wrap">
-                <table className="up-table">
-                  <thead>
-                    <tr>
-                      <th>発生日</th>
-                      <th>経過</th>
-                      <th>支払期限</th>
-                      <th>種別</th>
-                      <th>内容</th>
-                      <th style={{ textAlign: "right" }}>金額</th>
-                      <th>督促</th>
-                      <th>ステータス</th>
-                      <th>支払日</th>
-                      <th>備考</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredItems.map((it) => {
-                      const days = it.status === "paid" ? null : daysSince(it.occurredAt);
-                      return (
-                        <tr key={it.id}>
-                          <td className="up-date-cell">{formatDate(it.occurredAt)}</td>
-                          <td className="up-aging-cell">
-                            {days !== null ? (
-                              <span className={`up-aging-pill ${days > 90 ? "high" : days > 60 ? "mid" : days > 30 ? "low" : "ok"}`}>
-                                {days}日
-                              </span>
-                            ) : (
-                              <span className="up-na">—</span>
-                            )}
-                          </td>
-                          <td className="up-date-cell">{formatDate(it.dueAt)}</td>
-                          <td>
-                            <span
-                              className="up-cat-chip"
-                              style={{ color: CATEGORY_META[it.category].color, background: CATEGORY_META[it.category].bg }}
-                            >
-                              {CATEGORY_META[it.category].label}
-                            </span>
-                          </td>
-                          <td className="up-desc-cell">{it.description}</td>
-                          <td className="up-amount-cell">{formatYen(it.amount)}</td>
-                          <td>
-                            {it.remindCount > 0 ? (
-                              <div className="up-remind-cell">
-                                <span className="up-remind-count">{it.remindCount}回</span>
-                                {it.lastRemindedAt && (
-                                  <span className="up-remind-date">{formatDate(it.lastRemindedAt)}</span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="up-na">—</span>
-                            )}
-                          </td>
-                          <td>
-                            <span
-                              className="up-status-chip"
-                              style={{ color: STATUS_META[it.status].color, background: STATUS_META[it.status].bg }}
-                            >
-                              {STATUS_META[it.status].label}
-                            </span>
-                          </td>
-                          <td className="up-date-cell">
-                            {it.paidAt ? formatDate(it.paidAt) : <span className="up-na">—</span>}
-                          </td>
-                          <td className="up-note-cell">{it.note ?? <span className="up-na">—</span>}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          {/* 支払履歴 */}
-          {member.paymentHistory.length > 0 && (
-            <section className="up-list-card">
-              <div className="up-list-header">
-                <h2 className="up-list-title">
-                  支払履歴
-                  <span className="up-count">{member.paymentHistory.length}</span>
-                </h2>
-              </div>
-              <div className="up-table-wrap">
-                <table className="up-table">
-                  <thead>
-                    <tr>
-                      <th>支払日</th>
-                      <th style={{ textAlign: "right" }}>金額</th>
-                      <th>支払方法</th>
-                      <th>参照ID</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {member.paymentHistory.map((p) => (
-                      <tr key={p.id}>
-                        <td className="up-date-cell">{formatDateTime(p.paidAt)}</td>
-                        <td className="up-amount-cell paid">{formatYen(p.amount)}</td>
-                        <td className="up-pay-cell">{p.method}</td>
-                        <td>
-                          {p.reference ? <code className="up-ref">{p.reference}</code> : <span className="up-na">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
-        </>
-      )}
-    </>
-  );
-}
-
-// --- ダッシュボードタブ ---
-// --- 未納者一覧タブ ---
-function ListTab({ clubCode }: { clubCode: string }) {
-  const { showToast } = useToast();
-  const [members, setMembers] = useState<UnpaidMemberRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isDemo, setIsDemo] = useState(false);
-  const [searched, setSearched] = useState(false);
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | UnpaidMemberRow["status"]>("all");
-  const [sortKey, setSortKey] = useState<"oldest" | "amount" | "count">("oldest");
-
-  const doLoad = useCallback(
-    async (demo: boolean) => {
-      setLoading(true);
-      setSearched(true);
-      try {
-        const q = new URLSearchParams({ clubCode });
-        if (demo) q.set("demo", "1");
-        const res = await fetch(`/api/store-settings/unpaid/list?${q}`);
-        if (res.ok) {
-          const data = await res.json();
-          setMembers(data.members || []);
-          setIsDemo(!!data.isDemo);
-        }
-      } catch (e) {
-        console.error(e);
-        showToast("一覧の取得に失敗しました。", "error");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [clubCode, showToast]
-  );
-
-  const filteredMembers = useMemo(() => {
-    let xs = members;
-    if (statusFilter !== "all") xs = xs.filter((m) => m.status === statusFilter);
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      xs = xs.filter(
-        (m) =>
-          m.memberCode.toLowerCase().includes(q) ||
-          m.memberName.toLowerCase().includes(q) ||
-          m.memberKana.toLowerCase().includes(q)
-      );
-    }
-    const sorted = [...xs];
-    if (sortKey === "oldest") sorted.sort((a, b) => b.oldestUnpaidDays - a.oldestUnpaidDays);
-    else if (sortKey === "amount") sorted.sort((a, b) => b.totalUnpaid - a.totalUnpaid);
-    else if (sortKey === "count") sorted.sort((a, b) => b.unpaidCount - a.unpaidCount);
-    return sorted;
-  }, [members, statusFilter, query, sortKey]);
-
-  const totals = useMemo(
-    () => ({
-      members: filteredMembers.length,
-      amount: filteredMembers.reduce((s, m) => s + m.totalUnpaid, 0),
-      items: filteredMembers.reduce((s, m) => s + m.unpaidCount, 0),
-    }),
-    [filteredMembers]
-  );
-
-  function downloadCsv() {
-    if (filteredMembers.length === 0) {
-      showToast("ダウンロード対象がありません。", "error");
-      return;
-    }
-    const headers = [
-      "会員番号", "会員名", "カナ", "電話", "メール", "プラン", "ステータス",
-      "未納合計金額", "未納件数", "最古未納発生日", "経過日数", "主カテゴリ", "最終督促日",
-    ];
-    const rows = filteredMembers.map((m) => {
-      const topCat = m.categories.slice().sort((a, b) => b.amount - a.amount)[0];
-      return [
-        m.memberCode,
-        m.memberName,
-        m.memberKana,
-        m.phone ?? "",
-        m.email ?? "",
-        m.plan,
-        m.status === "active" ? "在籍" : m.status === "dormant" ? "休会" : "退会",
-        String(m.totalUnpaid),
-        String(m.unpaidCount),
-        m.oldestUnpaidAt.slice(0, 10),
-        String(m.oldestUnpaidDays),
-        topCat ? CATEGORY_META[topCat.category].label : "",
-        m.lastRemindedAt ? m.lastRemindedAt.slice(0, 10) : "",
-      ];
-    });
-    const csv = [headers, ...rows]
-      .map((r) => r.map(csvField).join(","))
-      .join("\r\n");
-    const bom = "﻿"; // Excel 文字化け回避
-    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `unpaid_members_${clubCode}_${ymd}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showToast(`${filteredMembers.length} 件を CSV で出力しました。`, "success");
-  }
-
-  return (
-    <>
-      <section className="up-search-card">
-        <div className="up-list-controls">
-          <div className="up-list-search">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16, color: "#94a3b8" }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <input
-              type="text"
-              placeholder="会員番号 / 氏名 / カナ で検索"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <div className="up-list-actions">
-            <select
-              className="up-list-select"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <option value="all">全ステータス</option>
-              <option value="active">在籍中</option>
-              <option value="dormant">休会</option>
-              <option value="withdrawn">退会</option>
-            </select>
-            <select
-              className="up-list-select"
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as any)}
-            >
-              <option value="oldest">古い順 (経過日数)</option>
-              <option value="amount">金額の多い順</option>
-              <option value="count">件数の多い順</option>
-            </select>
-            <button
-              type="button"
-              className="up-search-btn"
-              onClick={() => doLoad(false)}
-              disabled={loading}
-            >
-              {loading ? "取得中..." : "未納者を取得"}
-            </button>
-            <button
-              type="button"
-              className="up-search-demo"
-              onClick={() => doLoad(true)}
-            >
-              サンプル表示
-            </button>
-            <button
-              type="button"
-              className="up-csv-btn"
-              onClick={downloadCsv}
-              disabled={filteredMembers.length === 0}
-              title="CSV ダウンロード"
-            >
-              CSV ダウンロード
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {!searched && (
-        <section className="up-empty-state">
-          <div className="up-empty-icon">📋</div>
-          <h3 className="up-empty-title">未納者の一覧を取得</h3>
-          <p className="up-empty-text">「未納者を取得」で本番データを取得、「サンプル表示」で擬似データを確認できます。取得後は CSV エクスポートが可能です。</p>
-        </section>
-      )}
-
-      {searched && !loading && members.length === 0 && (
-        <section className="up-empty-state">
-          <div className="up-empty-icon">🎉</div>
-          <h3 className="up-empty-title">未納者はいません</h3>
-          <p className="up-empty-text">このクラブには現在未納者がいません。</p>
-        </section>
-      )}
-
-      {members.length > 0 && (
-        <>
-          {isDemo && (
-            <div className="up-demo-banner">
-              ⚠ サンプルデータを表示中です (Oracle 連携前のためデモ値)
-            </div>
-          )}
-
-          <section className="up-list-summary">
-            <div className="up-list-summary-cell">
-              <div className="up-list-summary-label">対象会員</div>
-              <div className="up-list-summary-value">{totals.members}<small>名</small></div>
-            </div>
-            <div className="up-list-summary-cell">
-              <div className="up-list-summary-label">未納合計</div>
-              <div className="up-list-summary-value">{formatYen(totals.amount)}</div>
-            </div>
-            <div className="up-list-summary-cell">
-              <div className="up-list-summary-label">未納件数</div>
-              <div className="up-list-summary-value">{totals.items}<small>件</small></div>
-            </div>
-          </section>
-
-          <section className="up-list-table-wrap">
-            <table className="up-list-table">
-              <thead>
-                <tr>
-                  <th>会員番号</th>
-                  <th>会員名</th>
-                  <th>プラン</th>
-                  <th>ステータス</th>
-                  <th className="num">未納合計</th>
-                  <th className="num">件数</th>
-                  <th>最古未納</th>
-                  <th className="num">経過日数</th>
-                  <th>主カテゴリ</th>
-                  <th>最終督促</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map((m) => {
-                  const topCat = m.categories.slice().sort((a, b) => b.amount - a.amount)[0];
-                  const statusLabel = m.status === "active" ? "在籍" : m.status === "dormant" ? "休会" : "退会";
-                  const statusClass = m.status === "active" ? "active" : m.status === "dormant" ? "dormant" : "withdrawn";
-                  return (
-                    <tr key={m.memberCode}>
-                      <td className="mono">{m.memberCode}</td>
-                      <td>
-                        <div className="up-list-name">
-                          <strong>{m.memberName}</strong>
-                          <small>{m.memberKana}</small>
-                        </div>
-                      </td>
-                      <td>{m.plan}</td>
-                      <td><span className={`up-status-chip ${statusClass}`}>{statusLabel}</span></td>
-                      <td className="num">{formatYen(m.totalUnpaid)}</td>
-                      <td className="num">{m.unpaidCount}</td>
-                      <td>{formatDate(m.oldestUnpaidAt)}</td>
-                      <td className="num">
-                        <span className={`up-overdue ${m.oldestUnpaidDays >= 90 ? "danger" : m.oldestUnpaidDays >= 60 ? "warn" : ""}`}>
-                          {m.oldestUnpaidDays}日
-                        </span>
-                      </td>
-                      <td>
-                        {topCat && (
-                          <span
-                            className="up-cat-chip"
-                            style={{ background: CATEGORY_META[topCat.category].bg, color: CATEGORY_META[topCat.category].color }}
-                          >
-                            {CATEGORY_META[topCat.category].label}
-                          </span>
-                        )}
-                      </td>
-                      <td>{m.lastRemindedAt ? formatDate(m.lastRemindedAt) : <span className="up-empty-dash">未送信</span>}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </section>
-        </>
-      )}
-    </>
-  );
-}
-
-// CSV エスケープ
-function csvField(v: string): string {
-  const s = String(v ?? "");
-  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
-function DashboardTab({ clubCode }: { clubCode: string }) {
-  const [summary, setSummary] = useState<UnpaidSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
-
-  const fetchData = useCallback(
-    async (demo: boolean) => {
-      setLoading(true);
-      try {
-        const q = new URLSearchParams({ clubCode });
-        if (demo) q.set("demo", "1");
-        const res = await fetch(`/api/store-settings/unpaid/summary?${q}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSummary(data.summary || null);
-          setIsDemo(!!data.isDemo);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [clubCode]
-  );
-
-  useEffect(() => {
-    fetchData(false);
-  }, [fetchData]);
-
-  const maxTrend = useMemo(() => {
-    if (!summary) return 1;
-    return Math.max(
-      1,
-      ...summary.monthlyTrend.flatMap((d) => [d.occurred, d.collected])
-    );
-  }, [summary]);
-
-  return (
-    <>
-      <div className="up-dash-actions">
-        {isDemo && <span className="up-demo-badge">サンプルデータ表示中</span>}
-        <button
-          type="button"
-          className="up-demo-btn"
-          onClick={() => fetchData(!isDemo)}
-        >
-          {isDemo ? "実データに戻す" : "サンプルを表示"}
-        </button>
-      </div>
-
-      {/* サマリー */}
-      <section className="up-summary-grid">
-        <SummaryCard
-          label="未納総額"
-          value={summary ? formatYen(summary.totalUnpaidAmount) : "—"}
-          sub={summary ? `${summary.totalUnpaidMembers}名 / ${summary.totalUnpaidCount}件` : ""}
-          color="#ef4444"
-          loading={loading}
-        />
-        <SummaryCard
-          label="今月発生"
-          value={summary ? formatYen(summary.thisMonthOccurred) : "—"}
-          sub=""
-          color="#f59e0b"
-          loading={loading}
-        />
-        <SummaryCard
-          label="今月回収"
-          value={summary ? formatYen(summary.thisMonthCollected) : "—"}
-          sub={summary ? `回収率: ${summary.collectionRate}%` : ""}
-          color="#10b981"
-          loading={loading}
-        />
-        <SummaryCard
-          label="平均経過日数"
-          value={summary ? `${summary.averageDaysOverdue}日` : "—"}
-          sub={summary ? `最古: ${summary.oldestUnpaidDays}日` : ""}
-          color="#8b5cf6"
-          loading={loading}
-        />
-      </section>
-
-      {/* エイジング分析 */}
-      <section className="up-aging-card">
-        <h3 className="up-section-title">エイジング分析 (経過日数別未納金)</h3>
-        {summary && summary.aging.some((a) => a.count > 0) ? (
-          <div className="up-aging-grid">
-            {summary.aging.map((b) => {
-              const max = Math.max(...summary.aging.map((x) => x.amount), 1);
-              const w = (b.amount / max) * 100;
-              const colorClass = b.key === "91+" ? "high" : b.key === "61-90" ? "mid" : b.key === "31-60" ? "low" : "ok";
-              return (
-                <div key={b.key} className={`up-aging-row aging-${colorClass}`}>
-                  <div className="up-aging-info">
-                    <span className="up-aging-label">{b.label}</span>
-                    <span className="up-aging-count">{b.count}件</span>
-                  </div>
-                  <div className="up-aging-bar-track">
-                    <div className={`up-aging-bar-fill aging-${colorClass}`} style={{ width: `${w}%` }} />
-                  </div>
-                  <span className="up-aging-amount">{formatYen(b.amount)}</span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="up-mini-empty">未納データがありません</div>
-        )}
-      </section>
-
-      {/* 月次トレンド */}
-      <section className="up-trend-card">
-        <h3 className="up-section-title">月次トレンド (直近6ヶ月)</h3>
-        {summary && summary.monthlyTrend.length > 0 ? (
-          <>
-            <div className="up-trend-chart">
-              {summary.monthlyTrend.map((d, i) => (
-                <div key={i} className="up-trend-month">
-                  <div className="up-trend-bars">
-                    <div
-                      className="up-trend-bar occurred"
-                      style={{ height: `${(d.occurred / maxTrend) * 100}%` }}
-                      title={`発生: ${formatYen(d.occurred)}`}
-                    />
-                    <div
-                      className="up-trend-bar collected"
-                      style={{ height: `${(d.collected / maxTrend) * 100}%` }}
-                      title={`回収: ${formatYen(d.collected)}`}
-                    />
-                  </div>
-                  <div className="up-trend-label">{d.month}</div>
-                </div>
-              ))}
-            </div>
-            <div className="up-trend-legend">
-              <span className="up-legend-item">
-                <span className="up-legend-dot occurred" />
-                発生額
-              </span>
-              <span className="up-legend-item">
-                <span className="up-legend-dot collected" />
-                回収額
-              </span>
-            </div>
-          </>
-        ) : (
-          <div className="up-mini-empty">データがありません</div>
-        )}
-      </section>
-
-      {/* 種別内訳 + TOP未納者 */}
-      <section className="up-breakdown-grid">
-        <div className="up-breakdown-card">
-          <h3 className="up-section-title">種別内訳</h3>
-          {summary && summary.byCategory.length > 0 ? (
-            <div className="up-bd-list">
-              {summary.byCategory.map((c) => {
-                const max = Math.max(...summary.byCategory.map((x) => x.amount), 1);
-                const w = (c.amount / max) * 100;
-                return (
-                  <div key={c.category} className="up-bd-row">
-                    <span
-                      className="up-cat-chip"
-                      style={{ color: CATEGORY_META[c.category].color, background: CATEGORY_META[c.category].bg }}
-                    >
-                      {CATEGORY_META[c.category].label}
-                    </span>
-                    <div className="up-bd-track">
-                      <div
-                        className="up-bd-fill"
-                        style={{ width: `${w}%`, background: CATEGORY_META[c.category].color }}
-                      />
-                    </div>
-                    <span className="up-bd-value">
-                      {c.count}件 / {formatYen(c.amount)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="up-mini-empty">データがありません</div>
-          )}
-        </div>
-
-        <div className="up-breakdown-card">
-          <h3 className="up-section-title">未納額 TOP 5</h3>
-          {summary && summary.topUnpaid.length > 0 ? (
-            <ol className="up-top-list">
-              {summary.topUnpaid.map((m, idx) => (
-                <li key={m.memberCode} className="up-top-row">
-                  <span className={`up-top-rank rank-${idx + 1}`}>{idx + 1}</span>
-                  <div className="up-top-info">
-                    <div className="up-top-name">{m.memberName}</div>
-                    <div className="up-top-meta">
-                      <code className="up-top-code">{m.memberCode}</code>
-                      <span className="up-top-days">{daysSince(m.oldestUnpaidAt)}日経過 / {m.unpaidCount}件</span>
-                    </div>
-                  </div>
-                  <span className="up-top-amount">{formatYen(m.amount)}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div className="up-mini-empty">データがありません</div>
-          )}
-        </div>
-      </section>
-
-      {/* 直近の督促 */}
-      <section className="up-list-card">
-        <div className="up-list-header">
-          <h2 className="up-list-title">
-            直近の督促履歴
-            <span className="up-count">{summary?.recentReminders.length ?? 0}</span>
-          </h2>
-        </div>
-
-        {summary && summary.recentReminders.length > 0 ? (
-          <div className="up-table-wrap">
-            <table className="up-table">
-              <thead>
-                <tr>
-                  <th>督促日時</th>
-                  <th>会員</th>
-                  <th>チャネル</th>
-                  <th style={{ textAlign: "right" }}>未納額</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.recentReminders.map((r) => (
-                  <tr key={r.id}>
-                    <td className="up-date-cell">{formatDateTime(r.remindedAt)}</td>
-                    <td>
-                      <div className="up-recent-member">
-                        <span className="up-recent-name">{r.memberName}</span>
-                        <code className="up-recent-code">{r.memberCode}</code>
-                      </div>
-                    </td>
-                    <td className="up-channel-cell">{CHANNEL_META[r.channel]}</td>
-                    <td className="up-amount-cell">{formatYen(r.amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="up-empty-inline">
-            {loading ? "読み込み中..." : "督促データはまだありません。"}
-          </div>
-        )}
-      </section>
-    </>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  sub,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  color: string;
-  loading: boolean;
-}) {
-  return (
-    <div className="up-summary-card">
-      <div className="up-summary-bar" style={{ background: color }} />
-      <div className="up-summary-body">
-        <div className="up-summary-label">{label}</div>
-        <div className="up-summary-value">{loading ? "—" : value}</div>
-        {sub && <div className="up-summary-sub">{sub}</div>}
-      </div>
-    </div>
-  );
-}
-
-// --- メイン ---
-function UnpaidManager({ clubCode, initialTab }: { clubCode: string; initialTab: TabKey }) {
-  const [tab, setTab] = useState<TabKey>(initialTab);
-  const [store, setStore] = useState<StoreSummary | null>(null);
-  const [loadingStore, setLoadingStore] = useState(true);
-
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const res = await fetch("/api/store-settings/stores");
-        if (res.ok) {
-          const data = await res.json();
-          const matched = (data.stores || []).find((s: StoreSummary) => s.clubCode === clubCode);
-          if (matched) setStore(matched);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoadingStore(false);
-      }
-    };
-    run();
-  }, [clubCode]);
+  const clubName = clubs.find((c) => c.clubCode === clubCode)?.clubName;
 
   return (
     <div className="up-root">
-      <AdminLoadingOverlay visible={loadingStore} text="読み込み中..." />
-
       <header className="up-header">
         <div className="up-header-inner">
-          <Link href={`/store-settings/basic?clubCode=${clubCode}`} className="up-back-link">
-            <span>←</span>
-            <span>メニューへ戻る</span>
-          </Link>
-          <h1 className="up-page-title">未納金管理</h1>
-          <div style={{ width: 120 }} />
+          <Link href="/store-settings" className="up-back"><ArrowLeft size={20} /></Link>
+          <div>
+            <h1 className="up-title">未納金管理</h1>
+            <p className="up-sub">振替結果ベースの実データ（貸倒予定＝過去強制退会 は除外集計）</p>
+          </div>
+          <button className="up-reload" onClick={() => { loadSummary(); if (tab !== "dashboard") loadList(); }}>
+            <RefreshCw size={14} /> 更新
+          </button>
         </div>
       </header>
 
-      <main className="up-main">
-        <section className="up-store-card">
-          <div className="up-store-left">
-            <span className="up-store-label">対象店舗</span>
-            <div className="up-store-name-row">
-              <span className="up-store-code">{clubCode}</span>
-              <span className="up-store-name">{store?.clubName ?? "—"}</span>
-            </div>
+      <div className="up-body">
+        {/* フィルタ */}
+        <div className="up-filter">
+          <div className="up-modes">
+            {(["club", "group", "brand"] as const).map((mo) => (
+              <button key={mo} className={`up-mode ${mode === mo ? "active" : ""}`} onClick={() => setMode(mo)}>
+                {mo === "club" ? "店舗" : mo === "group" ? "エリア" : "ブランド"}
+              </button>
+            ))}
           </div>
-          <div className="up-store-right">
-            {store?.brand && (
-              <span className={`up-brand-badge ${store.brand.toUpperCase().startsWith("JOYFIT") ? "joyfit" : "fit365"}`}>
-                {store.brand}
-              </span>
-            )}
-          </div>
-        </section>
-
-        <div className="up-tabs">
-          <button
-            type="button"
-            className={`up-tab ${tab === "member" ? "active" : ""}`}
-            onClick={() => setTab("member")}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-            </svg>
-            個人別
-          </button>
-          <button
-            type="button"
-            className={`up-tab ${tab === "list" ? "active" : ""}`}
-            onClick={() => setTab("list")}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-            </svg>
-            未納者一覧
-          </button>
-          <button
-            type="button"
-            className={`up-tab ${tab === "dashboard" ? "active" : ""}`}
-            onClick={() => setTab("dashboard")}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-            </svg>
-            ダッシュボード
-          </button>
+          {mode === "club" && (
+            <select className="up-select" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
+              <option value="">店舗を選択…</option>
+              {clubs.map((c) => <option key={c.clubCode} value={c.clubCode}>{c.clubCode} {c.clubName}</option>)}
+            </select>
+          )}
+          {mode === "group" && (
+            <select className="up-select" value={group} onChange={(e) => setGroup(e.target.value)}>
+              <option value="">エリアを選択…</option>
+              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          )}
+          {mode === "brand" && (
+            <select className="up-select" value={brand} onChange={(e) => setBrand(e.target.value)}>
+              <option value="">ブランドを選択…</option>
+              {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          )}
+          {clubCount > 1 && <span className="up-badge">{clubCount}店舗 合算</span>}
         </div>
 
-        {tab === "member" && <MemberTab clubCode={clubCode} />}
-        {tab === "list" && <ListTab clubCode={clubCode} />}
-        {tab === "dashboard" && <DashboardTab clubCode={clubCode} />}
-      </main>
+        {err && <div className="up-err"><AlertTriangle size={14} /> {err}</div>}
+        {!hasSelection && <div className="up-empty">店舗・エリア・ブランドのいずれかを選択してください。</div>}
+
+        {hasSelection && (
+          <>
+            {/* タブ */}
+            <div className="up-tabs">
+              <button className={`up-tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>ダッシュボード</button>
+              <button className={`up-tab ${tab === "list" ? "active" : ""}`} onClick={() => setTab("list")}>一覧</button>
+              <button className={`up-tab ${tab === "csv" ? "active" : ""}`} onClick={() => setTab("csv")}>CSV出力</button>
+            </div>
+
+            {/* ダッシュボード */}
+            {tab === "dashboard" && (
+              <div className="up-dash">
+                {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
+                  <>
+                    <div className="up-cards">
+                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" />
+                      <Card icon={<Wallet size={18} />} label="未納金額" value={yen(summary.unpaidAmount)} tone="red" />
+                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" />
+                      <Card icon={<Wallet size={18} />} label="回収金額" value={yen(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
+                      <Card icon={<AlertTriangle size={18} />} label="貸倒予定 件数" value={summary.writeoffCount.toLocaleString()} tone="amber" />
+                      <Card icon={<AlertTriangle size={18} />} label="貸倒予定 金額" value={yen(summary.writeoffAmount)} tone="amber" />
+                    </div>
+                    <div className="up-panel">
+                      <div className="up-panel-h">月次内訳（直近12ヶ月）</div>
+                      <table className="up-table">
+                        <thead><tr><th>振替年月</th><th>未納件数</th><th>未納金額</th><th>回収件数</th><th>回収金額</th><th>貸倒予定金額</th></tr></thead>
+                        <tbody>
+                          {[...summary.byMonth].reverse().map((r) => (
+                            <tr key={r.month}>
+                              <td>{r.month}</td>
+                              <td>{r.unpaidCount.toLocaleString()}</td>
+                              <td className="up-red">{yen(r.unpaidAmount)}</td>
+                              <td>{r.collectedCount.toLocaleString()}</td>
+                              <td className="up-green">{yen(r.collectedAmount)}</td>
+                              <td className="up-amber">{yen(r.writeoffAmount)}</td>
+                            </tr>
+                          ))}
+                          {summary.byMonth.length === 0 && <tr><td colSpan={6} className="up-muted">データがありません</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : <div className="up-empty">データがありません</div>}
+              </div>
+            )}
+
+            {/* 一覧 / CSV */}
+            {(tab === "list" || tab === "csv") && (
+              <div className="up-list">
+                <div className="up-list-bar">
+                  <div className="up-bucket">
+                    <button className={`up-bkt ${bucket === "current" ? "active" : ""}`} onClick={() => setBucket("current")}>未納者（貸倒予定を除く）</button>
+                    <button className={`up-bkt ${bucket === "writeoff" ? "active" : ""}`} onClick={() => setBucket("writeoff")}>貸倒予定（強制退会）</button>
+                  </div>
+                  {mode === "club" ? (
+                    <button className="up-csv-btn" onClick={downloadCsv}><Download size={15} /> CSV出力</button>
+                  ) : <span className="up-muted">CSV/一覧は店舗モードで利用できます</span>}
+                </div>
+
+                {mode !== "club" ? (
+                  <div className="up-empty">一覧・CSVは「店舗」を選択して表示してください（エリア/ブランドはダッシュボード合算のみ）。</div>
+                ) : loadingList ? <div className="up-empty">読み込み中…</div> : (
+                  <div className="up-panel">
+                    <div className="up-panel-h">{clubName}（{members.length}名） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
+                    <div style={{ overflowX: "auto" }}>
+                      <table className="up-table">
+                        <thead><tr><th>会員区分</th><th>ステータス</th><th>会員番号</th><th>名前</th><th>未納金額</th><th>月別内訳</th><th>電話</th><th>メール</th><th>ｾｷｭﾘﾃｨ費</th></tr></thead>
+                        <tbody>
+                          {members.map((m) => (
+                            <tr key={m.memberNo}>
+                              <td>{m.plan}</td>
+                              <td><span className={`up-status ${m.status === "貸倒予定" ? "wo" : m.status.startsWith("1") ? "s1" : m.status.startsWith("2") ? "s2" : "sn"}`}>{m.status}</span></td>
+                              <td><code>{m.memberNo}</code></td>
+                              <td>{m.memberName}</td>
+                              <td className="up-red">{yen(m.outstanding)}</td>
+                              <td className="up-bd">{(m.monthlyBreakdown || []).slice(0, 4).map((x) => `${x.month}:${yen(x.amount)}`).join(" / ")}{(m.monthlyBreakdown?.length || 0) > 4 ? " …" : ""}</td>
+                              <td>{m.phone}</td>
+                              <td className="up-mail">{m.email}</td>
+                              <td>{m.hasSecurityFee ? yen(m.annualFeeTotal) : "—"}</td>
+                            </tr>
+                          ))}
+                          {members.length === 0 && <tr><td colSpan={9} className="up-muted">該当者がいません</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <style jsx global>{`
-        .up-root {
-          background: linear-gradient(160deg, #fef2f2 0%, #f8fafc 40%, #fee2e2 100%);
-          min-height: 100vh;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
-          color: #0f172a;
-        }
-        .up-header {
-          height: 64px; background: rgba(255,255,255,0.85); backdrop-filter: blur(16px) saturate(180%);
-          border-bottom: 1px solid rgba(226,232,240,0.8); position: sticky; top: 0; z-index: 200;
-        }
-        .up-header-inner { max-width: 1280px; margin: 0 auto; padding: 0 24px; height: 100%; display: flex; align-items: center; justify-content: space-between; }
-        .up-back-link { text-decoration: none; font-size: 13px; font-weight: 600; color: #64748b; padding: 6px 12px; border-radius: 8px; transition: 0.15s; display: flex; align-items: center; gap: 6px; }
-        .up-back-link:hover { background: #f1f5f9; color: #334155; }
-        .up-page-title { margin: 0; font-size: 17px; font-weight: 800; color: #1e293b; }
-
-        .up-main { max-width: 1280px; margin: 0 auto; padding: 24px 24px 80px; }
-
-        /* 店舗カード */
-        .up-store-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .up-store-left { display: flex; flex-direction: column; gap: 6px; }
-        .up-store-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-        .up-store-name-row { display: flex; align-items: center; gap: 10px; }
-        .up-store-code { background: #1e293b; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-family: "SF Mono", monospace; font-weight: 700; }
-        .up-store-name { font-size: 16px; font-weight: 700; color: #1e293b; }
-        .up-brand-badge { font-size: 12px; font-weight: 800; padding: 6px 14px; border-radius: 99px; border: 1.5px solid; }
-        .up-brand-badge.fit365 { color: #be185d; border-color: #f9a8d4; background: #fdf2f8; }
-        .up-brand-badge.joyfit { color: #1d4ed8; border-color: #93c5fd; background: #eff6ff; }
-
-        /* タブ */
-        .up-tabs { display: flex; gap: 4px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 4px; margin-bottom: 20px; width: fit-content; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .up-tab { display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px; border-radius: 9px; font-size: 13px; font-weight: 700; background: transparent; color: #64748b; border: none; cursor: pointer; transition: 0.15s; }
-        .up-tab:hover { color: #1e293b; background: #f8fafc; }
-        .up-tab.active { background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; box-shadow: 0 2px 6px rgba(239,68,68,0.3); }
-        .up-tab.active:hover { background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; }
-
-        /* 検索 */
-        .up-search-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
-        .up-search-form { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        .up-search-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #b91c1c; }
-        .up-search-input { flex: 1; min-width: 240px; padding: 11px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 14px; outline: none; transition: 0.15s; font-family: inherit; }
-        .up-search-input:focus { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.1); }
-        .up-search-btn { padding: 10px 22px; border-radius: 10px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(239,68,68,0.3); transition: 0.15s; }
-        .up-search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .up-search-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(239,68,68,0.4); }
-        .up-search-demo { padding: 10px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; background: #fef2f2; color: #b91c1c; border: 1.5px solid #fecaca; cursor: pointer; transition: 0.15s; }
-        .up-search-demo:hover { background: #fee2e2; border-color: #fca5a5; }
-        .up-search-hint { font-size: 12px; color: #94a3b8; margin-top: 10px; }
-
-        /* 未納者一覧タブ */
-        .up-list-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-        .up-list-search { flex: 1; min-width: 240px; display: flex; align-items: center; gap: 8px; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 10px; padding: 8px 12px; }
-        .up-list-search input { flex: 1; border: none; outline: none; background: transparent; font-size: 13px; color: #0f172a; }
-        .up-list-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .up-list-select { padding: 9px 12px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #fff; font-size: 12px; font-weight: 600; color: #475569; cursor: pointer; }
-        .up-list-select:focus { outline: none; border-color: #ef4444; }
-        .up-csv-btn { padding: 10px 18px; border-radius: 10px; border: none; background: linear-gradient(135deg, #047857, #065f46); color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s; }
-        .up-csv-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(4, 120, 87, 0.3); }
-        .up-csv-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-        .up-demo-banner { background: linear-gradient(90deg, #fef3c7, #fde68a); color: #92400e; border-radius: 10px; padding: 10px 16px; font-size: 12px; font-weight: 700; margin-bottom: 14px; border: 1px solid #fcd34d; }
-
-        .up-list-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
-        .up-list-summary-cell { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
-        .up-list-summary-label { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; }
-        .up-list-summary-value { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 2px; }
-        .up-list-summary-value small { font-size: 13px; color: #64748b; font-weight: 700; margin-left: 4px; }
-
-        .up-list-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
-        .up-list-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1080px; }
-        .up-list-table th { background: #f8fafc; padding: 11px 14px; text-align: left; font-weight: 800; font-size: 10.5px; color: #64748b; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
-        .up-list-table th.num { text-align: right; }
-        .up-list-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; color: #0f172a; vertical-align: middle; }
-        .up-list-table td.num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-        .up-list-table td.mono { font-family: "SF Mono", Menlo, monospace; font-size: 12px; color: #475569; }
-        .up-list-table tr:hover { background: #fafbfc; }
-        .up-list-name strong { font-size: 13px; color: #0f172a; }
-        .up-list-name small { display: block; font-size: 10.5px; color: #94a3b8; margin-top: 1px; }
-        .up-status-chip { padding: 3px 10px; border-radius: 99px; font-size: 10.5px; font-weight: 700; }
-        .up-status-chip.active { background: #ecfdf5; color: #047857; }
-        .up-status-chip.dormant { background: #fef3c7; color: #b45309; }
-        .up-status-chip.withdrawn { background: #f1f5f9; color: #64748b; }
-        .up-overdue { font-weight: 700; color: #475569; }
-        .up-overdue.warn { color: #b45309; }
-        .up-overdue.danger { color: #b91c1c; }
-        .up-cat-chip { padding: 3px 10px; border-radius: 99px; font-size: 10.5px; font-weight: 700; }
-        .up-empty-dash { color: #cbd5e1; font-weight: 600; }
-
-        /* 空状態 */
-        .up-empty-state { background: #fff; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 60px 30px; text-align: center; }
-        .up-empty-icon { display: inline-flex; align-items: center; justify-content: center; width: 96px; height: 96px; border-radius: 24px; background: #fee2e2; color: #ef4444; margin-bottom: 16px; }
-        .up-empty-icon.error { background: #fef2f2; color: #dc2626; }
-        .up-empty-text { font-size: 14px; color: #64748b; line-height: 1.7; margin-bottom: 16px; }
-        .up-empty-text strong { color: #1e293b; }
-        .up-empty-btn { background: #fef2f2; border: 1.5px solid #fecaca; color: #b91c1c; padding: 10px 22px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; transition: 0.15s; }
-        .up-empty-btn:hover { background: #fee2e2; }
-        .up-empty-inline { font-size: 13px; color: #94a3b8; padding: 24px; text-align: center; background: #f8fafc; border-radius: 10px; }
-
-        /* 会員カード */
-        .up-member-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
-        .up-demo-banner { background: linear-gradient(90deg, #fef3c7, #fde68a); border: 1px solid #fcd34d; color: #92400e; font-size: 11px; font-weight: 700; padding: 6px 12px; border-radius: 8px; margin-bottom: 16px; display: inline-block; }
-        .up-member-top { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; padding-bottom: 20px; border-bottom: 1px solid #f1f5f9; margin-bottom: 20px; }
-        .up-member-id { display: flex; align-items: center; gap: 14px; }
-        .up-member-avatar { width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; font-size: 22px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
-        .up-member-name { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
-        .up-member-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .up-member-code { background: #f1f5f9; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-family: "SF Mono", monospace; color: #475569; font-weight: 700; }
-        .up-member-status { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 99px; }
-        .up-member-status.status-active { background: #d1fae5; color: #047857; }
-        .up-member-status.status-dormant { background: #fef3c7; color: #b45309; }
-        .up-member-status.status-withdrawn { background: #fee2e2; color: #dc2626; }
-        .up-balance-big { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-        .up-balance-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
-        .up-balance-value { font-size: 32px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
-        .up-balance-value.danger { color: #b91c1c; }
-        .up-balance-value.ok { color: #047857; }
-        .up-balance-sub { font-size: 12px; font-weight: 700; color: #b91c1c; background: #fee2e2; padding: 3px 10px; border-radius: 99px; margin-top: 4px; }
-
-        .up-member-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
-        .up-stat { background: #f8fafc; border-radius: 10px; padding: 12px 14px; }
-        .up-stat-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 4px; }
-        .up-stat-value { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; color: #0f172a; }
-        .up-stat-value.warn { color: #b91c1c; }
-        .up-stat-value.paid { color: #047857; font-size: 17px; }
-        .up-stat-value.plain { color: #1e293b; font-size: 14px; }
-        .up-stat-unit { font-size: 12px; color: #64748b; margin-left: 4px; font-weight: 600; }
-        .up-stat-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
-
-        .up-member-contact { display: flex; gap: 20px; flex-wrap: wrap; padding-top: 16px; border-top: 1px dashed #e2e8f0; }
-        .up-contact-item { font-size: 13px; color: #475569; display: flex; gap: 6px; }
-        .up-contact-label { color: #94a3b8; font-weight: 600; }
-
-        /* リスト */
-        .up-list-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
-        .up-list-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-        .up-list-title { margin: 0; font-size: 16px; font-weight: 800; color: #1e293b; display: flex; align-items: center; gap: 10px; }
-        .up-count { background: #f1f5f9; color: #64748b; font-size: 12px; padding: 2px 10px; border-radius: 99px; font-weight: 700; }
-
-        .up-tx-filters { display: flex; gap: 6px; flex-wrap: wrap; }
-        .up-filter-chip { font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 99px; background: #f1f5f9; color: #64748b; border: 1.5px solid transparent; cursor: pointer; transition: 0.15s; }
-        .up-filter-chip:hover { background: #e2e8f0; color: #334155; }
-        .up-filter-chip.active { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
-
-        .up-table-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
-        .up-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px; }
-        .up-table th { background: #f8fafc; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
-        .up-table td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-        .up-table tr:last-child td { border-bottom: none; }
-        .up-table tbody tr:hover { background: #f8fafc; }
-        .up-date-cell { font-size: 12px; color: #475569; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        .up-aging-cell { white-space: nowrap; }
-        .up-aging-pill { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; }
-        .up-aging-pill.ok { background: #f1f5f9; color: #475569; }
-        .up-aging-pill.low { background: #fef3c7; color: #b45309; }
-        .up-aging-pill.mid { background: #fed7aa; color: #c2410c; }
-        .up-aging-pill.high { background: #fee2e2; color: #b91c1c; }
-        .up-cat-chip { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
-        .up-desc-cell { color: #1e293b; font-weight: 600; }
-        .up-amount-cell { text-align: right; font-weight: 800; color: #b91c1c; font-variant-numeric: tabular-nums; white-space: nowrap; }
-        .up-amount-cell.paid { color: #047857; }
-        .up-remind-cell { display: flex; flex-direction: column; gap: 2px; }
-        .up-remind-count { font-size: 12px; font-weight: 700; color: #b45309; }
-        .up-remind-date { font-size: 10px; color: #94a3b8; }
-        .up-status-chip { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
-        .up-note-cell { font-size: 12px; color: #64748b; }
-        .up-pay-cell { font-size: 12px; color: #475569; white-space: nowrap; }
-        .up-ref { background: #f1f5f9; padding: 3px 7px; border-radius: 5px; font-size: 11px; font-family: "SF Mono", monospace; color: #475569; font-weight: 600; }
-        .up-na { color: #cbd5e1; }
-        .up-recent-member { display: flex; flex-direction: column; gap: 2px; }
-        .up-recent-name { font-weight: 700; color: #1e293b; font-size: 13px; }
-        .up-recent-code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: "SF Mono", monospace; color: #64748b; font-weight: 600; width: fit-content; }
-        .up-channel-cell { font-size: 12px; color: #475569; }
-
-        /* ダッシュボード */
-        .up-dash-actions { display: flex; justify-content: flex-end; gap: 10px; align-items: center; margin-bottom: 16px; }
-        .up-demo-badge { font-size: 11px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 99px; }
-        .up-demo-btn { background: #fff; border: 1.5px solid #e2e8f0; color: #475569; padding: 7px 14px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s; }
-        .up-demo-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
-
-        .up-summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
-        .up-summary-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; display: flex; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .up-summary-bar { width: 4px; }
-        .up-summary-body { padding: 16px 20px; flex: 1; }
-        .up-summary-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-        .up-summary-value { font-size: 22px; font-weight: 800; color: #0f172a; line-height: 1.2; font-variant-numeric: tabular-nums; }
-        .up-summary-sub { font-size: 12px; font-weight: 600; color: #64748b; margin-top: 6px; }
-
-        .up-section-title { margin: 0 0 16px 0; font-size: 14px; font-weight: 800; color: #1e293b; }
-
-        /* エイジング */
-        .up-aging-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
-        .up-aging-grid { display: flex; flex-direction: column; gap: 12px; }
-        .up-aging-row { display: grid; grid-template-columns: 140px 1fr 140px; gap: 16px; align-items: center; padding: 10px 14px; border-radius: 10px; background: #f8fafc; border: 1px solid #e2e8f0; }
-        .up-aging-row.aging-high { background: #fef2f2; border-color: #fecaca; }
-        .up-aging-row.aging-mid { background: #fff7ed; border-color: #fed7aa; }
-        .up-aging-row.aging-low { background: #fffbeb; border-color: #fde68a; }
-        .up-aging-info { display: flex; flex-direction: column; gap: 2px; }
-        .up-aging-label { font-size: 13px; font-weight: 700; color: #1e293b; }
-        .up-aging-count { font-size: 11px; color: #64748b; font-weight: 600; }
-        .up-aging-bar-track { height: 10px; background: #fff; border-radius: 99px; overflow: hidden; border: 1px solid #e2e8f0; }
-        .up-aging-bar-fill { height: 100%; border-radius: 99px; transition: width 0.3s; }
-        .up-aging-bar-fill.aging-ok { background: linear-gradient(90deg, #94a3b8, #64748b); }
-        .up-aging-bar-fill.aging-low { background: linear-gradient(90deg, #fbbf24, #d97706); }
-        .up-aging-bar-fill.aging-mid { background: linear-gradient(90deg, #fb923c, #c2410c); }
-        .up-aging-bar-fill.aging-high { background: linear-gradient(90deg, #ef4444, #b91c1c); }
-        .up-aging-amount { font-weight: 800; color: #0f172a; text-align: right; font-variant-numeric: tabular-nums; font-size: 14px; }
-
-        /* トレンド */
-        .up-trend-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); margin-bottom: 20px; }
-        .up-trend-chart { display: flex; align-items: flex-end; gap: 12px; height: 180px; padding: 8px 4px; border-bottom: 1px solid #f1f5f9; }
-        .up-trend-month { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
-        .up-trend-bars { display: flex; gap: 4px; align-items: flex-end; width: 100%; height: 100%; justify-content: center; }
-        .up-trend-bar { width: 40%; min-height: 2px; border-radius: 4px 4px 0 0; transition: opacity 0.15s; }
-        .up-trend-bar:hover { opacity: 0.8; }
-        .up-trend-bar.occurred { background: linear-gradient(180deg, #fca5a5, #ef4444); }
-        .up-trend-bar.collected { background: linear-gradient(180deg, #6ee7b7, #10b981); }
-        .up-trend-label { font-size: 11px; font-weight: 600; color: #64748b; }
-        .up-trend-legend { display: flex; gap: 16px; justify-content: center; margin-top: 12px; }
-        .up-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #475569; }
-        .up-legend-dot { width: 12px; height: 12px; border-radius: 3px; }
-        .up-legend-dot.occurred { background: #ef4444; }
-        .up-legend-dot.collected { background: #10b981; }
-        .up-mini-empty { font-size: 12px; color: #94a3b8; padding: 30px; text-align: center; }
-
-        /* 内訳 */
-        .up-breakdown-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; margin-bottom: 20px; }
-        @media (max-width: 900px) { .up-breakdown-grid { grid-template-columns: 1fr; } }
-        .up-breakdown-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 20px 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
-        .up-bd-list { display: flex; flex-direction: column; gap: 10px; }
-        .up-bd-row { display: grid; grid-template-columns: 100px 1fr 160px; gap: 12px; align-items: center; font-size: 12px; }
-        .up-bd-track { height: 8px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
-        .up-bd-fill { height: 100%; border-radius: 99px; transition: width 0.3s; }
-        .up-bd-value { font-weight: 600; color: #1e293b; text-align: right; font-variant-numeric: tabular-nums; }
-
-        /* トップ */
-        .up-top-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
-        .up-top-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #f1f5f9; }
-        .up-top-row:last-child { border-bottom: none; }
-        .up-top-rank { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; color: #64748b; background: #f1f5f9; flex-shrink: 0; }
-        .up-top-rank.rank-1 { background: linear-gradient(135deg, #ef4444, #b91c1c); color: #fff; }
-        .up-top-rank.rank-2 { background: linear-gradient(135deg, #fb923c, #c2410c); color: #fff; }
-        .up-top-rank.rank-3 { background: linear-gradient(135deg, #fbbf24, #d97706); color: #fff; }
-        .up-top-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-        .up-top-name { font-size: 13px; font-weight: 700; color: #1e293b; }
-        .up-top-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .up-top-code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: "SF Mono", monospace; color: #64748b; font-weight: 600; }
-        .up-top-days { font-size: 11px; color: #94a3b8; }
-        .up-top-amount { font-size: 14px; font-weight: 800; color: #b91c1c; font-variant-numeric: tabular-nums; }
+        .up-root { background: #f1f5f9; min-height: 100vh; font-family: 'Inter', -apple-system, sans-serif; color: #0f172a; }
+        .up-header { background: #fff; border-bottom: 2px solid #0ea5e9; position: sticky; top: 0; z-index: 40; }
+        .up-header-inner { max-width: 1240px; margin: 0 auto; height: 68px; padding: 0 24px; display: flex; align-items: center; gap: 16px; }
+        .up-back { color: #94a3b8; display: flex; } .up-back:hover { color: #0ea5e9; }
+        .up-title { font-size: 18px; font-weight: 800; margin: 0; }
+        .up-sub { font-size: 12px; color: #64748b; margin: 0; }
+        .up-reload { margin-left: auto; display: flex; align-items: center; gap: 6px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 7px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .up-body { max-width: 1240px; margin: 0 auto; padding: 20px 24px 60px; }
+        .up-filter { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 16px; flex-wrap: wrap; }
+        .up-modes { display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; }
+        .up-mode { border: none; background: none; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; }
+        .up-mode.active { background: #fff; color: #0ea5e9; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+        .up-select { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-weight: 600; min-width: 260px; background: #fff; }
+        .up-badge { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: 800; }
+        .up-err { margin-top: 12px; background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .up-empty { margin-top: 16px; background: #fff; border: 1px dashed #cbd5e1; border-radius: 12px; padding: 40px; text-align: center; color: #94a3b8; font-size: 13px; font-weight: 600; }
+        .up-tabs { display: flex; gap: 4px; margin: 18px 0 14px; }
+        .up-tab { background: #fff; border: 1px solid #e2e8f0; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; }
+        .up-tab.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+        .up-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .up-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; }
+        .up-card-top { display: flex; align-items: center; gap: 8px; color: #64748b; font-size: 12px; font-weight: 700; }
+        .up-card-val { font-size: 24px; font-weight: 800; margin-top: 8px; }
+        .up-card-sub { font-size: 12px; color: #64748b; font-weight: 700; margin-top: 2px; }
+        .up-card.red .up-card-top, .up-card.red .up-card-val { color: #dc2626; }
+        .up-card.green .up-card-top, .up-card.green .up-card-val { color: #059669; }
+        .up-card.amber .up-card-top, .up-card.amber .up-card-val { color: #d97706; }
+        .up-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
+        .up-panel-h { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 800; }
+        .up-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .up-table th { background: #f8fafc; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+        .up-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+        .up-red { color: #dc2626; font-weight: 700; } .up-green { color: #059669; font-weight: 700; } .up-amber { color: #d97706; font-weight: 700; }
+        .up-muted { color: #94a3b8; font-weight: 600; }
+        .up-mail { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+        .up-bd { font-size: 11px; color: #475569; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+        .up-list-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .up-bucket { display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; }
+        .up-bkt { border: none; background: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #64748b; cursor: pointer; }
+        .up-bkt.active { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+        .up-csv-btn { margin-left: auto; display: flex; align-items: center; gap: 7px; background: #0f172a; color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+        .up-csv-btn:hover { background: #1e293b; }
+        .up-status { padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+        .up-status.s1 { background: #fef9c3; color: #a16207; }
+        .up-status.s2 { background: #ffedd5; color: #c2410c; }
+        .up-status.sn { background: #fee2e2; color: #b91c1c; }
+        .up-status.wo { background: #e2e8f0; color: #475569; }
       `}</style>
     </div>
   );
 }
 
-function UnpaidRouter() {
-  const searchParams = useSearchParams();
-  const clubCode = searchParams.get("clubCode");
-  const viewParam = searchParams.get("view");
-  const tab: TabKey = viewParam === "dashboard" ? "dashboard" : "member";
-
-  if (!clubCode) {
-    return (
-      <StoreSelector
-        basePath="/store-settings/basic/unpaid"
-        title="未納金管理 - 店舗選択"
-        backHref="/store-settings"
-        backLabel="メニューへ戻る"
-      />
-    );
-  }
-
+function Card({ icon, label, value, sub, tone }: { icon: React.ReactNode; label: string; value: string; sub?: string; tone: string }) {
   return (
-    <ToastProvider>
-      <UnpaidManager clubCode={clubCode} initialTab={tab} />
-    </ToastProvider>
+    <div className={`up-card ${tone}`}>
+      <div className="up-card-top">{icon} {label}</div>
+      <div className="up-card-val">{value}</div>
+      {sub && <div className="up-card-sub">{sub}</div>}
+    </div>
   );
 }
 
-export default function UnpaidPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#f8fafc" }} />}>
-      <UnpaidRouter />
-    </Suspense>
-  );
+export default function Page() {
+  return <Suspense fallback={<div style={{ padding: 40 }}>読み込み中…</div>}><UnpaidManager /></Suspense>;
 }
