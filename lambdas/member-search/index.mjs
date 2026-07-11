@@ -421,6 +421,8 @@ function buildUnpaidFurikae(type, rows) {
   }
   const members = [...byMember.values()]
     .map((m) => { const { _contracts, ...rest } = m; rest.contractCount = _contracts.size; return rest; })
+    // 未納者の抽出基準: 会員合計の絶対値 > 1円 (Lecto連携 債務者登録SQL に統一)
+    .filter((m) => Math.abs(m.outstanding) > 1)
     .sort((a, b) => b.outstanding - a.outstanding);
   return { members, items, totalOutstanding: members.reduce((s, m) => s + m.outstanding, 0), totalMembers: members.length };
 }
