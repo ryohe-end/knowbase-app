@@ -559,19 +559,33 @@ export default function RefundFinancePage() {
   // バッチ全件まとめて振込完了 (API)
   const markBatchComplete = async (batchId: string) => {
     const targets = apps.filter((a) => a.batchId === batchId && a.status === "振込手配中");
-    try {
-      await Promise.all(
-        targets.map((a) =>
-          fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+    // 各件を個別検証。HTTP 409(楽観ロック衝突)等の部分失敗を握りつぶさない。
+    const results = await Promise.all(
+      targets.map(async (a) => {
+        try {
+          const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "transfer", result: "成功", expectedUpdatedAt: a.updatedAt }),
-          })
-        )
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) {
+            return { app: a, ok: false, error: (json?.error as string) || `HTTP ${res.status}` };
+          }
+          return { app: a, ok: true, error: "" };
+        } catch (e: any) {
+          return { app: a, ok: false, error: e?.message || "通信エラー" };
+        }
+      })
+    );
+    await reload();
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length > 0) {
+      const lines = failed.map((r) => `・${r.app.id}（${r.app.memberName}）: ${r.error}`).join("\n");
+      alert(
+        `振込完了への更新に失敗した申請が ${failed.length}/${targets.length} 件あります。\n` +
+        `他の担当者が同時操作した可能性があります。再読込した最新状態を確認し、残った件を個別に処理してください:\n\n${lines}`
       );
-      await reload();
-    } catch (e: any) {
-      alert(e?.message || "一括更新エラー");
     }
     setConfirmTransfer(null);
   };
