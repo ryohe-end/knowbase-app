@@ -293,6 +293,118 @@ const UNPAID_SQL = `
   FETCH FIRST 200 ROWS ONLY
 `;
 
+// ===== 未納管理: 振替結果コード が権威 (0=振替成功/入金済, ≠0=振替失敗=未納) =====
+// 振替契約別 f を未納の判定元とし、実入金の解消は 会員入金歴 a.入金年月日 で追う。
+// join: a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月 (同月対応)。クラブは f.クラブコード。
+// 契約×月 単位で返し、会員集計は JS 側 (buildUnpaidFurikae)。
+const UNPAID_FURIKAE_BASE = `
+  SELECT
+    b.会員番号            AS MEMBER_NO,
+    p.漢字姓名            AS NAME_KANJI,
+    p.カナ姓              AS NAME_KANA_SEI,
+    p.カナ名              AS NAME_KANA_MEI,
+    p.EMAIL              AS EMAIL,
+    p.T連絡先TEL          AS PHONE,
+    f.契約SEQ            AS KEIYAKU_SEQ,
+    f.振替年月           AS FURIKAE_YM,
+    f.振替結果コード      AS RESULT_CODE,
+    c.会員区分コード      AS PLAN_CODE,
+    k.会員区分名          AS PLAN_NAME,
+    a.会費分類コード      AS FEE_CATEGORY_CODE,
+    h.会費分類名          AS FEE_CATEGORY_NAME,
+    a.請求額             AS BILLED_AMOUNT,
+    a.入金額             AS PAID_AMOUNT,
+    a.請求年月日         AS BILLED_DATE,
+    a.入金年月日         AS PAID_DATE
+  FROM FIT_ADMIN.振替契約別 f
+  INNER JOIN FIT_ADMIN.会員入金歴 a ON a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
+  INNER JOIN FIT_ADMIN.会員番号 b   ON f.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN.個人 p       ON b.個人SEQ = p.個人SEQ
+  LEFT  JOIN FIT_ADMIN.会員契約 c   ON f.契約SEQ = c.契約SEQ
+  LEFT  JOIN FIT_ADMIN.会員区分 k   ON c.会員区分コード = k.会員区分コード
+  LEFT  JOIN FIT_ADMIN.会費分類 h   ON a.会費分類コード = h.会費分類コード
+  WHERE f.クラブコード = :clubCode
+    AND f.振替結果コード <> 0`;
+
+// ① 現在の未納 (未入金)
+const UNPAID_CURRENT_SQL = UNPAID_FURIKAE_BASE + `
+    AND a.入金年月日 IS NULL
+  ORDER BY f.振替年月 ASC
+  FETCH FIRST 20000 ROWS ONLY
+`;
+// ② 未納 → いつ入金されたか (振替失敗後に入金あり)
+const UNPAID_PAID_SQL = UNPAID_FURIKAE_BASE + `
+    AND a.入金年月日 IS NOT NULL
+    AND a.入金年月日 >= :fromYmd
+  ORDER BY a.入金年月日 DESC
+  FETCH FIRST 20000 ROWS ONLY
+`;
+// ③ 貸し倒れ候補 (未入金のまま振替年月が12ヶ月以上前)
+const UNPAID_WRITEOFF_SQL = UNPAID_FURIKAE_BASE + `
+    AND a.入金年月日 IS NULL
+    AND f.振替年月 <= :cutoffYm
+  ORDER BY f.振替年月 ASC
+  FETCH FIRST 20000 ROWS ONLY
+`;
+
+function _fmtYmd(raw) { const s = raw != null ? String(raw) : ""; return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : null; }
+function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length === 6 ? `${s.slice(0,4)}-${s.slice(4,6)}` : s; }
+
+// 振替未納の明細行 → 正規化 + 会員集計
+function buildUnpaidFurikae(type, rows) {
+  const items = rows.map((r) => {
+    const billed = Number(r.BILLED_AMOUNT) || 0;
+    const paid = Number(r.PAID_AMOUNT) || 0;
+    return {
+      memberNo: r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
+      memberName: r.NAME_KANJI != null ? String(r.NAME_KANJI) : null,
+      kana: [r.NAME_KANA_SEI, r.NAME_KANA_MEI].filter(Boolean).join(" ").trim() || null,
+      email: r.EMAIL != null ? String(r.EMAIL).trim() || null : null,
+      phone: r.PHONE != null ? String(r.PHONE).trim() || null : null,
+      contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+      furikaeMonth: _fmtYm(r.FURIKAE_YM),
+      resultCode: r.RESULT_CODE != null ? Number(r.RESULT_CODE) : null,
+      plan: r.PLAN_NAME ?? null,
+      category: r.FEE_CATEGORY_NAME ?? "その他",
+      billedAmount: billed,
+      paidAmount: paid,
+      outstanding: Math.max(0, billed - paid),
+      billedDate: _fmtYmd(r.BILLED_DATE),
+      paidDate: _fmtYmd(r.PAID_DATE),
+    };
+  });
+
+  if (type === "unpaid_paid") {
+    return {
+      items: items.map((it) => ({
+        ...it,
+        daysToPay: it.billedDate && it.paidDate
+          ? Math.max(0, Math.round((new Date(it.paidDate).getTime() - new Date(it.billedDate).getTime()) / 86400000))
+          : null,
+      })),
+    };
+  }
+
+  // current / writeoff: 会員単位で集計 (契約ごとの未納額を合算)
+  const byMember = new Map();
+  for (const it of items) {
+    const key = it.memberNo || "";
+    let m = byMember.get(key);
+    if (!m) {
+      m = { memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone, plan: it.plan, unpaidCount: 0, outstanding: 0, oldestMonth: it.furikaeMonth, _contracts: new Set() };
+      byMember.set(key, m);
+    }
+    m.unpaidCount += 1;
+    m.outstanding += it.outstanding;
+    if (it.furikaeMonth && (!m.oldestMonth || it.furikaeMonth < m.oldestMonth)) m.oldestMonth = it.furikaeMonth;
+    if (it.contractSeq != null) m._contracts.add(it.contractSeq);
+  }
+  const members = [...byMember.values()]
+    .map((m) => { const { _contracts, ...rest } = m; rest.contractCount = _contracts.size; return rest; })
+    .sort((a, b) => b.outstanding - a.outstanding);
+  return { members, items, totalOutstanding: members.reduce((s, m) => s + m.outstanding, 0), totalMembers: members.length };
+}
+
 // --- 入力正規化 --------------------------------------------------------------
 function normalize(type, q) {
   if (q == null) return q;
@@ -378,6 +490,41 @@ export const handler = async (event) => {
       return resp(200, { results: buildUnpaidResult(result.rows || []) });
     } catch (err) {
       console.error("unpaid error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // 未納管理: 現在の未納 / いつ入金されたか / 貸し倒れ候補 (振替結果コード基準)
+  if (type === "unpaid_current" || type === "unpaid_paid" || type === "unpaid_writeoff") {
+    const clubCode = (params.clubCode || "").trim();
+    if (!clubCode) {
+      return resp(400, { error: "missing_params", required: ["clubCode"] });
+    }
+    const ym = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const now = new Date();
+    const binds = { clubCode };
+    let sql;
+    if (type === "unpaid_current") {
+      sql = UNPAID_CURRENT_SQL;
+    } else if (type === "unpaid_paid") {
+      const from = new Date(now); from.setMonth(from.getMonth() - 12);
+      binds.fromYmd = Number(params.fromYmd || `${ym(from)}01`); // 既定: 直近12ヶ月の入金分
+      sql = UNPAID_PAID_SQL;
+    } else {
+      const cut = new Date(now); cut.setMonth(cut.getMonth() - 12);
+      binds.cutoffYm = Number(params.cutoffYm || ym(cut)); // 既定: 12ヶ月以上前
+      sql = UNPAID_WRITEOFF_SQL;
+    }
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      return resp(200, buildUnpaidFurikae(type, r.rows || []));
+    } catch (err) {
+      console.error(`${type} error`, err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }
