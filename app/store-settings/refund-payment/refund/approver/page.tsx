@@ -9,6 +9,7 @@ import {
 import type {
   RefundApplication as ApiApplication,
   ApprovalStep as ApiStep,
+  RefundEvent,
 } from "@/types/refundApplication";
 import { useRefundGuard } from "@/lib/useRefundGuard";
 
@@ -33,6 +34,7 @@ type Application = {
   submittedAt: string;
   myAction?: { state: "完了" | "差戻し"; actedAt: string; comment?: string };
   steps: { approver: Approver; state: StepState; actedAt?: string; comment?: string }[];
+  events: RefundEvent[]; // 監査ログ (誰がいつ何をしたか)
 };
 
 const APPROVERS = {
@@ -92,10 +94,16 @@ function apiToLocalApp(a: ApiApplication): Application {
       ? { state: approverStep.state as "完了" | "差戻し", actedAt: approverStep.actedAt || "", comment: approverStep.comment }
       : undefined,
     steps: (a.steps ?? []).map(apiStepToLocal),
+    events: a.events ?? [],
     updatedAt: a.updatedAt || "",
   };
 }
 
+
+const ACTION_LABEL: Record<string, string> = {
+  create: "作成", edit: "編集", submit: "申請", approve: "承認",
+  reject: "差戻し", arrange: "振込手配", transfer: "振込",
+};
 
 const STATE_COLOR: Record<StepState, string> = {
   完了: "#10b981", 対応中: "#f59e0b", 未対応: "#cbd5e1", 差戻し: "#ef4444",
@@ -557,6 +565,23 @@ function DetailPanel({ app, onApprove, onReject }: { app: Application; onApprove
           ))}
         </div>
       </section>
+
+      {app.events.length > 0 && (
+        <section className="dp-section">
+          <div className="dp-section-title"><FileText size={14} /> 操作履歴（監査ログ）</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[...app.events].reverse().map((ev, i) => (
+              <div key={i} style={{ fontSize: 12, color: "#475569", borderLeft: "2px solid #e2e8f0", paddingLeft: 10, lineHeight: 1.5 }}>
+                <span className="mono" style={{ color: "#94a3b8", fontSize: 11 }}>{ev.at?.replace("T", " ").slice(0, 16)}</span>{" "}
+                <strong style={{ color: "#0f172a" }}>{ACTION_LABEL[ev.action] ?? ev.action}</strong>
+                {ev.fromStatus && ev.toStatus && <span style={{ color: "#94a3b8" }}> {ev.fromStatus}→{ev.toStatus}</span>}
+                <span style={{ color: "#64748b" }}> / {ev.byUserName || ev.byUserId || "—"}</span>
+                {ev.comment && <span style={{ color: "#b45309" }}>「{ev.comment}」</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="dp-actions">
         {canAct ? (
