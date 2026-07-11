@@ -574,6 +574,7 @@ export default function RefundApplicationPage() {
 
   // 申請中フラグ
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false); // 送信前の最終確認
 
   // 初回ロード: 自分の申請履歴 + クラブ一覧を取得
   useEffect(() => {
@@ -915,6 +916,7 @@ export default function RefundApplicationPage() {
         }
         return [ui, ...prev];
       });
+      setConfirmOpen(false);
       setSuccessOpen(true);
       // サーバから完全な状態を取り直し (履歴の整合)
       reloadHistory().catch((e) => console.error("post-submit reload failed", e));
@@ -1475,9 +1477,9 @@ export default function RefundApplicationPage() {
                 <button
                   className="rfa-btn primary"
                   disabled={!canNext() || submitting}
-                  onClick={handleSubmit}
+                  onClick={() => setConfirmOpen(true)}
                 >
-                  {submitting ? "送信中..." : "申請する"} <Check size={16} />
+                  {submitting ? "送信中..." : "内容を確認して申請"} <Check size={16} />
                 </button>
               )}
             </div>
@@ -1574,6 +1576,62 @@ export default function RefundApplicationPage() {
       )}
 
       {/* Success Modal */}
+      {confirmOpen && selectedMember && accountDraft && (
+        <div className="rfa-modal-bg" onClick={() => !submitting && setConfirmOpen(false)}>
+          <div className="rfa-modal rfa-confirm" onClick={(e) => e.stopPropagation()}>
+            <button className="rfa-modal-close" disabled={submitting} onClick={() => setConfirmOpen(false)}>
+              <X size={18} />
+            </button>
+            <div className="rfa-modal-icon"><Check size={32} /></div>
+            <h3>この内容で申請します</h3>
+            <p>送信後は承認担当者へ通知されます。内容に誤りがないかご確認ください。</p>
+            <div className="rfa-confirm-body">
+              <div className="rfa-confirm-row">
+                <span className="rfa-confirm-key">会員</span>
+                <span className="rfa-confirm-val">{selectedMember.memberId} / {selectedMember.name}（{selectedMember.plan}）</span>
+              </div>
+              <div className="rfa-confirm-row">
+                <span className="rfa-confirm-key">対象期間</span>
+                <span className="rfa-confirm-val">{targetMonthFrom} 〜 {targetMonthTo}</span>
+              </div>
+              <div className="rfa-confirm-row">
+                <span className="rfa-confirm-key">返金項目</span>
+                <span className="rfa-confirm-val">
+                  {refundableItems.filter((it) => selectedItemIds.has(it.id)).map((it) => (
+                    <span key={it.id} className="rfa-confirm-item">
+                      ・{it.label} — ¥{(adjustedAmounts[it.id] ?? it.amount).toLocaleString()}
+                    </span>
+                  ))}
+                </span>
+              </div>
+              <div className="rfa-confirm-row rfa-confirm-total">
+                <span className="rfa-confirm-key">返金合計</span>
+                <span className="rfa-confirm-val">¥ {totalAmount.toLocaleString()}</span>
+              </div>
+              <div className="rfa-confirm-row">
+                <span className="rfa-confirm-key">振込先</span>
+                <span className="rfa-confirm-val">
+                  {accountDraft.bankName} {accountDraft.branchName} / {accountDraft.accountType} {accountDraft.accountNumber}
+                  <br />{accountDraft.holderName}
+                </span>
+              </div>
+              <div className="rfa-confirm-row">
+                <span className="rfa-confirm-key">申請理由</span>
+                <span className="rfa-confirm-val">{reason}</span>
+              </div>
+            </div>
+            <div className="rfa-confirm-actions">
+              <button className="rfa-btn" disabled={submitting} onClick={() => setConfirmOpen(false)}>
+                戻る
+              </button>
+              <button className="rfa-btn primary" disabled={submitting} onClick={handleSubmit}>
+                {submitting ? "送信中..." : "この内容で申請する"} <Check size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {successOpen && (
         <div className="rfa-modal-bg" onClick={() => { setSuccessOpen(false); reset(); }}>
           <div className="rfa-modal" onClick={(e) => e.stopPropagation()}>
@@ -1861,6 +1919,19 @@ export default function RefundApplicationPage() {
         .rfa-modal-icon { width: 64px; height: 64px; margin: 0 auto 16px; border-radius: 50%; background: #d1fae5; color: #059669; display: flex; align-items: center; justify-content: center; }
         .rfa-modal h3 { font-size: 18px; font-weight: 800; margin: 0 0 8px 0; }
         .rfa-modal p { font-size: 13px; color: #64748b; margin: 0 0 20px 0; }
+        /* Confirm modal */
+        .rfa-modal.rfa-confirm { max-width: 480px; text-align: left; }
+        .rfa-modal.rfa-confirm .rfa-modal-icon { margin-left: auto; margin-right: auto; }
+        .rfa-modal.rfa-confirm h3, .rfa-modal.rfa-confirm > p { text-align: center; }
+        .rfa-confirm-body { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+        .rfa-confirm-row { display: flex; gap: 12px; font-size: 13px; }
+        .rfa-confirm-key { flex: 0 0 76px; color: #64748b; font-weight: 700; }
+        .rfa-confirm-val { flex: 1; color: #0f172a; font-weight: 600; display: flex; flex-direction: column; gap: 2px; }
+        .rfa-confirm-item { display: block; }
+        .rfa-confirm-total .rfa-confirm-val { color: #0369a1; font-weight: 800; font-size: 15px; }
+        .rfa-confirm-total { border-top: 1px dashed #cbd5e1; padding-top: 10px; }
+        .rfa-confirm-actions { display: flex; gap: 12px; }
+        .rfa-confirm-actions .rfa-btn { flex: 1; justify-content: center; }
       `}</style>
     </div>
   );

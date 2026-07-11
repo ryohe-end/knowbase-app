@@ -406,7 +406,7 @@ export default function RefundFinancePage() {
   }, [selectedApps]);
 
   // CSV出力実行（全銀協 1ファイル）
-  const doCsvExport = () => {
+  const doCsvExport = async () => {
     if (!csvModal) return;
     if (selectedApps.length === 0) { alert("対象がありません"); return; }
     const scheduled = csvModal.scheduledDate || today;
@@ -459,19 +459,6 @@ export default function RefundFinancePage() {
     const csv = [header, ...data, trailer, end].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`zengin_refund_${stampShort}.csv`, csv);
 
-    // API: 選択した各 app を arrange (振込手配中) に
-    Promise.all(
-      selectedApps.map((a) =>
-        fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})`, expectedUpdatedAt: a.updatedAt }),
-        })
-      )
-    )
-      .catch((e) => console.error("arrange failed", e))
-      .finally(() => reload());
-
     // 銀行別内訳サマリ CSV (社内管理用)
     const summaryHeaders = ["バッチID", "申請ID", "会員ID", "会員名", "銀行コード", "銀行名", "支店", "種別", "口座番号", "名義人", "金額", "申請理由"];
     const summaryRows = selectedApps.map((a) => [
@@ -483,8 +470,47 @@ export default function RefundFinancePage() {
     const summaryCsv = [summaryHeaders, ...summaryRows].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`refund_summary_${stampShort}.csv`, summaryCsv);
 
-    // 楽観 UI 更新は API レスポンスを待つ。整合性優先 (race を避ける)。
-    setSelectedIds(new Set());
+    // API: 選択した各 app を arrange (振込手配中) に。
+    // 部分失敗（楽観ロック衝突=HTTP 409 / 権限 / 通信断）を握りつぶさず可視化する。
+    // Promise.all + .catch では HTTP エラー(res.ok=false)を捕捉できず、CSV だけ出力されて
+    // 状態が「振込手配中」へ進まない不整合がサイレントに起きるため、各結果を個別検証する。
+    const results = await Promise.all(
+      selectedApps.map(async (a) => {
+        try {
+          const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})`, expectedUpdatedAt: a.updatedAt }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) {
+            return { app: a, ok: false, error: (json?.error as string) || `HTTP ${res.status}` };
+          }
+          return { app: a, ok: true, error: "" };
+        } catch (e: any) {
+          return { app: a, ok: false, error: e?.message || "通信エラー" };
+        }
+      })
+    );
+    const failed = results.filter((r) => !r.ok);
+
+    // サーバから最新状態を取り直してから選択を確定 (整合性優先 / race 回避)。
+    await reload();
+
+    if (failed.length > 0) {
+      // 失敗分は選択に残して再実行できるようにし、成功分のみ解除。
+      setSelectedIds(new Set(failed.map((r) => r.app.id)));
+      const lines = failed
+        .map((r) => `・${r.app.id}（${r.app.memberName}）: ${r.error}`)
+        .join("\n");
+      alert(
+        `振込手配（「振込手配中」への更新）に失敗した申請が ${failed.length}/${selectedApps.length} 件あります。\n` +
+        `CSV は出力済みですが、以下は状態が更新されていません。\n` +
+        `他の担当者が同時操作した可能性があります。再読込した最新状態を確認のうえ、対象を選び直して再実行してください:\n\n${lines}`
+      );
+    } else {
+      setSelectedIds(new Set());
+    }
     setCsvModal(null);
   };
 
