@@ -35,14 +35,23 @@
 //       [AND c.退会日     BETWEEN :leaveFrom AND :leaveTo]
 //       [AND (退会日 IS NULL / IS NOT NULL by membershipStatus)]
 //       [AND e.契約形態名 IN (:contractTypeNames)]
+//       -- 未納 (hasUnpaidOnly=true のとき): 会員入金歴 f.入金区分コード=4 (3=支払済/4=未納)
+//       [AND EXISTS (SELECT 1 FROM 会員入金歴 f WHERE f.契約者SEQ = c.契約者SEQ AND f.入金区分コード = 4)]
+//       -- 来館回数 (visitCountFrom/To): 入館トラン g の 営業年月日 が対象期間内のレコード数で絞る
+//       [AND (SELECT COUNT(*) FROM 入館トラン g
+//               WHERE g.会員番号 = b.会員番号 AND g.クラブコード = c.クラブコード
+//                 AND g.営業年月日 BETWEEN :visitFrom AND :visitTo) BETWEEN :visitMin AND :visitMax]
 //   ▼ Response(JSON):
 //     { "results": [ {memberNo,name,kana,birthday(YYYY-MM-DD),genderCode(1|2),
 //                     clubCode,contractName,withdrawnAt,
 //                     email} ], "totalCount": <条件一致総数> }
 //     ※ email は個人テーブルのメールアドレス。DM(deliveryType=dm)の配信先に使う。
 //
-// ※ visitCount(来館回数) / hasUnpaidOnly(未納) は別途 SQL 提供待ち。member-search へ
-//    転送済み(visitCountFrom/To, hasUnpaidOnly)なので、Lambda 側 SQL 対応後に自動で効く。
+// ★ 来館回数の「0回」定義 (重要): 対象期間中に契約はあるが 入館トラン にレコードが無い人 = 0回。
+//    → 入館トラン は INNER JOIN せず、EXISTS/相関サブクエリの COUNT で数える
+//      (INNER JOIN すると 0回の会員が除外されてしまう)。同様に 会員入金歴 も EXISTS で
+//      判定する (JOIN すると入金履歴の件数だけ行が増える)。
+// ※ visitCountFrom/To, hasUnpaidOnly は本 route から member-search へ転送済み。
 // ────────────────────────────────────────────────────────────────────
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
