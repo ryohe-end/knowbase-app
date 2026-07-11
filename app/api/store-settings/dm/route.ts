@@ -12,6 +12,14 @@
 import { NextResponse } from "next/server";
 import sgMail from "@sendgrid/mail";
 import { getSessionUser } from "@/lib/auth";
+import {
+  createCampaign,
+  updateCampaignSendResult,
+  listCampaigns,
+  newCampaignId,
+  type DmCampaign,
+} from "@/lib/dmStore";
+import type { DmNotification } from "@/types/dmNotification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,11 +56,44 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
-// DM 履歴の永続化は未実装(要ストレージ決定)。一覧は空を返す。
+// DM 履歴一覧。DynamoDB のキャンペーン集計を DmNotification 形にして返す。
+// stats は SendGrid Event Webhook (app/api/webhooks/sendgrid) が更新した実データ。
+function campaignToNotification(c: DmCampaign): DmNotification {
+  return {
+    id: c.campaignId,
+    subject: c.subject,
+    body: c.body || "",
+    imageUrl: c.imageUrl,
+    targetType: "ALL",
+    status: c.status === "scheduled" ? "SCHEDULED" : "SENT",
+    scheduledAt: c.scheduledAt || c.sentAt || c.createdAt,
+    createdAt: c.createdAt,
+    stats: {
+      targetCount: c.targetCount,
+      deliveredCount: c.delivered ?? 0,
+      openCount: c.opens ?? 0,
+      errorCount: (c.bounces ?? 0) + (c.dropped ?? 0),
+      uniqueOpenCount: c.uniqueOpens,
+      clickCount: c.clicks,
+      uniqueClickCount: c.uniqueClicks,
+      spamReportCount: c.spamReports,
+      unsubscribeCount: c.unsubscribes,
+      lastEventAt: c.lastEventAt,
+    },
+  };
+}
+
 export async function GET(req: Request) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json({ notifications: [] });
+  try {
+    const campaigns = await listCampaigns({ clubCodes: user.clubCodes });
+    return NextResponse.json({ notifications: campaigns.map(campaignToNotification) });
+  } catch (e: any) {
+    // テーブル未作成などでも画面を落とさない (空一覧で返す)
+    console.error("[dm GET] listCampaigns failed:", e?.message || e);
+    return NextResponse.json({ notifications: [] });
+  }
 }
 
 interface Recipient {
@@ -126,6 +167,30 @@ export async function POST(req: Request) {
     : buildHtml(subject, content, body.imageUrl);
   const fromName = `${(body.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365"} サポート`;
 
+  // キャンペーンを作成 (開封率集計の紐付けキー)。ベストエフォート:
+  // DynamoDB 未整備でも送信自体は継続する。
+  const now = new Date();
+  const campaignId = newCampaignId(now);
+  try {
+    await createCampaign({
+      campaignId,
+      clubCode,
+      brand: body.brand,
+      subject,
+      body: content,
+      imageUrl: body.imageUrl,
+      createdBy: user.email,
+      createdByName: (user as any).name,
+      targetCount: recipients.length,
+      sentCount: 0,
+      status: sendAt ? "scheduled" : "sending",
+      scheduledAt: sendAt ? body.scheduledAt : undefined,
+      createdAt: now.toISOString(),
+    } as DmCampaign);
+  } catch (e: any) {
+    console.error("[dm POST] createCampaign failed (集計は無効化して送信継続):", e?.message || e);
+  }
+
   let sent = 0;
   const errors: string[] = [];
   for (const group of chunk(recipients, BATCH)) {
@@ -136,6 +201,13 @@ export async function POST(req: Request) {
         subject,
         html,
         ...(sendAt ? { sendAt } : {}),
+        // 開封率集計用: イベントに campaign_id を echo させる + トラッキング有効化
+        customArgs: { campaign_id: campaignId },
+        categories: ["dm", clubCode],
+        trackingSettings: {
+          openTracking: { enable: true },
+          clickTracking: { enable: true, enableText: false },
+        },
       });
       sent += group.length;
     } catch (e: any) {
@@ -144,11 +216,23 @@ export async function POST(req: Request) {
     }
   }
 
+  // 送信結果をキャンペーンへ反映 (ベストエフォート)
+  try {
+    await updateCampaignSendResult(campaignId, {
+      status: sent === 0 ? "failed" : sendAt ? "scheduled" : "sent",
+      sentCount: sent,
+      sentAt: sendAt ? undefined : now.toISOString(),
+    });
+  } catch (e: any) {
+    console.error("[dm POST] updateCampaignSendResult failed:", e?.message || e);
+  }
+
   if (sent === 0) {
     return NextResponse.json({ ok: false, error: "send_failed", detail: errors[0] }, { status: 502 });
   }
   return NextResponse.json({
     ok: true,
+    campaignId,
     targetCount: recipients.length,
     sentCount: sent,
     scheduled: !!sendAt,

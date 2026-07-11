@@ -631,10 +631,40 @@ export default function DmSettingsPage() {
                             </div>
                           </div>
                         </div>
+                        <div className="dm-report-grid" style={{ marginTop: 8 }}>
+                          <div className="kpi-item">
+                            <label>ユニーク開封率</label>
+                            <div className="kpi-val">
+                              {selectedHistory?.stats && selectedHistory.stats.deliveredCount > 0
+                                ? Math.round(((selectedHistory.stats.uniqueOpenCount ?? 0) / selectedHistory.stats.deliveredCount) * 100)
+                                : 0}<small>%</small>
+                            </div>
+                          </div>
+                          <div className="kpi-item">
+                            <label>クリック数</label>
+                            <div className="kpi-val text-blue">{selectedHistory?.stats?.clickCount ?? 0}</div>
+                          </div>
+                          <div className="kpi-item">
+                            <label>クリック率</label>
+                            <div className="kpi-val">
+                              {selectedHistory?.stats && selectedHistory.stats.deliveredCount > 0
+                                ? Math.round(((selectedHistory.stats.clickCount ?? 0) / selectedHistory.stats.deliveredCount) * 100)
+                                : 0}<small>%</small>
+                            </div>
+                          </div>
+                          <div className="kpi-item">
+                            <label>配信停止</label>
+                            <div className="kpi-val">{selectedHistory?.stats?.unsubscribeCount ?? 0}</div>
+                          </div>
+                        </div>
                         <div className="error-bar">
-                          <span className="err-label">配信エラー (Bounce)</span>
+                          <span className="err-label">配信エラー (Bounce/Drop)</span>
                           <span className="err-val">{selectedHistory?.stats?.errorCount || 0}件</span>
                         </div>
+                        <p style={{ fontSize: 11, color: "#94a3b8", margin: "8px 4px 0", lineHeight: 1.5 }}>
+                          ※ 開封数は Apple Mail のプライバシー保護(MPP)等で過大計上される場合があります。
+                          実エンゲージメントはクリック率を併せてご確認ください。
+                        </p>
                       </div>
                     </div>
                   </>
