@@ -324,8 +324,9 @@ const UNPAID_CURRENT_BASE = `
          AND a.入金年月日 IS NOT NULL
     )`;
 
-// ① 現在の未納
+// ① 現在の未納 (貸倒対象=12ヶ月超 の過去分は除外。直近の回収対象のみ)
 const UNPAID_CURRENT_SQL = UNPAID_CURRENT_BASE + `
+    AND f.振替年月 > :cutoffYm
   ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
 `;
@@ -520,16 +521,19 @@ export const handler = async (event) => {
     const now = new Date();
     // 振替契約別.クラブコード は NUMBER。数値でバインド。
     const binds = { clubCode: Number(clubCode) };
+    // 現在の未納 / 貸倒候補 の境界 = 12ヶ月前 (現在=それ以降, 貸倒=それ以前)
+    const cut = new Date(now); cut.setMonth(cut.getMonth() - 12);
+    const cutoffYm = Number(params.cutoffYm || ym(cut));
     let sql;
     if (type === "unpaid_current") {
+      binds.cutoffYm = cutoffYm; // 貸倒対象(過去分)を除外
       sql = UNPAID_CURRENT_SQL;
     } else if (type === "unpaid_paid") {
       const from = new Date(now); from.setMonth(from.getMonth() - 12);
       binds.fromYmd = Number(params.fromYmd || `${ym(from)}01`); // 既定: 直近12ヶ月の入金分
       sql = UNPAID_PAID_SQL;
     } else {
-      const cut = new Date(now); cut.setMonth(cut.getMonth() - 12);
-      binds.cutoffYm = Number(params.cutoffYm || ym(cut)); // 既定: 12ヶ月以上前
+      binds.cutoffYm = cutoffYm; // 12ヶ月以上前
       sql = UNPAID_WRITEOFF_SQL;
     }
     let conn;
