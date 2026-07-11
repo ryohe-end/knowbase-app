@@ -12,6 +12,7 @@ import type {
   ApprovalStep as ApiStep,
   BankAccount as ApiBankAccount,
 } from "@/types/refundApplication";
+import RefundEditDialog from "./RefundEditDialog";
 
 // ---- 型 (UI 用ローカル型 — API 型 [types/refundApplication] とは adapt で接続) ----
 type BankAccount = {
@@ -195,6 +196,59 @@ const STEPS = [
   { id: 2, label: "会員検索", icon: <User size={16} /> },
   { id: 3, label: "返金項目", icon: <Receipt size={16} /> },
   { id: 4, label: "確認", icon: <ClipboardCheck size={16} /> },
+];
+
+// デモ用: 申請 → 承認者承認 → 経理処理 まで完了している返金申請の例
+const DEMO_APPLICATIONS: RefundApplication[] = [
+  {
+    id: "DEMO-REF-001",
+    targetMonthFrom: "2026-03",
+    targetMonthTo: "2026-03",
+    memberId: "9001234",
+    memberName: "山田 太郎",
+    items: [
+      { id: "d1-1", label: "2026年3月 月会費", amount: 8800 },
+      { id: "d1-2", label: "2026年3月 水素水オプション", amount: 1100 },
+    ],
+    totalAmount: 9900,
+    reason: "入院により休会扱いとなったため、3月分会費の返金を申請します。",
+    status: "承認済み",
+    createdAt: "2026-04-02",
+    steps: [
+      { approver: { role: "申請者", name: "遠藤 涼平", dept: "旭川アモール 店舗", email: "r-endo@okamoto-group.co.jp" }, state: "完了", actedAt: "2026-04-02 10:14", comment: "添付の診断書通り休会扱い済み" },
+      { approver: { role: "承認者", name: "後藤 充洋", dept: "旭川アモール 店長", email: "goto@fit365.jp" }, state: "完了", actedAt: "2026-04-02 15:42", comment: "事由・金額ともに妥当。承認します。" },
+      { approver: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" }, state: "完了", actedAt: "2026-04-04 11:08", comment: "登録口座へ振込完了 (振込日: 2026-04-04)" },
+    ],
+    account: {
+      bankName: "三井住友銀行", branchName: "旭川支店", bankCode: "0009", branchCode: "521",
+      accountType: "普通", accountNumber: "1234567", holderName: "ヤマダ タロウ",
+      source: "登録済み（引落口座）",
+    },
+  },
+  {
+    id: "DEMO-REF-002",
+    targetMonthFrom: "2026-02",
+    targetMonthTo: "2026-02",
+    memberId: "9002311",
+    memberName: "佐藤 花子",
+    items: [
+      { id: "d2-1", label: "2026年2月 月会費", amount: 9900 },
+    ],
+    totalAmount: 9900,
+    reason: "店舗工事による休館期間 (2/15-2/28) があったため日割相当分を返金。",
+    status: "承認済み",
+    createdAt: "2026-03-05",
+    steps: [
+      { approver: { role: "申請者", name: "遠藤 涼平", dept: "旭川アモール 店舗", email: "r-endo@okamoto-group.co.jp" }, state: "完了", actedAt: "2026-03-05 09:00", comment: "対象会員リストより自動算出" },
+      { approver: { role: "承認者", name: "後藤 充洋", dept: "旭川アモール 店長", email: "goto@fit365.jp" }, state: "完了", actedAt: "2026-03-05 13:20", comment: "工事告知対応。承認。" },
+      { approver: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" }, state: "完了", actedAt: "2026-03-07 10:30", comment: "振込完了" },
+    ],
+    account: {
+      bankName: "北海道銀行", branchName: "本店", bankCode: "0501", branchCode: "100",
+      accountType: "普通", accountNumber: "7654321", holderName: "サトウ ハナコ",
+      source: "登録済み（過去返金）",
+    },
+  },
 ];
 
 
@@ -436,6 +490,43 @@ export default function RefundApplicationPage() {
   const [editingApplicationId, setEditingApplicationId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState<"edit" | "resubmit" | null>(null);
 
+  // 申請後の編集/削除モーダル (編集は独立ダイアログ RefundEditDialog が担う)
+  const [editTargetApp, setEditTargetApp] = useState<RefundApplication | null>(null);
+  const [deleteTargetApp, setDeleteTargetApp] = useState<RefundApplication | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [deletingNow, setDeletingNow] = useState(false);
+
+  const openEditModal = (app: RefundApplication) => setEditTargetApp(app);
+  const closeEditModal = () => setEditTargetApp(null);
+  const saveEdit = (draft: { reason: string; items: { id: string; label: string; amount: number }[] }) => {
+    if (!editTargetApp) return;
+    setEditSaving(true);
+    // モック保存: ローカル history を即時更新
+    setTimeout(() => {
+      const newTotal = draft.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
+      setHistory((prev) => prev.map((h) => (
+        h.id === editTargetApp.id
+          ? { ...h, reason: draft.reason, items: draft.items, totalAmount: newTotal }
+          : h
+      )));
+      setEditSaving(false);
+      closeEditModal();
+    }, 250);
+  };
+
+  const openDeleteModal = (app: RefundApplication) => setDeleteTargetApp(app);
+  const closeDeleteModal = () => setDeleteTargetApp(null);
+  const confirmDelete = () => {
+    if (!deleteTargetApp) return;
+    setDeletingNow(true);
+    // モック削除: ローカル history から除外 (API は未連携)
+    setTimeout(() => {
+      setHistory((prev) => prev.filter((h) => h.id !== deleteTargetApp.id));
+      setDeletingNow(false);
+      closeDeleteModal();
+    }, 250);
+  };
+
   // 会員検索 (API)
   const [memberSearchResults, setMemberSearchResults] = useState<Member[]>([]);
   const [memberSearchLoading, setMemberSearchLoading] = useState(false);
@@ -457,7 +548,11 @@ export default function RefundApplicationPage() {
         ]);
         const appData = await appRes.json();
         if (appData.ok && Array.isArray(appData.applications)) {
-          setHistory(appData.applications.map((a: ApiApplication) => apiToUi(a)));
+          const real = appData.applications.map((a: ApiApplication) => apiToUi(a));
+          // DEMO_APPLICATIONS をデモ用に先頭に挿入 (実データと重複しない ID 接頭辞)
+          setHistory([...DEMO_APPLICATIONS, ...real]);
+        } else {
+          setHistory([...DEMO_APPLICATIONS]);
         }
         const clubData = await clubRes.json();
         if (clubData.ok && Array.isArray(clubData.clubs)) {
@@ -481,7 +576,8 @@ export default function RefundApplicationPage() {
       const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
       const data = await res.json();
       if (data.ok && Array.isArray(data.applications)) {
-        setHistory(data.applications.map((a: ApiApplication) => apiToUi(a)));
+        const real = data.applications.map((a: ApiApplication) => apiToUi(a));
+        setHistory([...DEMO_APPLICATIONS, ...real]);
       }
     } catch (e) {
       console.error("history reload failed", e);
@@ -1393,14 +1489,47 @@ export default function RefundApplicationPage() {
                   app={h}
                   expanded={expandedHistory === h.id}
                   onToggle={() => setExpandedHistory(expandedHistory === h.id ? null : h.id)}
-                  onEdit={() => loadApplicationIntoWizard(h, "edit")}
-                  onResubmit={() => loadApplicationIntoWizard(h, "resubmit")}
+                  onEdit={() => openEditModal(h)}
+                  onResubmit={() => openEditModal(h)}
+                  onDelete={() => openDeleteModal(h)}
                 />
               ))}
             </div>
           </section>
         </div>
       </main>
+
+      {/* 編集は独立ダイアログに切り出し */}
+      <RefundEditDialog
+        app={editTargetApp}
+        saving={editSaving}
+        onClose={closeEditModal}
+        onSave={saveEdit}
+      />
+
+      {/* 削除モーダル */}
+      {deleteTargetApp && (
+        <div className="rfa-modal-bg" onClick={() => !deletingNow && closeDeleteModal()}>
+          <div className="rfa-delete-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="rfa-modal-close" onClick={closeDeleteModal} disabled={deletingNow}>
+              <X size={18} />
+            </button>
+            <div className="rfa-delete-icon"><AlertCircle size={28} /></div>
+            <h3>この申請を削除しますか？</h3>
+            <p>
+              <span className="mono">{deleteTargetApp.id}</span> / {deleteTargetApp.memberName}
+              <br />¥{deleteTargetApp.totalAmount.toLocaleString()} / {deleteTargetApp.status}
+            </p>
+            <p className="rfa-delete-note">削除後は復元できません。承認担当者にも通知済みの場合は、削除前に取り消しの旨を共有してください。</p>
+            <div className="rfa-edit-modal-footer">
+              <button className="rfa-btn ghost" onClick={closeDeleteModal} disabled={deletingNow}>キャンセル</button>
+              <button className="rfa-btn danger" onClick={confirmDelete} disabled={deletingNow}>
+                {deletingNow ? "削除中..." : "削除する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success Modal */}
       {successOpen && (
@@ -1619,6 +1748,39 @@ export default function RefundApplicationPage() {
         .rfa-btn.ghost { background: transparent; color: #94a3b8; }
         .rfa-btn.ghost:hover:not(:disabled) { color: #475569; }
         .rfa-btn.ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+        .rfa-btn.danger { background: #ef4444; color: #fff; }
+        .rfa-btn.danger:hover:not(:disabled) { background: #dc2626; }
+        .rfa-btn.danger:disabled { background: #fca5a5; cursor: not-allowed; }
+
+        /* Edit / Delete modals */
+        .rfa-edit-modal { background: #fff; border-radius: 18px; max-width: 560px; width: 92vw; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 24px 48px rgba(15,23,42,0.18); position: relative; overflow: hidden; }
+        .rfa-edit-modal-head { padding: 20px 24px 16px; border-bottom: 1px solid #f1f5f9; }
+        .rfa-edit-modal-head h3 { margin: 0; font-size: 17px; font-weight: 800; color: #0f172a; }
+        .rfa-edit-modal-head p { margin: 6px 0 0; font-size: 12px; color: #64748b; }
+        .rfa-edit-modal-head .mono { font-family: 'SF Mono', Menlo, monospace; color: #475569; }
+        .rfa-edit-modal-body { padding: 18px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 18px; }
+        .rfa-edit-field { display: flex; flex-direction: column; gap: 6px; }
+        .rfa-edit-field label { font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
+        .rfa-edit-field textarea { resize: vertical; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font-size: 13px; font-family: inherit; outline: none; }
+        .rfa-edit-field textarea:focus { border-color: #0ea5e9; }
+        .rfa-edit-items { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+        .rfa-edit-items li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+        .rfa-edit-item-label { font-size: 13px; font-weight: 600; color: #0f172a; flex: 1; }
+        .rfa-edit-item-amount { display: flex; align-items: center; gap: 4px; font-weight: 800; color: #0369a1; }
+        .rfa-edit-item-amount input { width: 110px; padding: 6px 8px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 13px; text-align: right; outline: none; font-family: 'SF Mono', Menlo, monospace; }
+        .rfa-edit-item-amount input:focus { border-color: #0ea5e9; }
+        .rfa-edit-empty { padding: 12px; background: #f8fafc; border: 1px dashed #e2e8f0; border-radius: 8px; font-size: 12px; color: #94a3b8; text-align: center; }
+        .rfa-edit-total { text-align: right; font-size: 12px; color: #64748b; padding-top: 4px; border-top: 1px dashed #e2e8f0; }
+        .rfa-edit-total strong { font-size: 14px; color: #0369a1; margin-left: 6px; }
+        .rfa-edit-modal-footer { padding: 14px 20px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 10px; background: #fafbfc; }
+
+        .rfa-delete-modal { background: #fff; border-radius: 18px; max-width: 420px; width: 92vw; padding: 24px 24px 0; position: relative; box-shadow: 0 24px 48px rgba(15,23,42,0.18); text-align: center; }
+        .rfa-delete-modal h3 { margin: 8px 0 6px; font-size: 17px; font-weight: 800; color: #0f172a; }
+        .rfa-delete-modal p { font-size: 13px; color: #475569; margin: 0; line-height: 1.7; }
+        .rfa-delete-modal p.rfa-delete-note { margin-top: 12px; font-size: 12px; color: #94a3b8; }
+        .rfa-delete-modal .mono { font-family: 'SF Mono', Menlo, monospace; color: #475569; font-weight: 700; }
+        .rfa-delete-icon { width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 50%; background: #fee2e2; color: #b91c1c; display: flex; align-items: center; justify-content: center; }
+        .rfa-delete-modal .rfa-edit-modal-footer { margin: 18px -24px 0; }
 
         /* History */
         .rfa-history { margin-top: 48px; }
@@ -1676,12 +1838,14 @@ function HistoryCard({
   onToggle,
   onEdit,
   onResubmit,
+  onDelete,
 }: {
   app: RefundApplication;
   expanded: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onResubmit: () => void;
+  onDelete: () => void;
 }) {
   const overallColor = STATUS_COLOR[app.status];
   const isReturned = app.status === "差戻し";
@@ -1694,7 +1858,10 @@ function HistoryCard({
     <div className={`rfa-h-card ${expanded ? "open" : ""}`}>
       <button className="rfa-h-card-summary" onClick={onToggle}>
         <div className="rfa-h-summary-left">
-          <span className="rfa-h-id mono">{app.id}</span>
+          <span className="rfa-h-id mono">
+            {app.id}
+            {app.id.startsWith("DEMO-") && <span className="rfa-h-demo-badge">DEMO</span>}
+          </span>
           <div className="rfa-h-meta">
             <span>{app.targetMonthFrom === app.targetMonthTo ? app.targetMonthFrom : `${app.targetMonthFrom}〜${app.targetMonthTo}`}</span>
             <span>•</span>
@@ -1806,6 +1973,11 @@ function HistoryCard({
 
           {/* アクション */}
           <div className="rfa-h-actions">
+            {!isApproved && (
+              <button className="rfa-h-act danger" onClick={onDelete}>
+                <X size={14} /> 削除
+              </button>
+            )}
             {isReturned && (
               <button className="rfa-h-act primary" onClick={onResubmit}>
                 <RefreshCw size={14} /> 再申請する
@@ -1813,7 +1985,7 @@ function HistoryCard({
             )}
             {(isDraft || isPending) && (
               <button className="rfa-h-act outline" onClick={onEdit}>
-                <Edit3 size={14} /> 編集して再送信
+                <Edit3 size={14} /> 編集
               </button>
             )}
             {isApproved && (
@@ -1831,7 +2003,8 @@ function HistoryCard({
         .rfa-h-card-summary { width: 100%; background: transparent; border: none; padding: 14px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; text-align: left; }
         .rfa-h-card-summary:hover { background: #f8fafc; }
         .rfa-h-summary-left { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-        .rfa-h-id { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 800; color: #475569; }
+        .rfa-h-id { font-family: 'SF Mono', Menlo, monospace; font-size: 11px; font-weight: 800; color: #475569; display: inline-flex; align-items: center; gap: 6px; }
+        .rfa-h-demo-badge { font-family: 'Inter', -apple-system, sans-serif; font-size: 9px; font-weight: 800; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 4px; background: linear-gradient(135deg, #fef3c7, #fde68a); color: #92400e; }
         .rfa-h-meta { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: #0f172a; flex-wrap: wrap; }
         .rfa-h-meta > span:nth-child(2n) { color: #cbd5e1; font-weight: 400; }
         .rfa-h-amount { color: #0369a1; }
@@ -1885,6 +2058,8 @@ function HistoryCard({
         .rfa-h-act.primary:hover { background: #dc2626; }
         .rfa-h-act.outline { background: #fff; color: #475569; border: 1px solid #cbd5e1; }
         .rfa-h-act.outline:hover { background: #f8fafc; border-color: #0ea5e9; color: #0ea5e9; }
+        .rfa-h-act.danger { background: #fff; color: #b91c1c; border: 1px solid #fecaca; }
+        .rfa-h-act.danger:hover { background: #fef2f2; border-color: #ef4444; }
         .rfa-h-act.readonly { background: #f1f5f9; color: #94a3b8; cursor: default; padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 700; }
       `}</style>
     </div>
