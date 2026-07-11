@@ -1,49 +1,65 @@
 // app/store-settings/push/new/page.tsx
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
-const generateMockMembers = (count: number) => {
-  return Array.from({ length: count }).map((_, i) => {
-    const isLeaver = i % 10 === 0;
-    const isUnpaid = i % 23 === 0;
-    return {
-      id: `1000${i + 1}`,
-      name: `利用者 ${i + 1}`,
-      email: `user${i + 1}@example.com`,
-      gender: i % 2 === 0 ? "male" : "female",
-      joinDate: "2023-04-15",
-      leaveDate: isLeaver ? "2025-12-31" : "",
-      lastVisitDate: "2026-02-10",
-      visitCount: (i * 7) % 50,
-      status: isLeaver ? "退会済" : "在籍中",
-      hasUnpaid: isUnpaid,
-    };
-  });
+// 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
+const CONTRACT_TYPES = ["レギュラー", "ナイト", "デイ", "ホリデー", "学生", "家族", "法人", "1day/OTP"];
+
+type StoreItem = { clubCode: string; clubName: string; brand: string };
+type ExtractedMember = {
+  memberNo: string;
+  name: string;
+  kana: string;
+  age: number | null;
+  gender: "male" | "female" | null;
+  contractType: string;
+  withdrawnAt: string | null;
+  appUserId: number | null;
+  deliverable: boolean;
 };
+
+// ブランド → 表示テーマ (プレビュー出し分け)
+function brandTheme(brand: string): { label: string; color: string; appName: string } {
+  const b = (brand || "").toUpperCase();
+  if (b.startsWith("JOYFIT")) return { label: "JOYFIT", color: "#1F2C5C", appName: "JOYFITアプリ" };
+  return { label: "FIT365", color: "#E26E9D", appName: "FIT365アプリ" };
+}
 
 export default function NewPushPage() {
   const router = useRouter();
   const [sending, setSending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  // 店舗コンテキスト (ログインユーザーの担当クラブ)
+  const [stores, setStores] = useState<StoreItem[]>([]);
+  const [clubCode, setClubCode] = useState("");
+  const [storeLoading, setStoreLoading] = useState(true);
+  const selectedStore = useMemo(() => stores.find((s) => s.clubCode === clubCode) ?? null, [stores, clubCode]);
+  const brand = selectedStore?.brand ?? "FIT365";
+  const theme = useMemo(() => brandTheme(brand), [brand]);
+
   // フォーム
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [imageUrl, setImageUrl] = useState(""); // お知らせ欄に埋め込む画像 (今回スコープ)
   const [condition, setCondition] = useState({
     joinDateFrom: "", joinDateTo: "",
     leaveDateFrom: "", leaveDateTo: "",
     visitCountFrom: "", visitCountTo: "",
     gender: ["male", "female"] as string[],
     membershipStatus: ["stable", "leaver"] as string[],
+    contractTypes: [...CONTRACT_TYPES] as string[],
     hasUnpaidOnly: false,
   });
-  const [extractedMembers, setExtractedMembers] = useState<any[]>([]);
+  const [extractedMembers, setExtractedMembers] = useState<ExtractedMember[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractError, setExtractError] = useState("");
+  const [extractMeta, setExtractMeta] = useState<{ totalCount: number; deliverableCount: number } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 100;
 
@@ -52,15 +68,77 @@ export default function NewPushPage() {
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
 
-  const handleExtract = () => {
+  // 担当クラブを取得 (stores API はユーザーの clubCodes でフィルタ済み)
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/store-settings/stores", { cache: "no-store" });
+        const data = await res.json();
+        const list: StoreItem[] = (data.stores || []).map((s: any) => ({
+          clubCode: String(s.clubCode),
+          clubName: s.clubName,
+          brand: s.brand,
+        }));
+        setStores(list);
+        if (list.length === 1) setClubCode(list[0].clubCode); // 単一担当なら自動選択
+      } catch {
+        /* noop */
+      } finally {
+        setStoreLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleExtract = async () => {
+    if (!clubCode) {
+      setExtractError("担当店舗を選択してください。");
+      return;
+    }
     setIsExtracting(true);
-    setTimeout(() => {
-      const mockResult = generateMockMembers(250);
-      setExtractedMembers(mockResult);
-      setSelectedMemberIds(new Set(mockResult.map((m) => m.id)));
-      setIsExtracting(false);
+    setExtractError("");
+    try {
+      const res = await fetch("/api/store-settings/members/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryType: "push",
+          clubCode,
+          gender: condition.gender,
+          membershipStatus: condition.membershipStatus,
+          contractTypes: condition.contractTypes,
+          joinDateFrom: condition.joinDateFrom,
+          joinDateTo: condition.joinDateTo,
+          leaveDateFrom: condition.leaveDateFrom,
+          leaveDateTo: condition.leaveDateTo,
+          visitCountFrom: condition.visitCountFrom,
+          visitCountTo: condition.visitCountTo,
+          hasUnpaidOnly: condition.hasUnpaidOnly,
+          limit: 1000,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setExtractError(
+          data?.error === "extract_endpoint_pending"
+            ? "会員抽出API(member-search)が未提供のため抽出できません。"
+            : `抽出に失敗しました (${data?.error || res.status})`
+        );
+        setExtractedMembers([]);
+        setSelectedMemberIds(new Set());
+        setExtractMeta(null);
+        return;
+      }
+      const members: ExtractedMember[] = data.members || [];
+      setExtractedMembers(members);
+      // 配信可能な会員だけ初期選択
+      setSelectedMemberIds(new Set(members.filter((m) => m.deliverable).map((m) => m.memberNo)));
+      setExtractMeta({ totalCount: data.totalCount ?? members.length, deliverableCount: data.deliverableCount ?? 0 });
       setCurrentPage(1);
-    }, 400);
+    } catch (e: any) {
+      setExtractError("抽出リクエストに失敗しました。");
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   const paginatedMembers = useMemo(() => {
@@ -68,20 +146,32 @@ export default function NewPushPage() {
     return extractedMembers.slice(start, start + itemsPerPage);
   }, [extractedMembers, currentPage]);
 
-  const toggleSelectMember = (id: string) => {
+  const toggleSelectMember = (memberNo: string) => {
     const next = new Set(selectedMemberIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (next.has(memberNo)) next.delete(memberNo);
+    else next.add(memberNo);
     setSelectedMemberIds(next);
   };
 
-  const toggleConditionArray = (key: "gender" | "membershipStatus", value: string) => {
+  const toggleConditionArray = (key: "gender" | "membershipStatus" | "contractTypes", value: string) => {
     setCondition((prev) => {
       const current = prev[key];
       if (current.includes(value)) return { ...prev, [key]: current.filter((v) => v !== value) };
       return { ...prev, [key]: [...current, value] };
     });
   };
+  const setAllContractTypes = (all: boolean) => {
+    setCondition((prev) => ({ ...prev, contractTypes: all ? [...CONTRACT_TYPES] : [] }));
+  };
+
+  // 選択済み かつ 配信可能(appUserId あり) の宛先
+  const targetAppUserIds = useMemo(
+    () =>
+      extractedMembers
+        .filter((m) => selectedMemberIds.has(m.memberNo) && m.deliverable && m.appUserId != null)
+        .map((m) => m.appUserId as number),
+    [extractedMembers, selectedMemberIds]
+  );
 
   const scheduledLabel = useMemo(() => {
     if (isImmediate) return "今すぐ送信";
@@ -94,34 +184,39 @@ export default function NewPushPage() {
   }, [isImmediate, scheduledDate, scheduledTime]);
 
   const requestConfirm = () => {
+    if (!clubCode) return alert("担当店舗を選択してください。");
     if (!title || !body) return alert("タイトルと本文は必須です。");
-    if (selectedMemberIds.size === 0) return alert("配信対象を選択してください。");
+    if (targetAppUserIds.length === 0) return alert("配信可能な対象を選択してください。");
     if (!isImmediate && (!scheduledDate || !scheduledTime)) {
       return alert("予約配信の場合は送信日時を指定してください。");
     }
     setConfirmOpen(true);
   };
 
-  const handleSubmit = async () => {
+  // 送信 (isDraft=true なら下書き=送信されない安全保存)
+  const submit = async (isDraft: boolean) => {
     setSending(true);
     try {
-      const scheduledAt = isImmediate
-        ? new Date().toISOString()
-        : new Date(`${scheduledDate}T${scheduledTime}:00`).toISOString();
+      const scheduledAt =
+        !isImmediate && scheduledDate && scheduledTime ? `${scheduledDate} ${scheduledTime}` : undefined;
       const res = await fetch("/api/store-settings/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clubCode,
+          brand,
           title,
           body,
+          imageUrl: imageUrl || undefined,
           targetType: "CONDITION",
-          condition,
+          appUserIds: targetAppUserIds,
           isImmediate,
           scheduledAt,
-          targetCount: selectedMemberIds.size,
+          isDraft,
         }),
       });
-      if (!res.ok) throw new Error("配信失敗");
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "配信失敗");
       router.push("/store-settings/push");
     } catch (e: any) {
       alert(e?.message || "送信エラー");
@@ -143,13 +238,23 @@ export default function NewPushPage() {
             </Link>
             <h1 className="push-header-title">新規配信作成</h1>
           </div>
-          <button
-            className="push-primary-btn"
-            onClick={requestConfirm}
-            disabled={selectedMemberIds.size === 0 || !title}
-          >
-            内容を確認する ({selectedMemberIds.size}件)
-          </button>
+          <div className="push-header-left" style={{ gap: 12 }}>
+            <button
+              className="push-modal-cancel"
+              onClick={() => submit(true)}
+              disabled={!clubCode || !title || !body || sending}
+              title="送信せずに下書き保存 (アプリには表示されません)"
+            >
+              下書き保存
+            </button>
+            <button
+              className="push-primary-btn"
+              onClick={requestConfirm}
+              disabled={targetAppUserIds.length === 0 || !title}
+            >
+              内容を確認する ({targetAppUserIds.length}件)
+            </button>
+          </div>
         </div>
       </header>
 
@@ -160,6 +265,36 @@ export default function NewPushPage() {
             <div className="push-step-group">
               <div className="push-step-header">
                 <div className="push-step-badge">1</div>
+                <h3>配信店舗</h3>
+              </div>
+              <div className="push-field">
+                <label>担当店舗 <span className="req">*</span></label>
+                {storeLoading ? (
+                  <div className="push-hint">読み込み中...</div>
+                ) : stores.length === 0 ? (
+                  <div className="push-hint">担当店舗が割り当てられていません。管理者にお問い合わせください。</div>
+                ) : stores.length === 1 ? (
+                  <div className="push-input" style={{ background: "#f8fafc" }}>
+                    {selectedStore?.clubName}（{brandTheme(brand).label} / {clubCode}）
+                  </div>
+                ) : (
+                  <select className="push-input" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
+                    <option value="">店舗を選択</option>
+                    {stores.map((s) => (
+                      <option key={s.clubCode} value={s.clubCode}>
+                        {s.clubName}（{brandTheme(s.brand).label} / {s.clubCode}）
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            <div className="push-divider" />
+
+            <div className="push-step-group">
+              <div className="push-step-header">
+                <div className="push-step-badge">2</div>
                 <h3>通知コンテンツ</h3>
               </div>
               <div className="push-field">
@@ -178,15 +313,23 @@ export default function NewPushPage() {
                   placeholder="通知の内容..."
                 />
               </div>
+              <div className="push-field">
+                <label>お知らせ画像URL（任意）</label>
+                <input
+                  type="url" className="push-input" value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="https://example.com/image.png"
+                />
+              </div>
               <div className="push-hint">
-                ※ PUSH 通知は仕様上、本画面ではテキストのみ取り扱います。画像配信は別途配信基盤の設定が必要です。
+                ※ PUSH通知バナー自体はテキストのみ（画像はアプリ改修が必要）。画像はアプリの「お知らせ欄」に埋め込まれます。
               </div>
             </div>
 
             <div className="push-divider" />
 
             <div className="push-step-group">
-              <div className="push-step-header"><div className="push-step-badge">2</div><h3>ターゲット抽出</h3></div>
+              <div className="push-step-header"><div className="push-step-badge">3</div><h3>ターゲット抽出</h3></div>
               <div className="push-filter-box">
                 <div className="push-field">
                   <label>入会日範囲</label>
@@ -226,20 +369,43 @@ export default function NewPushPage() {
                   </div>
                 </div>
                 <div className="push-field">
+                  <div className="push-label-row">
+                    <label>契約種別</label>
+                    <div className="push-bulk-toggle">
+                      <button type="button" onClick={() => setAllContractTypes(true)}>全選択</button>
+                      <span>/</span>
+                      <button type="button" onClick={() => setAllContractTypes(false)}>解除</button>
+                    </div>
+                  </div>
+                  <div className="push-check-grid">
+                    {CONTRACT_TYPES.map((ct) => (
+                      <label key={ct}>
+                        <input
+                          type="checkbox"
+                          checked={condition.contractTypes.includes(ct)}
+                          onChange={() => toggleConditionArray("contractTypes", ct)}
+                        />
+                        {ct}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="push-field">
                   <label className="push-unpaid-check">
                     <input type="checkbox" checked={condition.hasUnpaidOnly} onChange={(e) => setCondition({ ...condition, hasUnpaidOnly: e.target.checked })} /> 未納者のみを抽出
                   </label>
                 </div>
-                <button className="push-extract-btn" onClick={handleExtract} disabled={isExtracting}>
+                <button className="push-extract-btn" onClick={handleExtract} disabled={isExtracting || !clubCode}>
                   {isExtracting ? "検索中..." : "条件で名簿を作成"}
                 </button>
+                {extractError && <div className="push-hint" style={{ color: "#dc2626" }}>{extractError}</div>}
               </div>
             </div>
 
             <div className="push-divider" />
 
             <div className="push-step-group">
-              <div className="push-step-header"><div className="push-step-badge">3</div><h3>スケジュール</h3></div>
+              <div className="push-step-header"><div className="push-step-badge">4</div><h3>スケジュール</h3></div>
               <div className="push-radio-box">
                 <label className={isImmediate ? "active" : ""}>
                   <input type="radio" checked={isImmediate} onChange={() => setIsImmediate(true)} /> 即時送信
@@ -259,7 +425,10 @@ export default function NewPushPage() {
 
           {/* COLUMN 2: リスト */}
           <section className="push-col-list">
-            <div className="push-panel-header-sticky">宛先リスト精査 ({selectedMemberIds.size}名)</div>
+            <div className="push-panel-header-sticky">
+              宛先リスト精査 (配信可能 {targetAppUserIds.length} 名
+              {extractMeta ? ` / 抽出 ${extractMeta.totalCount} 名` : ""})
+            </div>
             <div className="push-list-container">
               {extractedMembers.length > 0 ? (
                 <table className="push-list-table">
@@ -268,42 +437,63 @@ export default function NewPushPage() {
                       <th style={{ width: 32 }}>
                         <input
                           type="checkbox"
-                          checked={selectedMemberIds.size === extractedMembers.length}
+                          checked={
+                            selectedMemberIds.size > 0 &&
+                            selectedMemberIds.size === extractedMembers.filter((m) => m.deliverable).length
+                          }
                           onChange={() => {
-                            if (selectedMemberIds.size === extractedMembers.length) setSelectedMemberIds(new Set());
-                            else setSelectedMemberIds(new Set(extractedMembers.map((m) => m.id)));
+                            const deliverable = extractedMembers.filter((m) => m.deliverable);
+                            if (selectedMemberIds.size === deliverable.length) setSelectedMemberIds(new Set());
+                            else setSelectedMemberIds(new Set(deliverable.map((m) => m.memberNo)));
                           }}
                         />
                       </th>
                       <th>会員情報</th>
-                      <th>区分/来館</th>
-                      <th style={{ width: 30 }}>未</th>
+                      <th>区分/属性</th>
+                      <th style={{ width: 40 }}>配信</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedMembers.map((m) => (
-                      <tr key={m.id} className={selectedMemberIds.has(m.id) ? "" : "excluded"}>
-                        <td><input type="checkbox" checked={selectedMemberIds.has(m.id)} onChange={() => toggleSelectMember(m.id)} /></td>
-                        <td>
-                          <div className="push-u-info">
-                            <strong>{m.name}</strong>
-                            <small>ID:{m.id} | {m.email}</small>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="push-u-meta">
-                            <span className={`status-badge ${m.status === "退会済" ? "leaver" : "stable"}`}>{m.status}</span>
-                            <span className="visit-count">{m.visitCount}回</span>
-                          </div>
-                          <small className="date-info">入会: {m.joinDate}</small>
-                        </td>
-                        <td>{m.hasUnpaid && <span className="unpaid-dot" title="未納あり">!</span>}</td>
-                      </tr>
-                    ))}
+                    {paginatedMembers.map((m) => {
+                      const status = m.withdrawnAt ? "退会済" : "在籍中";
+                      return (
+                        <tr key={m.memberNo} className={selectedMemberIds.has(m.memberNo) ? "" : "excluded"}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              disabled={!m.deliverable}
+                              checked={selectedMemberIds.has(m.memberNo)}
+                              onChange={() => toggleSelectMember(m.memberNo)}
+                            />
+                          </td>
+                          <td>
+                            <div className="push-u-info">
+                              <strong>{m.name}</strong>
+                              <small>会員番号:{m.memberNo}{m.kana ? ` | ${m.kana}` : ""}</small>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="push-u-meta">
+                              <span className={`status-badge ${status === "退会済" ? "leaver" : "stable"}`}>{status}</span>
+                              {m.contractType && <span className="contract-chip">{m.contractType}</span>}
+                              {m.age != null && <span className="visit-count">{m.age}歳</span>}
+                              {m.gender && <span className="visit-count">{m.gender === "male" ? "男" : "女"}</span>}
+                            </div>
+                          </td>
+                          <td>
+                            {m.deliverable ? (
+                              <span className="status-badge stable" title="配信可能">可</span>
+                            ) : (
+                              <span className="unpaid-dot" title="通知トークン未登録/未許諾">×</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               ) : (
-                <div className="push-empty-state">STEP 2 で条件を指定して<br />「名簿を作成」してください</div>
+                <div className="push-empty-state">STEP 3 で条件を指定して<br />「名簿を作成」してください</div>
               )}
             </div>
             {extractedMembers.length > itemsPerPage && (
@@ -315,9 +505,9 @@ export default function NewPushPage() {
             )}
           </section>
 
-          {/* COLUMN 3: プレビュー */}
+          {/* COLUMN 3: プレビュー (ブランド別) */}
           <section className="push-col-preview">
-            <div className="push-panel-header-sticky">スマホ通知プレビュー</div>
+            <div className="push-panel-header-sticky">スマホ通知プレビュー（{theme.label}）</div>
             <div className="push-preview-frame">
               <div className="push-phone-mockup">
                 <div className="push-notch"></div>
@@ -326,14 +516,28 @@ export default function NewPushPage() {
                   <div className="push-notification-bubble">
                     <div className="push-bubble-header">
                       <div className="push-app-info">
-                        <div className="push-app-icon"></div>
-                        <span className="push-app-name">FIT365アプリ</span>
+                        <div className="push-app-icon" style={{ background: theme.color }}></div>
+                        <span className="push-app-name">{theme.appName}</span>
                       </div>
                       <span className="push-now">たった今</span>
                     </div>
                     <div className="push-bubble-content">
                       <div className="push-bubble-title">{title || "タイトル"}</div>
                       <div className="push-bubble-body">{body || "ここに通知の本文が表示されます。"}</div>
+                    </div>
+                  </div>
+                  {/* お知らせ欄プレビュー (画像埋め込み) */}
+                  <div className="push-notification-bubble" style={{ marginTop: 12 }}>
+                    <div className="push-bubble-header">
+                      <span className="push-app-name" style={{ color: theme.color }}>お知らせ</span>
+                    </div>
+                    {imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={imageUrl} alt="" style={{ width: "100%", borderRadius: 8, margin: "6px 0" }} />
+                    )}
+                    <div className="push-bubble-content">
+                      <div className="push-bubble-title">{title || "タイトル"}</div>
+                      <div className="push-bubble-body">{body || "本文プレビュー"}</div>
                     </div>
                   </div>
                 </div>
@@ -353,6 +557,10 @@ export default function NewPushPage() {
             </header>
             <div className="push-confirm-body">
               <div className="push-confirm-row">
+                <span className="push-confirm-label">配信店舗</span>
+                <span className="push-confirm-val">{selectedStore?.clubName}（{theme.label}）</span>
+              </div>
+              <div className="push-confirm-row">
                 <span className="push-confirm-label">タイトル</span>
                 <span className="push-confirm-val">{title}</span>
               </div>
@@ -362,7 +570,7 @@ export default function NewPushPage() {
               </div>
               <div className="push-confirm-row">
                 <span className="push-confirm-label">配信対象</span>
-                <span className="push-confirm-val emphasis">{selectedMemberIds.size} 名</span>
+                <span className="push-confirm-val emphasis">{targetAppUserIds.length} 名</span>
               </div>
               <div className="push-confirm-row">
                 <span className="push-confirm-label">送信時刻</span>
@@ -371,7 +579,7 @@ export default function NewPushPage() {
             </div>
             <footer className="push-confirm-footer">
               <button className="push-modal-cancel" onClick={() => setConfirmOpen(false)} disabled={sending}>戻って修正する</button>
-              <button className="push-modal-submit" onClick={handleSubmit} disabled={sending}>
+              <button className="push-modal-submit" onClick={() => submit(false)} disabled={sending}>
                 {sending ? "送信中..." : isImmediate ? "今すぐ送信する" : "予約配信を確定する"}
               </button>
             </footer>

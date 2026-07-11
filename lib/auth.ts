@@ -197,6 +197,62 @@ export async function requestHasPermission(
   }
 }
 
+/** DynamoDB の文字列/文字列配列/{S:..} を string[] に正規化 */
+function normalizeStringArray(raw: any): string[] {
+  if (!raw) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  return arr
+    .map((x: any) => (x && typeof x === "object" && "S" in x ? String(x.S) : String(x ?? "")))
+    .map((s: string) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * セッション(kb_user cookie)のユーザーを yamauchi-Users から解決する。
+ * ログインユーザーのクラブスコープ (clubCodes) 判定に使う。
+ * clubCodes が空の admin は「全クラブ可」を意味する (stores API と同じ規約)。
+ */
+export async function getSessionUser(
+  req: Request
+): Promise<{ email: string; role: string; clubCodes: string[]; groupIds: string[] } | null> {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const cookieMap = parseCookieHeader(cookieHeader);
+  const session = await readVerifiedSession({
+    get: (n) => (cookieMap[n] !== undefined ? { value: cookieMap[n] } : undefined),
+  });
+  if (!session) return null;
+
+  const { DynamoDBClient } = await import("@aws-sdk/client-dynamodb");
+  const { DynamoDBDocumentClient, QueryCommand } = await import("@aws-sdk/lib-dynamodb");
+  const region = process.env.AWS_REGION || "us-east-1";
+  const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region }));
+
+  try {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: "yamauchi-Users",
+        IndexName: "email-index",
+        KeyConditionExpression: "email = :email",
+        ExpressionAttributeValues: { ":email": session.email },
+        Limit: 1,
+        ProjectionExpression: "email, #r, groupIds, clubCodes, isActive",
+        ExpressionAttributeNames: { "#r": "role" },
+      })
+    );
+    const u = res.Items?.[0] as any;
+    if (!u || u.isActive === false) return null;
+    return {
+      email: String(u.email ?? session.email),
+      role: String(u.role ?? ""),
+      clubCodes: normalizeStringArray(u.clubCodes),
+      groupIds: normalizeStringArray(u.groupIds),
+    };
+  } catch (e) {
+    console.error("[getSessionUser] DynamoDB error", e);
+    return null;
+  }
+}
+
 function parseCookieHeader(h: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!h) return out;
