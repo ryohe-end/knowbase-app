@@ -310,7 +310,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ ok: false, error: "Unknown action" }, { status: 400 });
     }
 
-    const previousUpdatedAt = app.updatedAt;
+    // 楽観ロック: クライアントが保持していた版(expectedUpdatedAt)があればそれで照合し、
+    // 真の同時更新(UI表示中に他者が更新)を検出する。無ければ取得直後の値 (後方互換)。
+    const previousUpdatedAt = body.expectedUpdatedAt ?? app.updatedAt;
     app.updatedAt = ts;
     try {
       await ddb.send(
@@ -339,7 +341,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 }
 
 // バッチ ID 生成 (CSV 出力単位)
-let _batchCounter = 0;
+// サーバレス(複数インスタンス/コールドスタート)でも衝突しないよう乱数サフィックスを使う。
 function makeBatchId(): string {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -347,7 +349,6 @@ function makeBatchId(): string {
   const dd = String(d.getDate()).padStart(2, "0");
   const hh = String(d.getHours()).padStart(2, "0");
   const mi = String(d.getMinutes()).padStart(2, "0");
-  _batchCounter = (_batchCounter + 1) % 1000;
-  const seq = String(_batchCounter).padStart(3, "0");
-  return `BATCH-${yyyy}${mm}${dd}-${hh}${mi}-${seq}`;
+  const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
+  return `BATCH-${yyyy}${mm}${dd}-${hh}${mi}-${rand}`;
 }

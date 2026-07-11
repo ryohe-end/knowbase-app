@@ -78,7 +78,7 @@ export default function RefundEditDialog({
                         value={it.amount}
                         onChange={(e) => {
                           const next = [...items];
-                          next[idx] = { ...it, amount: Number(e.target.value) || 0 };
+                          next[idx] = { ...it, amount: Math.max(0, Number(e.target.value) || 0) };
                           setItems(next);
                         }}
                       />

@@ -897,6 +897,7 @@ export default function RefundApplicationPage() {
           body: JSON.stringify({
             action: "submit",
             comment: editMode === "resubmit" ? "差戻しから再申請しました" : (editMode === "edit" ? "編集して再送信しました" : "申請しました"),
+            expectedUpdatedAt: saved.updatedAt, // 楽観ロック(直前の保存版)
           }),
         }
       );
@@ -1161,7 +1162,11 @@ export default function RefundApplicationPage() {
                             min={0}
                             max={it.amount}
                             onChange={(e) =>
-                              setAdjustedAmounts((p) => ({ ...p, [it.id]: Number(e.target.value) }))
+                              // 0〜元額 にクランプ (手入力/貼り付けで負数・元額超過を防ぐ)
+                              setAdjustedAmounts((p) => ({
+                                ...p,
+                                [it.id]: Math.min(it.amount, Math.max(0, Number(e.target.value) || 0)),
+                              }))
                             }
                           />
                           <span className="rfa-item-amount-orig">/ ¥{it.amount.toLocaleString()}</span>

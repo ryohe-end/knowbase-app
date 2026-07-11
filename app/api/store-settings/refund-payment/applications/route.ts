@@ -158,6 +158,16 @@ export async function POST(req: Request) {
   }
 
   const items = Array.isArray(body.items) ? body.items : [];
+  // 金額検証: 各返金項目は 0 より大きい有限値であること (0/負数/NaN を拒否)。
+  for (const it of items) {
+    const amt = Number(it?.amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return NextResponse.json(
+        { ok: false, error: `返金額が不正です（各項目は0より大きい必要があります）: ${it?.label ?? ""}` },
+        { status: 400 }
+      );
+    }
+  }
   const totalAmount = computeTotalAmount(items);
 
   // 新規の場合は draft step 3 件を作成。既存は step を保持。

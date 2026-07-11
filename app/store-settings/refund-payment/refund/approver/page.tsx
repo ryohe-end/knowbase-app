@@ -194,6 +194,7 @@ export default function RefundApproverPage() {
     }
     setActing(true);
     try {
+      const current = apps.find((a) => a.id === actionModal.appId);
       const res = await fetch(
         `/api/store-settings/refund-payment/applications/${encodeURIComponent(actionModal.appId)}/transition`,
         {
@@ -202,10 +203,18 @@ export default function RefundApproverPage() {
           body: JSON.stringify({
             action: isApprove ? "approve" : "reject",
             comment: actionComment || undefined,
+            expectedUpdatedAt: current?.updatedAt, // 楽観ロック(表示中の版)
           }),
         }
       );
       const data = await res.json();
+      // 競合(他ユーザが更新済み)は再読込を促す
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        setActionModal(null);
+        await reload();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "処理失敗");
       const updated = apiToLocalApp(data.application as ApiApplication);
       setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));

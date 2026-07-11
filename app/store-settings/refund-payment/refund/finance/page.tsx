@@ -12,6 +12,7 @@ import { useRefundGuard } from "@/lib/useRefundGuard";
 
 type RefundApp = {
   id: string;
+  updatedAt: string; // 楽観ロック用 (表示中の版)
   applicantName: string;
   applicantDept: string;
   memberId: string;
@@ -91,6 +92,7 @@ function apiToLocal(a: ApiApplication): RefundApp {
   const accountTypeIs1 = bank?.accountType !== "当座";
   return {
     id: a.applicationId,
+    updatedAt: a.updatedAt || "",
     applicantName: a.createdByName || "—",
     applicantDept: applicantStep?.dept || "—",
     memberId: a.memberNo,
@@ -457,7 +459,7 @@ export default function RefundFinancePage() {
         fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})` }),
+          body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})`, expectedUpdatedAt: a.updatedAt }),
         })
       )
     )
@@ -501,12 +503,19 @@ export default function RefundFinancePage() {
   // 1件単位の振込完了 (API)
   const markOneComplete = async (id: string) => {
     try {
+      const app = apps.find((x) => x.id === id);
       const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(id)}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "transfer", result: "成功" }),
+        body: JSON.stringify({ action: "transfer", result: "成功", expectedUpdatedAt: app?.updatedAt }),
       });
       const data = await res.json();
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        await reload();
+        setCompleteOne(null);
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
       await reload();
     } catch (e: any) {
@@ -524,7 +533,7 @@ export default function RefundFinancePage() {
           fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "transfer", result: "成功" }),
+            body: JSON.stringify({ action: "transfer", result: "成功", expectedUpdatedAt: a.updatedAt }),
           })
         )
       );
@@ -539,6 +548,7 @@ export default function RefundFinancePage() {
   const submitFailure = async () => {
     if (!failureModal) return;
     try {
+      const app = apps.find((x) => x.id === failureModal.appId);
       const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(failureModal.appId)}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -547,9 +557,16 @@ export default function RefundFinancePage() {
           result: "失敗",
           failureReason: failureModal.reason,
           failureDetail: failureModal.detail || undefined,
+          expectedUpdatedAt: app?.updatedAt,
         }),
       });
       const data = await res.json();
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        await reload();
+        setFailureModal(null);
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
       await reload();
     } catch (e: any) {
