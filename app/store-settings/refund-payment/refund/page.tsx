@@ -112,6 +112,7 @@ function apiToUi(a: ApiApplication): RefundApplication {
           source: (a.bankAccount.source as BankAccount["source"]) || "登録済み（過去返金）",
         }
       : undefined,
+    _raw: a,
   };
 }
 
@@ -181,6 +182,8 @@ type RefundApplication = {
   createdAt: string;
   steps: ApprovalStep[];
   account?: BankAccount;
+  // 編集保存で全フィールドを維持して送り返すための元 API オブジェクト (DEMO は未設定)
+  _raw?: ApiApplication;
 };
 
 
@@ -498,33 +501,67 @@ export default function RefundApplicationPage() {
 
   const openEditModal = (app: RefundApplication) => setEditTargetApp(app);
   const closeEditModal = () => setEditTargetApp(null);
-  const saveEdit = (draft: { reason: string; items: { id: string; label: string; amount: number }[] }) => {
+  const saveEdit = async (draft: { reason: string; items: { id: string; label: string; amount: number }[] }) => {
     if (!editTargetApp) return;
+    const target = editTargetApp;
     setEditSaving(true);
-    // モック保存: ローカル history を即時更新
-    setTimeout(() => {
+    // DEMO レコードは API を持たないのでローカル更新のみ
+    if (target.id.startsWith("DEMO-") || !target._raw) {
       const newTotal = draft.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
       setHistory((prev) => prev.map((h) => (
-        h.id === editTargetApp.id
-          ? { ...h, reason: draft.reason, items: draft.items, totalAmount: newTotal }
-          : h
+        h.id === target.id ? { ...h, reason: draft.reason, items: draft.items, totalAmount: newTotal } : h
       )));
       setEditSaving(false);
       closeEditModal();
-    }, 250);
+      return;
+    }
+    try {
+      // 元の API オブジェクトを維持し、reason/items だけ差し替えて送る (他フィールド消失を防ぐ)
+      const payload = { ...target._raw, reason: draft.reason, items: draft.items };
+      const res = await fetch("/api/store-settings/refund-payment/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "保存に失敗しました");
+      const ui = apiToUi(data.application as ApiApplication);
+      setHistory((prev) => prev.map((h) => (h.id === ui.id ? ui : h)));
+      closeEditModal();
+    } catch (e: any) {
+      alert(e?.message || "保存エラー");
+    } finally {
+      setEditSaving(false);
+    }
   };
 
   const openDeleteModal = (app: RefundApplication) => setDeleteTargetApp(app);
   const closeDeleteModal = () => setDeleteTargetApp(null);
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTargetApp) return;
+    const target = deleteTargetApp;
     setDeletingNow(true);
-    // モック削除: ローカル history から除外 (API は未連携)
-    setTimeout(() => {
-      setHistory((prev) => prev.filter((h) => h.id !== deleteTargetApp.id));
+    // DEMO レコードはローカル除外のみ
+    if (target.id.startsWith("DEMO-")) {
+      setHistory((prev) => prev.filter((h) => h.id !== target.id));
       setDeletingNow(false);
       closeDeleteModal();
-    }, 250);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/store-settings/refund-payment/applications/${encodeURIComponent(target.id)}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "削除に失敗しました");
+      setHistory((prev) => prev.filter((h) => h.id !== target.id));
+      closeDeleteModal();
+    } catch (e: any) {
+      alert(e?.message || "削除エラー");
+    } finally {
+      setDeletingNow(false);
+    }
   };
 
   // 会員検索 (API)
@@ -1490,7 +1527,7 @@ export default function RefundApplicationPage() {
                   expanded={expandedHistory === h.id}
                   onToggle={() => setExpandedHistory(expandedHistory === h.id ? null : h.id)}
                   onEdit={() => openEditModal(h)}
-                  onResubmit={() => openEditModal(h)}
+                  onResubmit={() => loadApplicationIntoWizard(h, "resubmit")}
                   onDelete={() => openDeleteModal(h)}
                 />
               ))}
