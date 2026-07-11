@@ -50,6 +50,7 @@ export default function NewPushPage() {
     joinDateFrom: "", joinDateTo: "",
     leaveDateFrom: "", leaveDateTo: "",
     visitCountFrom: "", visitCountTo: "",
+    visitPeriodFrom: "", visitPeriodTo: "",
     gender: ["male", "female"] as string[],
     membershipStatus: ["stable", "leaver"] as string[],
     contractTypes: [...CONTRACT_TYPES] as string[],
@@ -112,6 +113,8 @@ export default function NewPushPage() {
           leaveDateTo: condition.leaveDateTo,
           visitCountFrom: condition.visitCountFrom,
           visitCountTo: condition.visitCountTo,
+          visitPeriodFrom: condition.visitPeriodFrom,
+          visitPeriodTo: condition.visitPeriodTo,
           hasUnpaidOnly: condition.hasUnpaidOnly,
           limit: 1000,
         }),
@@ -345,6 +348,14 @@ export default function NewPushPage() {
                     <input type="date" value={condition.leaveDateFrom} onChange={(e) => setCondition({ ...condition, leaveDateFrom: e.target.value })} />
                     <span>~</span>
                     <input type="date" value={condition.leaveDateTo} onChange={(e) => setCondition({ ...condition, leaveDateTo: e.target.value })} />
+                  </div>
+                </div>
+                <div className="push-field">
+                  <label>来館期間（回数を数える対象期間）</label>
+                  <div className="push-row-2">
+                    <input type="date" value={condition.visitPeriodFrom} onChange={(e) => setCondition({ ...condition, visitPeriodFrom: e.target.value })} />
+                    <span>~</span>
+                    <input type="date" value={condition.visitPeriodTo} onChange={(e) => setCondition({ ...condition, visitPeriodTo: e.target.value })} />
                   </div>
                 </div>
                 <div className="push-field">

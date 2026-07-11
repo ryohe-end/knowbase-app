@@ -58,6 +58,7 @@ export default function DmSettingsPage() {
     joinDateFrom: "", joinDateTo: "",
     leaveDateFrom: "", leaveDateTo: "",
     visitCountFrom: "", visitCountTo: "",
+    visitPeriodFrom: "", visitPeriodTo: "",
     gender: ["male", "female"] as string[],
     membershipStatus: ["stable", "leaver"] as string[], // ✅ 安定/退会
     contractTypes: [...CONTRACT_TYPES] as string[],
@@ -137,6 +138,7 @@ export default function DmSettingsPage() {
           joinDateFrom: condition.joinDateFrom, joinDateTo: condition.joinDateTo,
           leaveDateFrom: condition.leaveDateFrom, leaveDateTo: condition.leaveDateTo,
           visitCountFrom: condition.visitCountFrom, visitCountTo: condition.visitCountTo,
+          visitPeriodFrom: condition.visitPeriodFrom, visitPeriodTo: condition.visitPeriodTo,
           hasUnpaidOnly: condition.hasUnpaidOnly,
           limit: 1000,
         }),
@@ -298,6 +300,7 @@ export default function DmSettingsPage() {
       joinDateFrom: "", joinDateTo: "",
       leaveDateFrom: "", leaveDateTo: "",
       visitCountFrom: "", visitCountTo: "",
+      visitPeriodFrom: "", visitPeriodTo: "",
       gender: ["male", "female"],
       membershipStatus: ["stable", "leaver"],
       contractTypes: [...CONTRACT_TYPES],
@@ -449,6 +452,10 @@ export default function DmSettingsPage() {
                         <div className="dm-field">
                           <label>退会日範囲</label>
                           <div className="dm-row-2"><input type="date" value={condition.leaveDateFrom} onChange={e=>setCondition({...condition, leaveDateFrom:e.target.value})} /><span>~</span><input type="date" value={condition.leaveDateTo} onChange={e=>setCondition({...condition, leaveDateTo:e.target.value})} /></div>
+                        </div>
+                        <div className="dm-field">
+                          <label>来館期間（回数を数える対象期間）</label>
+                          <div className="dm-row-2"><input type="date" value={condition.visitPeriodFrom} onChange={e=>setCondition({...condition, visitPeriodFrom:e.target.value})} /><span>~</span><input type="date" value={condition.visitPeriodTo} onChange={e=>setCondition({...condition, visitPeriodTo:e.target.value})} /></div>
                         </div>
                         <div className="dm-field">
                           <label>来館回数</label>

@@ -76,9 +76,11 @@ interface ExtractBody {
   joinDateTo?: string;
   leaveDateFrom?: string;
   leaveDateTo?: string;
-  visitCountFrom?: string; // 未適用(TODO)
+  visitCountFrom?: string; // 来館回数レンジ
   visitCountTo?: string;
-  hasUnpaidOnly?: boolean; // 未適用(TODO)
+  visitPeriodFrom?: string; // 来館回数を数える期間 "YYYY-MM-DD"
+  visitPeriodTo?: string;
+  hasUnpaidOnly?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -149,9 +151,11 @@ export async function POST(req: Request) {
     joinDateTo: toYmd(body.joinDateTo),
     leaveDateFrom: toYmd(body.leaveDateFrom),
     leaveDateTo: toYmd(body.leaveDateTo),
-    // 来館回数 / 未納 (別途 SQL 提供待ち)。member-search 側の対応後に有効化。
+    // 来館回数(レンジ) + 来館期間(入館トラン.営業年月日 BETWEEN) + 未納。
     visitCountFrom: body.visitCountFrom ? Number(body.visitCountFrom) : undefined,
     visitCountTo: body.visitCountTo ? Number(body.visitCountTo) : undefined,
+    visitFrom: toYmd(body.visitPeriodFrom),
+    visitTo: toYmd(body.visitPeriodTo),
     hasUnpaidOnly: !!body.hasUnpaidOnly,
     limit,
     offset,
