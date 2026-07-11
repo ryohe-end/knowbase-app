@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { notifyRefundRejected } from "@/lib/refundNotify";
 import type {
   RefundApplication,
   ApprovalStep,
@@ -333,6 +334,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       throw e;
     }
+
+    // 差戻し通知: 申請者へメール (失敗しても遷移は成功扱い)。transfer(失敗)も差戻しなので通知。
+    if (app.status === "差戻し") {
+      await notifyRefundRejected(app, comment || app.failureDetail || "").catch((err) =>
+        console.error("[refund notify] reject email failed", err)
+      );
+    }
+
     return NextResponse.json({ ok: true, application: app });
   } catch (e: any) {
     console.error("[refund transition] error:", e);
