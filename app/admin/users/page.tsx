@@ -5,7 +5,7 @@ import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
 /* ========= 型 ========= */
-export type KbUserRole = "admin" | "editor" | "viewer";
+export type KbUserRole = "admin" | "editor" | "viewer" | "store" | "finance";
 export type KbPermission = "member_search" | "public_pdf";
 export type KbUser = {
   userId: string;
@@ -47,6 +47,8 @@ const PERMISSION_OPTIONS: { value: KbPermission; label: string; desc: string }[]
 
 const ROLE_OPTIONS: { value: KbUserRole; label: string }[] = [
   { value: "admin", label: "管理者" },
+  { value: "store", label: "店舗" },
+  { value: "finance", label: "経理" },
   { value: "viewer", label: "閲覧のみ" },
 ];
 

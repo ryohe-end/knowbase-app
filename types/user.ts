@@ -1,5 +1,5 @@
 // /types/user.ts
-export type KbUserRole = "admin" | "editor" | "viewer";
+export type KbUserRole = "admin" | "editor" | "viewer" | "store" | "finance";
 
 export type KbUser = {
   userId: string;

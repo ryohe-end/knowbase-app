@@ -11,7 +11,7 @@ import { verifySignedValue } from "@/lib/auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export type KbUserRole = "admin" | "editor" | "viewer";
+export type KbUserRole = "admin" | "editor" | "viewer" | "store" | "finance";
 export type KbUser = {
   userId: string;
   name: string;

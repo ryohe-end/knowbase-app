@@ -64,12 +64,20 @@ export async function getRefundUser(): Promise<RefundUser | null> {
   }
 }
 
-// 役割マトリクス
+// 役割マトリクス (アカウント種別)
+//   store(店舗)   : 申請のみ
+//   admin(管理者) : 申請 + 承認   ※経理は不可(件名通り)
+//   finance(経理) : 経理のみ
+export function canApply(user: RefundUser): boolean {
+  // 経理アカウントは申請しない。それ以外(店舗/管理者/viewer 等)は申請可。
+  return user.role !== "finance";
+}
 export function canApprove(user: RefundUser): boolean {
   return user.role === "admin" || user.role === "approver";
 }
 export function canFinance(user: RefundUser): boolean {
-  return user.role === "admin" || user.role === "finance";
+  // 経理のみ。管理者(admin)は経理メニュー/処理を持たない。
+  return user.role === "finance";
 }
 // クラブスコープ判定 (clubCodes が空なら全クラブ、そうでなければ含まれる必要あり)
 export function isClubInScope(user: RefundUser, clubCode: string): boolean {
