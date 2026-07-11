@@ -170,13 +170,16 @@ export default function RefundFinancePage() {
   const [apps, setApps] = useState<RefundApp[]>([]);
   const [batches, setBatches] = useState<CsvBatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   // 一覧の取得
   const reload = async () => {
+    setLoadError("");
     try {
       const res = await fetch("/api/store-settings/refund-payment/applications?queue=finance", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      if (res.status === 401 || res.status === 403) throw new Error("この画面の閲覧権限がありません");
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得に失敗しました");
       const all = data.applications as ApiApplication[];
       // 経理ステージに到達したもの (deriveStatus が null を返さないもの) のみ
       const reached = all.filter((a) => deriveStatus(a) !== null);
@@ -224,8 +227,11 @@ export default function RefundFinancePage() {
         else if (anyDone || anyReturned) b.status = "一部完了";
       });
       setBatches(Array.from(batchMap.values()).sort((x, y) => y.generatedAt.localeCompare(x.generatedAt)));
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setApps([]);
+      setBatches([]);
+      setLoadError(e?.message || "取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -689,7 +695,16 @@ export default function RefundFinancePage() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loadError ? (
+            <div className="rff-empty" style={{ color: "#dc2626", borderColor: "#fecaca" }}>
+              {loadError}
+              <div style={{ marginTop: 8 }}>
+                <button type="button" onClick={reload} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読込</button>
+              </div>
+            </div>
+          ) : loading ? (
+            <div className="rff-empty">読み込み中…</div>
+          ) : filtered.length === 0 ? (
             <div className="rff-empty">該当する申請はありません</div>
           ) : groupByBank ? (
             <div className="rff-groups">

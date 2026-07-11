@@ -121,6 +121,7 @@ export default function RefundApproverPage() {
 
   const [apps, setApps] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState<"pending" | "processed" | "all">("pending");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -134,20 +135,24 @@ export default function RefundApproverPage() {
   //          処理済み/全てタブは queue=all で履歴含む。タブ変更時に再取得。
   const reload = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const url = tab === "pending"
         ? "/api/store-settings/refund-payment/applications?queue=approver"
         : "/api/store-settings/refund-payment/applications?queue=all";
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      if (res.status === 401 || res.status === 403) throw new Error("この画面の閲覧権限がありません");
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得に失敗しました");
       const mapped = (data.applications as ApiApplication[]).map(apiToLocalApp);
       setApps(mapped);
       if (!mapped.find((m) => m.id === selectedId)) {
         setSelectedId(mapped[0]?.id ?? null);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setApps([]);
+      setLoadError(e?.message || "取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -314,9 +319,18 @@ export default function RefundApproverPage() {
               </div>
 
               <div className="rfap-list">
-                {filtered.length === 0 && (
+                {loadError ? (
+                  <div className="rfap-empty" style={{ color: "#dc2626", borderColor: "#fecaca" }}>
+                    {loadError}
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" onClick={reload} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読込</button>
+                    </div>
+                  </div>
+                ) : loading ? (
+                  <div className="rfap-empty">読み込み中…</div>
+                ) : filtered.length === 0 ? (
                   <div className="rfap-empty">該当する申請はありません</div>
-                )}
+                ) : null}
                 {filtered.map((a) => (
                   <button
                     key={a.id}
