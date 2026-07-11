@@ -141,6 +141,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         if (!canApprove(user)) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
+        // 自己承認の禁止: 申請者本人 (admin でも) は自分の申請を承認できない
+        if (app.createdBy === user.userId) {
+          return NextResponse.json(
+            { ok: false, error: "申請者本人は承認できません" },
+            { status: 403 }
+          );
+        }
         setStep(app, "approver", {
           userId: user.userId,
           userName: user.name,

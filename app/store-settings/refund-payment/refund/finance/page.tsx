@@ -8,6 +8,7 @@ import {
   Building2, FileSpreadsheet, AlertCircle, CheckCircle2, ChevronDown
 } from "lucide-react";
 import type { RefundApplication as ApiApplication } from "@/types/refundApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 type RefundApp = {
   id: string;
@@ -162,6 +163,7 @@ function downloadFile(filename: string, content: string, mime = "text/csv;charse
 }
 
 export default function RefundFinancePage() {
+  const guardAllowed = useRefundGuard("canFinance");
   const today = new Date().toISOString().slice(0, 10);
   const [apps, setApps] = useState<RefundApp[]>([]);
   const [batches, setBatches] = useState<CsvBatch[]>([]);
@@ -170,7 +172,7 @@ export default function RefundFinancePage() {
   // 一覧の取得
   const reload = async () => {
     try {
-      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=finance", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
       const all = data.applications as ApiApplication[];
@@ -555,6 +557,15 @@ export default function RefundFinancePage() {
     }
     setFailureModal(null);
   };
+
+  // 権限ガード: 経理(finance)のみ。判定中/不許可は本体を描画しない。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
 
   return (
     <div className="rff-root">

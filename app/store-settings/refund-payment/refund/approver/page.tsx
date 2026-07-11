@@ -10,6 +10,7 @@ import type {
   RefundApplication as ApiApplication,
   ApprovalStep as ApiStep,
 } from "@/types/refundApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 // ---- 型 ----
 type StepState = "完了" | "対応中" | "未対応" | "差戻し";
@@ -106,6 +107,7 @@ const STATUS_COLOR: Record<Application["status"], string> = {
 };
 
 export default function RefundApproverPage() {
+  const guardAllowed = useRefundGuard("canApprove");
   const shopName = "旭川アモール";
   const shopId = "000121";
 
@@ -214,6 +216,15 @@ export default function RefundApproverPage() {
       setActing(false);
     }
   };
+
+  // 権限ガード: 承認者(admin/approver)のみ。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
 
   return (
     <div className="rfap-root">
