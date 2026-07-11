@@ -297,10 +297,14 @@ const UNPAID_SQL = `
 // 振替契約別 f を未納の判定元とし、実入金の解消は 会員入金歴 a.入金年月日 で追う。
 // join: a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月 (同月対応)。クラブは f.クラブコード。
 // 契約×月 単位で返し、会員集計は JS 側 (buildUnpaidFurikae)。
-// 未納額は 振替契約別.振替金額 を直接採用 (契約×振替年月 単位)。
-// 未納 = 振替結果コード ≠ '0' (CHAR。末尾スペースがあるため TRIM で比較)。
-// 入金解消は 会員入金歴 に 入金年月日 が入ったかを NOT EXISTS で判定
-// (会員入金歴は会費分類単位で 1:N のため JOIN せず EXISTS で金額の重複を避ける)。
+// 未納額 = 単月の純額 = 入会金+年管理費+会費+割引 (割引は負で格納→加算)。
+//   ※ 振替金額(合算後)は使わない — 単月debtに合算が混入し過大計上になるため
+//     (Lecto連携 未納金額登録SQL の算出方法に準拠)。
+// 未納 = 振替結果コード ≠ '0' (CHAR。末尾スペース"0 "のため TRIM。NULL=予定段階は除外)。
+// 閾値: 純額の絶対値 > 1 円。
+// 入金解消は 会員入金歴 に 入金年月日 が入ったかを NOT EXISTS で判定 (参考SQLには無いが
+//   「現在の未納=まだ入金されていない」を表すため付与。入金の記録元は会員入金歴で確認済)。
+const UNPAID_NET_EXPR = `(NVL(f.入会金金額,0) + NVL(f.年管理費金額,0) + NVL(f.会費金額,0) + NVL(f.割引金額,0))`;
 const UNPAID_CURRENT_BASE = `
   SELECT
     b.会員番号            AS MEMBER_NO,
@@ -312,12 +316,13 @@ const UNPAID_CURRENT_BASE = `
     f.契約SEQ            AS KEIYAKU_SEQ,
     f.振替年月           AS FURIKAE_YM,
     TRIM(f.振替結果コード) AS RESULT_CODE,
-    f.振替金額           AS OUTSTANDING
+    ${UNPAID_NET_EXPR}   AS OUTSTANDING
   FROM FIT_ADMIN."振替契約別" f
   INNER JOIN FIT_ADMIN."会員番号" b ON f.契約者SEQ = b.契約者SEQ
   INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
   WHERE f.クラブコード = :clubCode
     AND TRIM(f.振替結果コード) <> '0'
+    AND ABS(${UNPAID_NET_EXPR}) > 1
     AND NOT EXISTS (
       SELECT 1 FROM FIT_ADMIN."会員入金歴" a
        WHERE a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
