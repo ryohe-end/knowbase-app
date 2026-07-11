@@ -53,6 +53,11 @@ export default function DmSettingsPage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  // AI(Claude on Bedrock) による HTML 生成
+  const [htmlBody, setHtmlBody] = useState(""); // 生成済み完成HTML(空=通常のテキストメール)
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
   
   // 抽出条件
   // 条件グループ (グループ内は AND、グループ間は groupOp)
@@ -236,6 +241,32 @@ export default function DmSettingsPage() {
     [extractedMembers, selectedMemberIds]
   );
 
+  const generateHtml = async () => {
+    if (!aiPrompt.trim() && !body.trim()) {
+      setAiError("作りたいメールの指示、または下書き本文を入力してください。");
+      return;
+    }
+    setAiGenerating(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/store-settings/dm/generate-html", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, subject, body, imageUrl: imageUrl || undefined, brand: storeBrand }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setAiError(data?.error || "AI生成に失敗しました");
+        return;
+      }
+      setHtmlBody(data.html);
+    } catch {
+      setAiError("AI生成リクエストに失敗しました。");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   const submit = async (isDraft: boolean) => {
     if (!clubCode) return alert("担当店舗を選択してください。");
     if (!subject || !body) return alert("件名と本文は必須です。");
@@ -253,6 +284,7 @@ export default function DmSettingsPage() {
           subject,
           body,
           imageUrl: imageUrl || undefined,
+          bodyHtml: htmlBody || undefined,
           recipients: targetRecipients,
           isImmediate,
           scheduledAt,
@@ -278,6 +310,7 @@ export default function DmSettingsPage() {
 
   const resetForm = () => {
     setSubject(""); setBody(""); setImageUrl("");
+    setHtmlBody(""); setAiPrompt(""); setAiError("");
     setGroups([newCondGroup(CONTRACT_TYPES)]); setGroupOp("OR");
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
@@ -406,6 +439,30 @@ export default function DmSettingsPage() {
                           onChange={(e) => setImageUrl(e.target.value)}
                           placeholder="https://example.com/banner.png"
                         />
+                      </div>
+                    )}
+                    {viewMode === 'create' && (
+                      <div className="dm-field" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIでおしゃれなHTMLメールを作成</label>
+                        <textarea
+                          className="dm-textarea" rows={2} value={aiPrompt}
+                          onChange={(e) => setAiPrompt(e.target.value)}
+                          placeholder="例: 春の入会キャンペーンの案内。明るくポップに、CTAボタン付きで"
+                        />
+                        <button
+                          type="button" className="dm-extract-btn" style={{ marginTop: 8 }}
+                          onClick={generateHtml} disabled={aiGenerating}
+                        >
+                          {aiGenerating ? "生成中..." : htmlBody ? "AIで作り直す" : "AIでHTMLを生成"}
+                        </button>
+                        {htmlBody && (
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontSize: 11, color: "#0f766e" }}>
+                            <span>✓ AI生成HTMLを使用中（プレビュー反映）</span>
+                            <button type="button" onClick={() => setHtmlBody("")} style={{ background: "none", border: "none", color: "#dc2626", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>解除</button>
+                          </div>
+                        )}
+                        {aiError && <div style={{ color: "#dc2626", fontSize: 11, marginTop: 6 }}>{aiError}</div>}
+                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 6 }}>件名・本文・画像URL・ブランドを踏まえて生成します。生成後は下書き保存で安全に確認できます。</div>
                       </div>
                     )}
                   </div>
@@ -594,10 +651,17 @@ export default function DmSettingsPage() {
                       <div className="mock-from">From: {storeBrand} サポート</div>
                     </div>
                     <div className="mock-body-scroll">
-                      {imageUrl && <img src={imageUrl} className="mock-banner" alt="" />}
-                      <div className="mock-text-area">
-                        {body ? body.split('\n').map((l, i) => <p key={i}>{l}</p>) : <p className="placeholder">本文プレビュー</p>}
-                      </div>
+                      {htmlBody ? (
+                        // AI生成HTMLをそのままプレビュー
+                        <div className="mock-text-area" dangerouslySetInnerHTML={{ __html: htmlBody }} />
+                      ) : (
+                        <>
+                          {imageUrl && <img src={imageUrl} className="mock-banner" alt="" />}
+                          <div className="mock-text-area">
+                            {body ? body.split('\n').map((l, i) => <p key={i}>{l}</p>) : <p className="placeholder">本文プレビュー</p>}
+                          </div>
+                        </>
+                      )}
                       <div className="mock-footer">
                         本メールは{storeBrand}より自動送信されています。<br/>
                         © {storeBrand} {storeName}

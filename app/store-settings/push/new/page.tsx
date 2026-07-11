@@ -47,6 +47,11 @@ export default function NewPushPage() {
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [imageUrl, setImageUrl] = useState(""); // お知らせ欄に埋め込む画像 (今回スコープ)
+  // AI(Claude on Bedrock) による お知らせHTML 生成
+  const [noticeHtml, setNoticeHtml] = useState("");
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState("");
   // 条件グループ (グループ内は AND、グループ間は groupOp)
   const [groups, setGroups] = useState<CondGroup[]>([newCondGroup(CONTRACT_TYPES)]);
   const [groupOp, setGroupOp] = useState<"OR" | "AND">("OR");
@@ -174,6 +179,32 @@ export default function NewPushPage() {
   };
 
   // 送信 (isDraft=true なら下書き=送信されない安全保存)
+  const generateHtml = async () => {
+    if (!aiPrompt.trim() && !body.trim()) {
+      setAiError("作りたいお知らせの指示、または本文を入力してください。");
+      return;
+    }
+    setAiGenerating(true);
+    setAiError("");
+    try {
+      const res = await fetch("/api/store-settings/push/generate-html", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: aiPrompt, subject: title, body, imageUrl: imageUrl || undefined, brand }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setAiError(data?.error || "AI生成に失敗しました");
+        return;
+      }
+      setNoticeHtml(data.html);
+    } catch {
+      setAiError("AI生成リクエストに失敗しました。");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   const submit = async (isDraft: boolean) => {
     setSending(true);
     try {
@@ -188,6 +219,7 @@ export default function NewPushPage() {
           title,
           body,
           imageUrl: imageUrl || undefined,
+          contentHtml: noticeHtml || undefined,
           targetType: "CONDITION",
           appUserIds: targetAppUserIds,
           isImmediate,
@@ -302,7 +334,29 @@ export default function NewPushPage() {
                 />
               </div>
               <div className="push-hint">
-                ※ PUSH通知バナー自体はテキストのみ（画像はアプリ改修が必要）。画像はアプリの「お知らせ欄」に埋め込まれます。
+                ※ PUSH通知バナー自体はテキストのみ（画像はアプリ改修が必要）。画像・装飾はアプリの「お知らせ欄」に反映されます。
+              </div>
+              <div className="push-field" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginTop: 8 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIでおしゃれなお知らせHTMLを作成</label>
+                <textarea
+                  className="push-textarea" rows={2} value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="例: 新マシン導入のお知らせ。ワクワクする感じで、詳細ボタン付きで"
+                />
+                <button
+                  type="button" className="push-extract-btn" style={{ marginTop: 8 }}
+                  onClick={generateHtml} disabled={aiGenerating}
+                >
+                  {aiGenerating ? "生成中..." : noticeHtml ? "AIで作り直す" : "AIでお知らせHTMLを生成"}
+                </button>
+                {noticeHtml && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontSize: 11, color: "#0f766e" }}>
+                    <span>✓ AI生成HTMLを使用中（お知らせ欄に反映）</span>
+                    <button type="button" onClick={() => setNoticeHtml("")} style={{ background: "none", border: "none", color: "#dc2626", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>解除</button>
+                  </div>
+                )}
+                {aiError && <div className="push-hint" style={{ color: "#dc2626" }}>{aiError}</div>}
+                <div className="push-hint" style={{ marginTop: 6 }}>タイトル・本文・画像URL・ブランドを踏まえて生成します。Push通知バナーはテキストのまま。下書き保存で安全に確認できます。</div>
               </div>
             </div>
 
@@ -476,19 +530,25 @@ export default function NewPushPage() {
                       <div className="push-bubble-body">{body || "ここに通知の本文が表示されます。"}</div>
                     </div>
                   </div>
-                  {/* お知らせ欄プレビュー (画像埋め込み) */}
+                  {/* お知らせ欄プレビュー (AI生成HTML or 画像+本文) */}
                   <div className="push-notification-bubble" style={{ marginTop: 12 }}>
                     <div className="push-bubble-header">
                       <span className="push-app-name" style={{ color: theme.color }}>お知らせ</span>
                     </div>
-                    {imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={imageUrl} alt="" style={{ width: "100%", borderRadius: 8, margin: "6px 0" }} />
+                    {noticeHtml ? (
+                      <div style={{ padding: "4px 2px" }} dangerouslySetInnerHTML={{ __html: noticeHtml }} />
+                    ) : (
+                      <>
+                        {imageUrl && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={imageUrl} alt="" style={{ width: "100%", borderRadius: 8, margin: "6px 0" }} />
+                        )}
+                        <div className="push-bubble-content">
+                          <div className="push-bubble-title">{title || "タイトル"}</div>
+                          <div className="push-bubble-body">{body || "本文プレビュー"}</div>
+                        </div>
+                      </>
                     )}
-                    <div className="push-bubble-content">
-                      <div className="push-bubble-title">{title || "タイトル"}</div>
-                      <div className="push-bubble-body">{body || "本文プレビュー"}</div>
-                    </div>
                   </div>
                 </div>
               </div>

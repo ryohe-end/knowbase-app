@@ -140,6 +140,7 @@ interface PushPostBody {
   title?: string;
   body?: string;
   imageUrl?: string; // お知らせ欄に埋め込む画像
+  contentHtml?: string; // AI生成などの完成HTML。あればお知らせ本文にそのまま使う。
   linkUrl?: string;
   targetType?: "ALL" | "CONDITION";
   appUserIds?: number[]; // CONDITION 時の宛先 (抽出結果)
@@ -198,8 +199,10 @@ export async function POST(req: Request) {
   const startAt = body.isImmediate || !body.scheduledAt ? toJstString(new Date()) : body.scheduledAt;
   const endAt = body.endAt || toJstString(new Date(Date.now() + 90 * 24 * 3600 * 1000)); // 既定90日表示
 
-  // お知らせ欄の画像埋め込み (content 先頭に <img>)
-  const finalContent = body.imageUrl
+  // お知らせ欄の本文: AI生成HTML(contentHtml)があればそのまま、無ければ画像+本文を組み立て
+  const finalContent = body.contentHtml && body.contentHtml.trim()
+    ? body.contentHtml
+    : body.imageUrl
     ? `<p><img src="${body.imageUrl}" alt="" style="max-width:100%;height:auto;" /></p>\n${content}`
     : content;
 

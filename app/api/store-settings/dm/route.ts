@@ -64,6 +64,7 @@ interface DmPostBody {
   brand?: string;
   subject?: string;
   body?: string;
+  bodyHtml?: string; // AI生成などの完成HTML。あればこれをそのまま送る。
   imageUrl?: string;
   recipients?: Recipient[];
   isImmediate?: boolean;
@@ -119,7 +120,10 @@ export async function POST(req: Request) {
     if (Number.isFinite(ms)) sendAt = Math.floor(ms / 1000);
   }
 
-  const html = buildHtml(subject, content, body.imageUrl);
+  // 完成HTML(AI生成)があればそのまま、無ければ件名/本文/画像から組み立てる
+  const html = body.bodyHtml && body.bodyHtml.trim()
+    ? body.bodyHtml
+    : buildHtml(subject, content, body.imageUrl);
   const fromName = `${(body.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365"} サポート`;
 
   let sent = 0;
