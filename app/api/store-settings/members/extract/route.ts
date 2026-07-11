@@ -11,14 +11,24 @@
 //       deliveryType: "push"|"dm",      // a.アプリ会員: push=(1) / dm=(0,1)
 //       clubCode: "123",                 // c.クラブコード (必須)
 //       includeOptions: false,           // true で 会員区分90 を IN に追加(既定 1,60,70)
-//       genderCodes: [1,2],              // a.性別コード (1=男,2=女)。空/未指定なら絞らない
-//       membershipStatus: ["stable","leaver"], // stable=退会日IS NULL / leaver=退会日IS NOT NULL
-//       contractTypes: ["レギュラー"],   // e.契約形態名 IN(...)。空なら絞らない
-//       joinDateFrom/To: "YYYYMMDD",     // c.利用開始日 BETWEEN
-//       leaveDateFrom/To: "YYYYMMDD",    // c.退会日 BETWEEN
+//       groupOp: "OR",                   // 条件グループ間の結合 (既定 OR。"AND" も可)
+//       groups: [                        // 各グループ内は AND、グループ間は groupOp
+//         {
+//           genderCodes: [1,2],          // a.性別コード (1=男,2=女)。空なら絞らない
+//           membershipStatus: ["stable","leaver"], // stable=退会日IS NULL / leaver=IS NOT NULL
+//           contractTypes: ["レギュラー"], // e.契約形態名 IN(...)
+//           joinDateFrom/To: "YYYYMMDD",  // c.利用開始日 BETWEEN
+//           leaveDateFrom/To: "YYYYMMDD", // c.退会日 BETWEEN
+//           visitCountFrom/To: <int>, visitFrom/visitTo: "YYYYMMDD", // 来館回数(期間内)
+//           hasUnpaidOnly: <bool>,        // 会員入金歴.入金区分コード=4
+//         }, ...
+//       ],
 //       limit, offset                    // プレビュー用ページング
 //     }
-//   ▼ Oracle SQL (指定条件だけ動的に WHERE 付与):
+//   ▼ Oracle SQL (clubCode/アプリ会員/会員区分は常に AND。グループは groupOp で結合):
+//     ... WHERE c.クラブコード=:clubCode AND a.アプリ会員 IN(...) AND c.会員区分コード IN(...)
+//         AND ( (group1 の各条件を AND) <groupOp> (group2 …) )   -- groupOp 既定 OR
+//     各グループ内で使う条件(指定されたものだけ動的付与):
 //     SELECT b.会員番号, a.漢字姓名 AS name, a.カナ姓||a.カナ名 AS kana,
 //            a.生年月日 AS birthday, a.性別コード AS genderCode,
 //            c.クラブコード, e.契約形態名 AS contractName, c.退会日 AS withdrawnAt
@@ -65,10 +75,8 @@ const API_KEY = process.env.MEMBER_SEARCH_API_KEY || "";
 
 type DeliveryType = "push" | "dm";
 
-interface ExtractBody {
-  deliveryType?: DeliveryType;
-  clubCode?: string;
-  includeOptions?: boolean;
+// 1条件グループ (グループ内はすべて AND)。グループ間は groupOp(既定 OR) で結合。
+interface GroupInput {
   gender?: string[]; // ["male","female"]
   membershipStatus?: string[]; // ["stable","leaver"]
   contractTypes?: string[];
@@ -81,8 +89,37 @@ interface ExtractBody {
   visitPeriodFrom?: string; // 来館回数を数える期間 "YYYY-MM-DD"
   visitPeriodTo?: string;
   hasUnpaidOnly?: boolean;
+}
+
+interface ExtractBody extends GroupInput {
+  deliveryType?: DeliveryType;
+  clubCode?: string;
+  includeOptions?: boolean;
+  groupOp?: "OR" | "AND"; // グループ間の結合 (既定 OR)
+  groups?: GroupInput[]; // 条件グループ。無ければフラットな条件を1グループとして扱う。
   limit?: number;
   offset?: number;
+}
+
+// 1グループを member-search 用の条件オブジェクトに変換 (グループ内 AND)
+function mapGroup(g: GroupInput) {
+  const genderCodes = Array.isArray(g.gender)
+    ? g.gender.map((x) => (x === "male" ? 1 : x === "female" ? 2 : 0)).filter((c) => c === 1 || c === 2)
+    : [];
+  return {
+    genderCodes,
+    membershipStatus: Array.isArray(g.membershipStatus) ? g.membershipStatus : [],
+    contractTypes: Array.isArray(g.contractTypes) ? g.contractTypes : [],
+    joinDateFrom: toYmd(g.joinDateFrom),
+    joinDateTo: toYmd(g.joinDateTo),
+    leaveDateFrom: toYmd(g.leaveDateFrom),
+    leaveDateTo: toYmd(g.leaveDateTo),
+    visitCountFrom: g.visitCountFrom ? Number(g.visitCountFrom) : undefined,
+    visitCountTo: g.visitCountTo ? Number(g.visitCountTo) : undefined,
+    visitFrom: toYmd(g.visitPeriodFrom),
+    visitTo: toYmd(g.visitPeriodTo),
+    hasUnpaidOnly: !!g.hasUnpaidOnly,
+  };
 }
 
 // "YYYY-MM-DD" → "YYYYMMDD"。空なら undefined。
@@ -131,32 +168,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
   }
 
-  // 性別 male/female → 性別コード 1/2
-  const genderCodes = Array.isArray(body.gender)
-    ? body.gender.map((g) => (g === "male" ? 1 : g === "female" ? 2 : 0)).filter((c) => c === 1 || c === 2)
-    : [];
-
   const limit = Math.min(Math.max(Number(body.limit) || 100, 1), 1000);
   const offset = Math.max(Number(body.offset) || 0, 0);
 
+  // 条件グループ: groups があればそれを、無ければフラットな条件を1グループとして扱う(後方互換)。
+  const rawGroups: GroupInput[] =
+    Array.isArray(body.groups) && body.groups.length > 0 ? body.groups : [body];
+  const groupOp: "OR" | "AND" = body.groupOp === "AND" ? "AND" : "OR";
+
   // ── member-search(Oracle) 抽出 ──
+  // グループ内は AND、グループ間は groupOp(既定 OR)。clubCode/アプリ会員/会員区分は
+  // 全グループ共通の前提として member-search 側で常に AND する。
   const searchBody = {
     deliveryType,
     clubCode,
     includeOptions: !!body.includeOptions,
-    genderCodes,
-    membershipStatus: Array.isArray(body.membershipStatus) ? body.membershipStatus : [],
-    contractTypes: Array.isArray(body.contractTypes) ? body.contractTypes : [],
-    joinDateFrom: toYmd(body.joinDateFrom),
-    joinDateTo: toYmd(body.joinDateTo),
-    leaveDateFrom: toYmd(body.leaveDateFrom),
-    leaveDateTo: toYmd(body.leaveDateTo),
-    // 来館回数(レンジ) + 来館期間(入館トラン.営業年月日 BETWEEN) + 未納。
-    visitCountFrom: body.visitCountFrom ? Number(body.visitCountFrom) : undefined,
-    visitCountTo: body.visitCountTo ? Number(body.visitCountTo) : undefined,
-    visitFrom: toYmd(body.visitPeriodFrom),
-    visitTo: toYmd(body.visitPeriodTo),
-    hasUnpaidOnly: !!body.hasUnpaidOnly,
+    groupOp,
+    groups: rawGroups.map(mapGroup),
     limit,
     offset,
   };

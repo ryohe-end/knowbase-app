@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
+import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
 import type { DmNotification } from "@/types/dmNotification";
 
 // 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
@@ -54,16 +55,13 @@ export default function DmSettingsPage() {
   const [imageUrl, setImageUrl] = useState("");
   
   // 抽出条件
-  const [condition, setCondition] = useState({
-    joinDateFrom: "", joinDateTo: "",
-    leaveDateFrom: "", leaveDateTo: "",
-    visitCountFrom: "", visitCountTo: "",
-    visitPeriodFrom: "", visitPeriodTo: "",
-    gender: ["male", "female"] as string[],
-    membershipStatus: ["stable", "leaver"] as string[], // ✅ 安定/退会
-    contractTypes: [...CONTRACT_TYPES] as string[],
-    hasUnpaidOnly: false
-  });
+  // 条件グループ (グループ内は AND、グループ間は groupOp)
+  const [groups, setGroups] = useState<CondGroup[]>([newCondGroup(CONTRACT_TYPES)]);
+  const [groupOp, setGroupOp] = useState<"OR" | "AND">("OR");
+  const updateGroup = (i: number, patch: Partial<CondGroup>) =>
+    setGroups((prev) => prev.map((g, gi) => (gi === i ? { ...g, ...patch } : g)));
+  const addGroup = () => setGroups((prev) => [...prev, newCondGroup(CONTRACT_TYPES)]);
+  const removeGroup = (i: number) => setGroups((prev) => (prev.length <= 1 ? prev : prev.filter((_, gi) => gi !== i)));
 
   // リストState
   const [extractedMembers, setExtractedMembers] = useState<DmRecipient[]>([]);
@@ -132,14 +130,8 @@ export default function DmSettingsPage() {
         body: JSON.stringify({
           deliveryType: "dm",
           clubCode,
-          gender: condition.gender,
-          membershipStatus: condition.membershipStatus,
-          contractTypes: condition.contractTypes,
-          joinDateFrom: condition.joinDateFrom, joinDateTo: condition.joinDateTo,
-          leaveDateFrom: condition.leaveDateFrom, leaveDateTo: condition.leaveDateTo,
-          visitCountFrom: condition.visitCountFrom, visitCountTo: condition.visitCountTo,
-          visitPeriodFrom: condition.visitPeriodFrom, visitPeriodTo: condition.visitPeriodTo,
-          hasUnpaidOnly: condition.hasUnpaidOnly,
+          groupOp,
+          groups,
           limit: 1000,
         }),
       });
@@ -234,16 +226,6 @@ export default function DmSettingsPage() {
     setSelectedMemberIds(next);
   };
 
-  const toggleConditionArray = (key: 'gender' | 'membershipStatus' | 'contractTypes', value: string) => {
-    setCondition(prev => {
-      const current = prev[key];
-      if (current.includes(value)) return { ...prev, [key]: current.filter(v => v !== value) };
-      return { ...prev, [key]: [...current, value] };
-    });
-  };
-  const setAllContractTypes = (all: boolean) => {
-    setCondition(prev => ({ ...prev, contractTypes: all ? [...CONTRACT_TYPES] : [] }));
-  };
 
   // 送信対象 (選択済み & 配信可能 & メール保有)
   const targetRecipients = useMemo(
@@ -296,16 +278,7 @@ export default function DmSettingsPage() {
 
   const resetForm = () => {
     setSubject(""); setBody(""); setImageUrl("");
-    setCondition({
-      joinDateFrom: "", joinDateTo: "",
-      leaveDateFrom: "", leaveDateTo: "",
-      visitCountFrom: "", visitCountTo: "",
-      visitPeriodFrom: "", visitPeriodTo: "",
-      gender: ["male", "female"],
-      membershipStatus: ["stable", "leaver"],
-      contractTypes: [...CONTRACT_TYPES],
-      hasUnpaidOnly: false
-    });
+    setGroups([newCondGroup(CONTRACT_TYPES)]); setGroupOp("OR");
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
     setExtractError("");
@@ -445,67 +418,27 @@ export default function DmSettingsPage() {
                       <div className="dm-step-header"><div className="dm-step-badge">2</div><h3>抽出条件</h3></div>
                       
                       <div className="dm-filter-box">
-                        <div className="dm-field">
-                          <label>入会日範囲</label>
-                          <div className="dm-row-2"><input type="date" value={condition.joinDateFrom} onChange={e=>setCondition({...condition, joinDateFrom:e.target.value})} /><span>~</span><input type="date" value={condition.joinDateTo} onChange={e=>setCondition({...condition, joinDateTo:e.target.value})} /></div>
-                        </div>
-                        <div className="dm-field">
-                          <label>退会日範囲</label>
-                          <div className="dm-row-2"><input type="date" value={condition.leaveDateFrom} onChange={e=>setCondition({...condition, leaveDateFrom:e.target.value})} /><span>~</span><input type="date" value={condition.leaveDateTo} onChange={e=>setCondition({...condition, leaveDateTo:e.target.value})} /></div>
-                        </div>
-                        <div className="dm-field">
-                          <label>来館期間（回数を数える対象期間）</label>
-                          <div className="dm-row-2"><input type="date" value={condition.visitPeriodFrom} onChange={e=>setCondition({...condition, visitPeriodFrom:e.target.value})} /><span>~</span><input type="date" value={condition.visitPeriodTo} onChange={e=>setCondition({...condition, visitPeriodTo:e.target.value})} /></div>
-                        </div>
-                        <div className="dm-field">
-                          <label>来館回数</label>
-                          <div className="dm-row-2"><input type="number" value={condition.visitCountFrom} onChange={e=>setCondition({...condition, visitCountFrom:e.target.value})} placeholder="0" /><span>~</span><input type="number" value={condition.visitCountTo} onChange={e=>setCondition({...condition, visitCountTo:e.target.value})} placeholder="99" /></div>
-                        </div>
-                        
-                        <div className="dm-field">
-                          <label>性別</label>
-                          <div className="dm-check-row">
-                            <label><input type="checkbox" checked={condition.gender.includes("male")} onChange={() => toggleConditionArray('gender', 'male')} /> 男性</label>
-                            <label><input type="checkbox" checked={condition.gender.includes("female")} onChange={() => toggleConditionArray('gender', 'female')} /> 女性</label>
+                        {groups.length > 1 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, marginBottom: 10 }}>
+                            <span style={{ color: "#64748b", fontWeight: 700 }}>グループ間:</span>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4 }}><input type="radio" checked={groupOp === "OR"} onChange={() => setGroupOp("OR")} /> OR（いずれか）</label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4 }}><input type="radio" checked={groupOp === "AND"} onChange={() => setGroupOp("AND")} /> AND（すべて）</label>
                           </div>
-                        </div>
-
-                        {/* ✅ 会員区分 (安定/退会) */}
-                        <div className="dm-field">
-                          <label>会員区分</label>
-                          <div className="dm-check-row">
-                            <label><input type="checkbox" checked={condition.membershipStatus.includes("stable")} onChange={() => toggleConditionArray('membershipStatus', 'stable')} /> 在籍中</label>
-                            <label><input type="checkbox" checked={condition.membershipStatus.includes("leaver")} onChange={() => toggleConditionArray('membershipStatus', 'leaver')} /> 退会済</label>
-                          </div>
-                        </div>
-
-                        <div className="dm-field">
-                          <div className="dm-label-row">
-                            <label>契約種別</label>
-                            <div className="dm-bulk-toggle">
-                              <button type="button" onClick={() => setAllContractTypes(true)}>全選択</button>
-                              <span>/</span>
-                              <button type="button" onClick={() => setAllContractTypes(false)}>解除</button>
+                        )}
+                        {groups.map((g, gi) => (
+                          <div key={gi}>
+                            {gi > 0 && <div style={{ textAlign: "center", margin: "8px 0", fontSize: 11, fontWeight: 800, color: "#0f172a" }}>— {groupOp} —</div>}
+                            <div style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, background: "#fff", marginBottom: 8 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                                <span style={{ fontSize: 11, fontWeight: 800, color: "#475569" }}>条件グループ {gi + 1}</span>
+                                {groups.length > 1 && <button type="button" onClick={() => removeGroup(gi)} style={{ background: "none", border: "none", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>削除</button>}
+                              </div>
+                              <ConditionGroupForm group={g} onChange={(patch) => updateGroup(gi, patch)} contractTypes={CONTRACT_TYPES} cls="dm" />
                             </div>
                           </div>
-                          <div className="dm-check-grid">
-                            {CONTRACT_TYPES.map((ct) => (
-                              <label key={ct}>
-                                <input
-                                  type="checkbox"
-                                  checked={condition.contractTypes.includes(ct)}
-                                  onChange={() => toggleConditionArray('contractTypes', ct)}
-                                />
-                                {ct}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
+                        ))}
+                        <button type="button" onClick={addGroup} style={{ width: "100%", border: "1px dashed #cbd5e1", background: "#f8fafc", color: "#0f172a", padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>＋ 条件グループを追加（{groupOp}）</button>
 
-                        <div className="dm-field">
-                          <label className="dm-unpaid-check"><input type="checkbox" checked={condition.hasUnpaidOnly} onChange={e=>setCondition({...condition, hasUnpaidOnly:e.target.checked})} /> 未納者のみを抽出</label>
-                        </div>
-                        
                         <button className="dm-extract-btn" onClick={handleExtract} disabled={isExtracting || !clubCode}>{isExtracting ? "検索中..." : "条件で名簿を作成"}</button>
 
                         <div className="dm-divider" />
