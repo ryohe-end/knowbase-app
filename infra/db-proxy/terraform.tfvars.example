@@ -1,0 +1,24 @@
+# cp terraform.tfvars.example terraform.tfvars して値を埋める。
+# terraform.tfvars は .gitignore 済みなのでコミットされない。
+
+region = "us-east-1"
+
+# 会員DB 接続文字列 (機密)。この値で Secrets Manager シークレットを新規作成する。
+# 環境変数 TF_VAR_pg_database_url で渡せば tfvars に平文を残さずに済む。
+pg_database_url = "postgres://wf_member_app_prod:PASSWORD@188.93.146.126:5432/wf_member_app_prod"
+
+# 既に接続文字列を保存済みの Secrets Manager シークレットがあれば、その ARN を指定。
+# 指定すると pg_database_url からの新規作成はスキップされる。
+# pg_secret_arn = "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:xxx"
+
+# member 以外の追加接続先 (両方プロキシ経由)。{ target名 = 接続文字列 }。
+# additional_db_targets = {
+#   newdb = "postgres://user:pass@newhost:5432/dbname"
+# }
+
+# Lambda の 5432 egress 許可先。複数DB対応で既定は全許可。絞るなら各DBの IP/32 を列挙。
+# db_egress_cidrs = ["188.93.146.126/32", "<newdb-ip>/32"]
+
+# Amplify SSR 実行ロール名 (分かっていれば。空なら invoke 権限は手動付与)
+# 例: "amplifyconsole-backend-role" など。IAM コンソールで確認して入れる。
+amplify_ssr_role_name = ""

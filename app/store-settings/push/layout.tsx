@@ -72,6 +72,13 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-row-2 > span { font-size: 11px; color: #94a3b8; }
         .push-check-row { display: flex; gap: 16px; }
         .push-check-row label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; }
+        .push-check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
+        .push-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .push-label-row { display: flex; align-items: center; justify-content: space-between; }
+        .push-bulk-toggle { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; }
+        .push-bulk-toggle button { background: none; border: none; padding: 0; font-size: 11px; font-weight: 700; color: #0f172a; cursor: pointer; text-decoration: underline; }
+        .push-bulk-toggle button:hover { color: #2563eb; }
+        .contract-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; color: #475569; font-weight: 700; }
         .push-unpaid-check { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #334155; }
         .push-filter-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
         .push-extract-btn { width: 100%; background: #0f172a; color: #fff; border: none; padding: 10px; border-radius: 6px; font-weight: 700; cursor: pointer; margin-top: 4px; font-size: 13px; }

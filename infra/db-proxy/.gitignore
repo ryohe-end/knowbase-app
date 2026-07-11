@@ -1,0 +1,8 @@
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.build/
+lambda/node_modules/
+lambda/package-lock.json

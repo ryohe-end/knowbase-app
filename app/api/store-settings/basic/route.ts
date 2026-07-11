@@ -1,24 +1,14 @@
 // app/api/store-settings/basic/route.ts
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { Pool } from "pg";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
+import { query } from "@/lib/memberDb";
 import type { StoreAppConfig } from "@/types/storeAppConfig";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const PG_CONNECTION = process.env.PG_DATABASE_URL
-  || "postgres://wf_member_app_prod:UA5JAaqYeyVGUpD@188.93.146.126:5432/wf_member_app_prod";
-
-const pool = new Pool({
-  connectionString: PG_CONNECTION,
-  max: 5,
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000,
-});
 
 // --- DynamoDB (ユーザー認証) ---
 const TABLE_USERS = "yamauchi-Users";
@@ -119,7 +109,7 @@ export async function GET(req: Request) {
 
   try {
     // 店舗情報取得
-    const clubResult = await pool.query(
+    const clubResult = await query(
       `SELECT
         club_code__c,
         name,
@@ -158,7 +148,7 @@ export async function GET(req: Request) {
     const club = clubResult.rows[0];
 
     // 解錠機器取得
-    const devicesResult = await pool.query(
+    const devicesResult = await query(
       `SELECT
         sfid,
         COALESCE(major__c, '') AS major,
@@ -273,7 +263,7 @@ export async function POST(req: Request) {
 
   try {
     // 店舗の存在確認 + sfid 取得
-    const existing = await pool.query(
+    const existing = await query(
       `SELECT sfid FROM club__c WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false LIMIT 1`,
       [clubCode]
     );
@@ -304,7 +294,7 @@ export async function POST(req: Request) {
 
     // name / field1__c (業態) / brand__c は clubs-sync (MotionBoard) が SoT のため
     // ここでは更新しない。UI 側でも readonly 表示。
-    await pool.query(
+    await query(
       `UPDATE club__c
        SET
          addressit__c = $2,

@@ -16,10 +16,17 @@ const formatDate = (iso: string) => {
   });
 };
 
+// ブランド(app_type) → プレビューテーマ
+function brandTheme(appType?: string): { color: string; appName: string } {
+  return appType === "joyfit"
+    ? { color: "#1F2C5C", appName: "JOYFITアプリ" }
+    : { color: "#E26E9D", appName: "FIT365アプリ" };
+}
+
 export default function PushDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
-  const [n, setN] = useState<PushNotification | null>(null);
+  const [n, setN] = useState<(PushNotification & { appType?: string }) | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -28,7 +35,8 @@ export default function PushDetailPage() {
       try {
         const res = await fetch(`/api/store-settings/push?id=${encodeURIComponent(id)}`, { cache: "no-store" });
         const data = await res.json();
-        setN(data.notification ?? null);
+        // openTimeline はトップレベル返却なので notification にマージ
+        setN(data.notification ? { ...data.notification, openTimeline: data.openTimeline ?? [] } : null);
       } catch (e) {
         console.error(e);
       } finally {
@@ -39,6 +47,7 @@ export default function PushDetailPage() {
 
   const stats = n?.stats;
   const openRate = stats && stats.sentCount > 0 ? Math.round((stats.openCount / stats.sentCount) * 100) : 0;
+  const theme = brandTheme(n?.appType);
 
   return (
     <div className="push-root">
@@ -101,8 +110,8 @@ export default function PushDetailPage() {
                       <div className="push-notification-bubble">
                         <div className="push-bubble-header">
                           <div className="push-app-info">
-                            <div className="push-app-icon" />
-                            <span className="push-app-name">FIT365アプリ</span>
+                            <div className="push-app-icon" style={{ background: theme.color }} />
+                            <span className="push-app-name">{theme.appName}</span>
                           </div>
                           <span className="push-now">たった今</span>
                         </div>

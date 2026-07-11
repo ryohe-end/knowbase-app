@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
-import { Pool } from "pg";
+import { query } from "@/lib/memberDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,17 +16,6 @@ const region = process.env.AWS_REGION || "us-east-1";
 
 const ddbClient = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(ddbClient);
-
-// --- PostgreSQL (店舗マスタ) ---
-const PG_CONNECTION = process.env.PG_DATABASE_URL
-  || "postgres://wf_member_app_prod:UA5JAaqYeyVGUpD@188.93.146.126:5432/wf_member_app_prod";
-
-const pool = new Pool({
-  connectionString: PG_CONNECTION,
-  max: 5,
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000,
-});
 
 function normalizeStringArray(raw: any): string[] {
   if (!raw) return [];
@@ -85,7 +74,7 @@ async function getCurrentUser() {
 }
 
 async function fetchStoresFromDB() {
-  const query = `
+  const sql = `
     SELECT
       club_code__c AS "clubCode",
       name AS "clubName",
@@ -106,7 +95,7 @@ async function fetchStoresFromDB() {
     ORDER BY club_code__c::int
   `;
 
-  const result = await pool.query(query);
+  const result = await query(sql);
 
   return result.rows.map((row: any) => ({
     clubCode: row.clubCode,
