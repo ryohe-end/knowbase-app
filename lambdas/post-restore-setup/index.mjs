@@ -65,7 +65,13 @@ async function setup(adminCfg, roCfg) {
 
     // ② 権限付与
     await conn.execute(`GRANT CREATE SESSION TO ${roCfg.user}`);
-    for (const tbl of ["個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号", "会員クラブ契約", "CSクラブ"]) {
+    // 検索系 + 未納管理(振替/入金)系。未納は 振替契約別(振替結果コード≠0=未納) を権威とし
+    // 会員入金歴/会員契約/会員区分/会費分類 と結合して集計する。
+    const roTables = [
+      "個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号", "会員クラブ契約", "CSクラブ",
+      "振替契約別", "会員入金歴", "会員契約", "会員区分", "会費分類",
+    ];
+    for (const tbl of roTables) {
       await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
     }
     log.push("grants applied");

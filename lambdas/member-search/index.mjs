@@ -297,7 +297,11 @@ const UNPAID_SQL = `
 // 振替契約別 f を未納の判定元とし、実入金の解消は 会員入金歴 a.入金年月日 で追う。
 // join: a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月 (同月対応)。クラブは f.クラブコード。
 // 契約×月 単位で返し、会員集計は JS 側 (buildUnpaidFurikae)。
-const UNPAID_FURIKAE_BASE = `
+// 未納額は 振替契約別.振替金額 を直接採用 (契約×振替年月 単位)。
+// 未納 = 振替結果コード ≠ '0' (CHAR。末尾スペースがあるため TRIM で比較)。
+// 入金解消は 会員入金歴 に 入金年月日 が入ったかを NOT EXISTS で判定
+// (会員入金歴は会費分類単位で 1:N のため JOIN せず EXISTS で金額の重複を避ける)。
+const UNPAID_CURRENT_BASE = `
   SELECT
     b.会員番号            AS MEMBER_NO,
     p.漢字姓名            AS NAME_KANJI,
@@ -307,43 +311,51 @@ const UNPAID_FURIKAE_BASE = `
     p.T連絡先TEL          AS PHONE,
     f.契約SEQ            AS KEIYAKU_SEQ,
     f.振替年月           AS FURIKAE_YM,
-    f.振替結果コード      AS RESULT_CODE,
-    c.会員区分コード      AS PLAN_CODE,
-    k.会員区分名          AS PLAN_NAME,
-    a.会費分類コード      AS FEE_CATEGORY_CODE,
-    h.会費分類名          AS FEE_CATEGORY_NAME,
+    TRIM(f.振替結果コード) AS RESULT_CODE,
+    f.振替金額           AS OUTSTANDING
+  FROM FIT_ADMIN."振替契約別" f
+  INNER JOIN FIT_ADMIN."会員番号" b ON f.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
+  WHERE f.クラブコード = :clubCode
+    AND TRIM(f.振替結果コード) <> '0'
+    AND NOT EXISTS (
+      SELECT 1 FROM FIT_ADMIN."会員入金歴" a
+       WHERE a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
+         AND a.入金年月日 IS NOT NULL
+    )`;
+
+// ① 現在の未納
+const UNPAID_CURRENT_SQL = UNPAID_CURRENT_BASE + `
+  ORDER BY f.振替年月 ASC
+  FETCH FIRST 20000 ROWS ONLY
+`;
+// ③ 貸し倒れ候補 (未入金のまま振替年月が12ヶ月以上前)
+const UNPAID_WRITEOFF_SQL = UNPAID_CURRENT_BASE + `
+    AND f.振替年月 <= :cutoffYm
+  ORDER BY f.振替年月 ASC
+  FETCH FIRST 20000 ROWS ONLY
+`;
+// ② 未納 → いつ入金されたか (振替失敗だが後で入金あり)。入金明細は会員入金歴側。
+const UNPAID_PAID_SQL = `
+  SELECT
+    b.会員番号            AS MEMBER_NO,
+    p.漢字姓名            AS NAME_KANJI,
+    f.契約SEQ            AS KEIYAKU_SEQ,
+    f.振替年月           AS FURIKAE_YM,
+    f.振替金額           AS FURIKAE_AMOUNT,
     a.請求額             AS BILLED_AMOUNT,
     a.入金額             AS PAID_AMOUNT,
     a.請求年月日         AS BILLED_DATE,
     a.入金年月日         AS PAID_DATE
-  FROM FIT_ADMIN.振替契約別 f
-  INNER JOIN FIT_ADMIN.会員入金歴 a ON a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
-  INNER JOIN FIT_ADMIN.会員番号 b   ON f.契約者SEQ = b.契約者SEQ
-  INNER JOIN FIT_ADMIN.個人 p       ON b.個人SEQ = p.個人SEQ
-  LEFT  JOIN FIT_ADMIN.会員契約 c   ON f.契約SEQ = c.契約SEQ
-  LEFT  JOIN FIT_ADMIN.会員区分 k   ON c.会員区分コード = k.会員区分コード
-  LEFT  JOIN FIT_ADMIN.会費分類 h   ON a.会費分類コード = h.会費分類コード
+  FROM FIT_ADMIN."振替契約別" f
+  INNER JOIN FIT_ADMIN."会員入金歴" a
+        ON a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月 AND a.入金年月日 IS NOT NULL
+  INNER JOIN FIT_ADMIN."会員番号" b ON f.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
   WHERE f.クラブコード = :clubCode
-    AND f.振替結果コード <> 0`;
-
-// ① 現在の未納 (未入金)
-const UNPAID_CURRENT_SQL = UNPAID_FURIKAE_BASE + `
-    AND a.入金年月日 IS NULL
-  ORDER BY f.振替年月 ASC
-  FETCH FIRST 20000 ROWS ONLY
-`;
-// ② 未納 → いつ入金されたか (振替失敗後に入金あり)
-const UNPAID_PAID_SQL = UNPAID_FURIKAE_BASE + `
-    AND a.入金年月日 IS NOT NULL
+    AND TRIM(f.振替結果コード) <> '0'
     AND a.入金年月日 >= :fromYmd
   ORDER BY a.入金年月日 DESC
-  FETCH FIRST 20000 ROWS ONLY
-`;
-// ③ 貸し倒れ候補 (未入金のまま振替年月が12ヶ月以上前)
-const UNPAID_WRITEOFF_SQL = UNPAID_FURIKAE_BASE + `
-    AND a.入金年月日 IS NULL
-    AND f.振替年月 <= :cutoffYm
-  ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
 `;
 
@@ -352,46 +364,48 @@ function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length
 
 // 振替未納の明細行 → 正規化 + 会員集計
 function buildUnpaidFurikae(type, rows) {
-  const items = rows.map((r) => {
-    const billed = Number(r.BILLED_AMOUNT) || 0;
-    const paid = Number(r.PAID_AMOUNT) || 0;
-    return {
-      memberNo: r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
-      memberName: r.NAME_KANJI != null ? String(r.NAME_KANJI) : null,
-      kana: [r.NAME_KANA_SEI, r.NAME_KANA_MEI].filter(Boolean).join(" ").trim() || null,
-      email: r.EMAIL != null ? String(r.EMAIL).trim() || null : null,
-      phone: r.PHONE != null ? String(r.PHONE).trim() || null : null,
-      contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
-      furikaeMonth: _fmtYm(r.FURIKAE_YM),
-      resultCode: r.RESULT_CODE != null ? Number(r.RESULT_CODE) : null,
-      plan: r.PLAN_NAME ?? null,
-      category: r.FEE_CATEGORY_NAME ?? "その他",
-      billedAmount: billed,
-      paidAmount: paid,
-      outstanding: Math.max(0, billed - paid),
-      billedDate: _fmtYmd(r.BILLED_DATE),
-      paidDate: _fmtYmd(r.PAID_DATE),
-    };
-  });
-
+  // ② いつ入金されたか: 会員入金歴の入金明細 (滞留日数つき)
   if (type === "unpaid_paid") {
-    return {
-      items: items.map((it) => ({
-        ...it,
-        daysToPay: it.billedDate && it.paidDate
-          ? Math.max(0, Math.round((new Date(it.paidDate).getTime() - new Date(it.billedDate).getTime()) / 86400000))
+    const items = rows.map((r) => {
+      const billedDate = _fmtYmd(r.BILLED_DATE);
+      const paidDate = _fmtYmd(r.PAID_DATE);
+      return {
+        memberNo: r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
+        memberName: r.NAME_KANJI != null ? String(r.NAME_KANJI) : null,
+        contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+        furikaeMonth: _fmtYm(r.FURIKAE_YM),
+        furikaeAmount: Number(r.FURIKAE_AMOUNT) || 0,
+        billedAmount: Number(r.BILLED_AMOUNT) || 0,
+        paidAmount: Number(r.PAID_AMOUNT) || 0,
+        billedDate,
+        paidDate,
+        daysToPay: billedDate && paidDate
+          ? Math.max(0, Math.round((new Date(paidDate).getTime() - new Date(billedDate).getTime()) / 86400000))
           : null,
-      })),
-    };
+      };
+    });
+    return { items };
   }
 
-  // current / writeoff: 会員単位で集計 (契約ごとの未納額を合算)
+  // ① 現在の未納 / ③ 貸し倒れ候補: 未納額 = 振替金額。会員単位で集計。
+  const items = rows.map((r) => ({
+    memberNo: r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
+    memberName: r.NAME_KANJI != null ? String(r.NAME_KANJI) : null,
+    kana: [r.NAME_KANA_SEI, r.NAME_KANA_MEI].filter(Boolean).join(" ").trim() || null,
+    email: r.EMAIL != null ? String(r.EMAIL).trim() || null : null,
+    phone: r.PHONE != null ? String(r.PHONE).trim() || null : null,
+    contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+    furikaeMonth: _fmtYm(r.FURIKAE_YM),
+    resultCode: r.RESULT_CODE != null ? String(r.RESULT_CODE).trim() : null,
+    outstanding: Number(r.OUTSTANDING) || 0,
+  }));
+
   const byMember = new Map();
   for (const it of items) {
     const key = it.memberNo || "";
     let m = byMember.get(key);
     if (!m) {
-      m = { memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone, plan: it.plan, unpaidCount: 0, outstanding: 0, oldestMonth: it.furikaeMonth, _contracts: new Set() };
+      m = { memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone, unpaidCount: 0, outstanding: 0, oldestMonth: it.furikaeMonth, _contracts: new Set() };
       byMember.set(key, m);
     }
     m.unpaidCount += 1;
@@ -504,7 +518,8 @@ export const handler = async (event) => {
     }
     const ym = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
     const now = new Date();
-    const binds = { clubCode };
+    // 振替契約別.クラブコード は NUMBER。数値でバインド。
+    const binds = { clubCode: Number(clubCode) };
     let sql;
     if (type === "unpaid_current") {
       sql = UNPAID_CURRENT_SQL;
