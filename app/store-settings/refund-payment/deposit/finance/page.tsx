@@ -7,6 +7,7 @@ import {
   Receipt, FileText, Calculator, DollarSign, Wallet, Calendar
 } from "lucide-react";
 import type { DepositApplication as ApiDepositApplication } from "@/types/depositApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 type DepositApp = {
   id: string;
@@ -76,6 +77,7 @@ function apiToLocal(a: ApiDepositApplication): DepositApp {
 }
 
 export default function DepositFinancePage() {
+  const guardAllowed = useRefundGuard("canFinance");
   const today = new Date().toISOString().slice(0, 10);
   const [apps, setApps] = useState<DepositApp[]>([]);
   const [tab, setTab] = useState<"pending" | "done" | "all">("pending");
@@ -96,7 +98,7 @@ export default function DepositFinancePage() {
     try {
       const url = tab === "pending"
         ? "/api/store-settings/refund-payment/deposit/applications?queue=finance"
-        : "/api/store-settings/refund-payment/deposit/applications?queue=all";
+        : "/api/store-settings/refund-payment/deposit/applications?queue=finance";
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
@@ -203,6 +205,15 @@ export default function DepositFinancePage() {
       setActing(false);
     }
   };
+
+  // 権限ガード: 経理(finance)のみ。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
 
   return (
     <div className="dpf-root">
