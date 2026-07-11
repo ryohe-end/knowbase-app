@@ -103,9 +103,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       if (app.createdBy !== user.userId && user.role !== "admin") {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
-      // 既に承認済みの再申請は不可
-      if (app.status === "承認済み") {
-        return NextResponse.json({ ok: false, error: "承認済みは再申請できません" }, { status: 400 });
+      // 提出できるのは「下書き」または「差戻し」のみ。
+      // 承認待ち/振込手配中/承認済みからの再送信は承認・経理の進行を巻き戻すため禁止。
+      if (app.status !== "下書き" && app.status !== "差戻し") {
+        return NextResponse.json(
+          { ok: false, error: `${app.status}の申請は再提出できません` },
+          { status: 400 }
+        );
       }
       setStep(app, "applicant", {
         userId: user.userId,
@@ -165,29 +169,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
           role: "approver", comment: comment || undefined,
         });
       } else if (financeStep?.state === "対応中") {
-        // 経理段階の "approve" は使わない (transfer で決着) が、保険として残す
-        if (!canFinance(user)) {
-          return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-        }
-        setStep(app, "finance", {
-          userId: user.userId,
-          userName: user.name,
-          dept: user.dept ?? "",
-          email: user.email,
-          state: "完了",
-          actedAt,
-          comment: comment || "経理確認しました",
-        });
-        app.status = "承認済み";
-        appendEvent(app, {
-          at: ts, byUserId: user.userId, byUserName: user.name,
-          action: "approve", fromStatus: prevStatus, toStatus: "承認済み",
-          role: "finance", comment: comment || undefined,
-        });
+        // 経理段階で "approve" は使わない。振込は arrange→transfer で決着させる。
+        // (これにより「承認済み」は必ず「振込完了(transfer成功)」を意味する = 二義を解消)
+        return NextResponse.json(
+          { ok: false, error: "経理は振込実行(transfer)で決着します" },
+          { status: 400 }
+        );
       } else {
         return NextResponse.json({ ok: false, error: "対応中ステップがありません" }, { status: 400 });
       }
     } else if (action === "reject") {
+      // 差戻しは「承認待ち」段階のみ (承認者差戻し / 経理が手配前に差戻し)。
+      // 振込手配中の差戻しはバッチ集計を壊すため禁止 (振込失敗は transfer(失敗) で扱う)。
+      if (app.status !== "承認待ち") {
+        return NextResponse.json(
+          { ok: false, error: `${app.status}の申請は差戻しできません` },
+          { status: 400 }
+        );
+      }
       const approverStep = findStep(app, "approver");
       const financeStep = findStep(app, "finance");
       if (approverStep?.state === "対応中") {
