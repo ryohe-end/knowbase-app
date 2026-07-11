@@ -37,7 +37,9 @@
 //       [AND e.契約形態名 IN (:contractTypeNames)]
 //   ▼ Response(JSON):
 //     { "results": [ {memberNo,name,kana,birthday(YYYY-MM-DD),genderCode(1|2),
-//                     clubCode,contractName,withdrawnAt} ], "totalCount": <条件一致総数> }
+//                     clubCode,contractName,withdrawnAt,
+//                     email} ], "totalCount": <条件一致総数> }
+//     ※ email は個人テーブルのメールアドレス。DM(deliveryType=dm)の配信先に使う。
 //
 // ※ visitCount(来館回数) / hasUnpaidOnly(未納) は別途 SQL 提供待ち。member-search へ
 //    転送済み(visitCountFrom/To, hasUnpaidOnly)なので、Lambda 側 SQL 対応後に自動で効く。
@@ -176,6 +178,7 @@ export async function POST(req: Request) {
       clubCode?: string;
       contractName?: string | null;
       withdrawnAt?: string | null;
+      email?: string | null; // 個人テーブルのメール (DM用)
     }>;
     totalCount?: number;
   };
@@ -216,11 +219,11 @@ export async function POST(req: Request) {
   const members = oracleRows.map((r) => {
     const memberNo = String(r.memberNo);
     const au = appUserByMemberId.get(memberNo) ?? null;
+    // DM のメールは個人テーブル(Oracle)優先、無ければ app_user を補完
+    const email = deliveryType === "dm" ? (r.email || au?.email || null) : null;
     // 配信可否: push=トークン保有かつ通知許諾 / dm=メール保有
     const deliverable =
-      deliveryType === "push"
-        ? !!au && au.hasToken && au.approveNotice
-        : !!au && !!au.email;
+      deliveryType === "push" ? !!au && au.hasToken && au.approveNotice : !!email;
     return {
       memberNo,
       name: r.name ?? "",
@@ -231,7 +234,8 @@ export async function POST(req: Request) {
       clubCode: r.clubCode ?? clubCode,
       contractType: r.contractName ?? "",
       withdrawnAt: r.withdrawnAt ?? null,
-      appUserId: au?.appUserId ?? null, // ← 配信時に information2_destination へ
+      appUserId: au?.appUserId ?? null, // push: information2_destination へ
+      email, // dm: 送信先メール
       deliverable,
     };
   });

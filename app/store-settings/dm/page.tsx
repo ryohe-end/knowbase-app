@@ -4,27 +4,22 @@
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
-import type { DmNotification, DmTargetType, DmCondition } from "@/types/dmNotification";
+import type { DmNotification } from "@/types/dmNotification";
 
-// --- モックデータ生成 ---
-const generateMockMembers = (count: number) => {
-  return Array.from({ length: count }).map((_, i) => {
-    // 10人に1人が退会者、20人に1人が未納者
-    const isLeaver = i % 10 === 0;
-    const isUnpaid = Math.random() > 0.95;
-    return {
-      id: `1000${i + 1}`,
-      name: `利用者 ${i + 1}`,
-      email: `user${i + 1}@example.com`,
-      gender: i % 2 === 0 ? "male" : "female",
-      joinDate: "2023-04-15",
-      leaveDate: isLeaver ? "2025-12-31" : "",
-      lastVisitDate: "2026-02-10",
-      visitCount: Math.floor(Math.random() * 50),
-      status: isLeaver ? "退会済" : "在籍中",
-      hasUnpaid: isUnpaid
-    };
-  });
+// 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
+const CONTRACT_TYPES = ["レギュラー", "ナイト", "デイ", "ホリデー", "学生", "家族", "法人", "1day/OTP"];
+
+type StoreItem = { clubCode: string; clubName: string; brand: string };
+// DM 宛先の統一モデル (抽出 or CSV)
+type DmRecipient = {
+  key: string; // 選択キー (memberNo or csv:email)
+  memberNo: string;
+  name: string;
+  email: string | null;
+  contractType: string;
+  status: string; // 在籍中/退会済
+  source: "extract" | "csv";
+  deliverable: boolean; // メール保有=配信可能
 };
 
 const formatDate = (iso: string) => {
@@ -40,16 +35,19 @@ export default function DmSettingsPage() {
   const [sending, setSending] = useState(false);
   const [notifications, setNotifications] = useState<DmNotification[]>([]);
   
-  const [storeBrand, setStoreBrand] = useState<string>("JOYFIT");
-  const [storeName, setStoreName] = useState<string>("テスト店舗");
+  // 店舗コンテキスト (ログインユーザーの担当クラブ)
+  const [stores, setStores] = useState<StoreItem[]>([]);
+  const [clubCode, setClubCode] = useState("");
+  const selectedStore = useMemo(() => stores.find((s) => s.clubCode === clubCode) ?? null, [stores, clubCode]);
+  const storeBrand = (selectedStore?.brand || "JOYFIT").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365";
+  const storeName = selectedStore?.clubName ?? "";
+  const [extractError, setExtractError] = useState("");
 
   // モーダル・表示モード
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"create" | "detail">("create");
   const [selectedHistory, setSelectedHistory] = useState<DmNotification | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
   // フォームState
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
@@ -62,15 +60,17 @@ export default function DmSettingsPage() {
     visitCountFrom: "", visitCountTo: "",
     gender: ["male", "female"] as string[],
     membershipStatus: ["stable", "leaver"] as string[], // ✅ 安定/退会
+    contractTypes: [...CONTRACT_TYPES] as string[],
     hasUnpaidOnly: false
   });
 
   // リストState
-  const [extractedMembers, setExtractedMembers] = useState<any[]>([]);
+  const [extractedMembers, setExtractedMembers] = useState<DmRecipient[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [isExtracting, setIsExtracting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 100;
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   // スケジュールState
   const [isImmediate, setIsImmediate] = useState(true);
@@ -85,11 +85,17 @@ export default function DmSettingsPage() {
         const data = await resDm.json();
         setNotifications(data.notifications || []);
       }
-      const resBasic = await fetch("/api/store-settings/basic");
-      if (resBasic.ok) {
-        const data = await resBasic.json();
-        setStoreBrand(data.config.brand || "JOYFIT");
-        setStoreName(data.config.clubName || "店舗");
+      // 担当店舗 (stores API はユーザーの clubCodes でフィルタ済み)
+      const resStores = await fetch("/api/store-settings/stores", { cache: "no-store" });
+      if (resStores.ok) {
+        const data = await resStores.json();
+        const list: StoreItem[] = (data.stores || []).map((s: any) => ({
+          clubCode: String(s.clubCode),
+          clubName: s.clubName,
+          brand: s.brand,
+        }));
+        setStores(list);
+        if (list.length === 1) setClubCode(list[0].clubCode);
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
@@ -114,15 +120,104 @@ export default function DmSettingsPage() {
     setIsModalOpen(true);
   };
 
-  const handleExtract = () => {
+  const handleExtract = async () => {
+    if (!clubCode) { setExtractError("担当店舗を選択してください。"); return; }
     setIsExtracting(true);
-    setTimeout(() => {
-      const mockResult = generateMockMembers(250);
-      setExtractedMembers(mockResult);
-      setSelectedMemberIds(new Set(mockResult.map(m => m.id)));
-      setIsExtracting(false);
+    setExtractError("");
+    try {
+      const res = await fetch("/api/store-settings/members/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliveryType: "dm",
+          clubCode,
+          gender: condition.gender,
+          membershipStatus: condition.membershipStatus,
+          contractTypes: condition.contractTypes,
+          joinDateFrom: condition.joinDateFrom, joinDateTo: condition.joinDateTo,
+          leaveDateFrom: condition.leaveDateFrom, leaveDateTo: condition.leaveDateTo,
+          visitCountFrom: condition.visitCountFrom, visitCountTo: condition.visitCountTo,
+          hasUnpaidOnly: condition.hasUnpaidOnly,
+          limit: 1000,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setExtractError(
+          data?.error === "extract_endpoint_pending"
+            ? "会員抽出API(member-search)が未提供のため抽出できません。"
+            : `抽出に失敗しました (${data?.error || res.status})`
+        );
+        return;
+      }
+      const recs: DmRecipient[] = (data.members || []).map((m: any) => ({
+        key: `m:${m.memberNo}`,
+        memberNo: m.memberNo,
+        name: m.name,
+        email: m.email ?? null,
+        contractType: m.contractType ?? "",
+        status: m.withdrawnAt ? "退会済" : "在籍中",
+        source: "extract" as const,
+        deliverable: !!m.deliverable,
+      }));
+      // CSV 由来は残し、抽出分を統合 (メール重複排除)
+      mergeRecipients(recs);
       setCurrentPage(1);
-    }, 600);
+    } catch {
+      setExtractError("抽出リクエストに失敗しました。");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  // 宛先の統合 (メールで重複排除)。既存を保ちつつ追加。
+  const mergeRecipients = (incoming: DmRecipient[]) => {
+    setExtractedMembers((prev) => {
+      const byEmail = new Map<string, DmRecipient>();
+      const push = (r: DmRecipient) => {
+        const e = (r.email || "").toLowerCase();
+        const k = e || r.key;
+        if (!byEmail.has(k)) byEmail.set(k, r);
+      };
+      prev.forEach(push);
+      incoming.forEach(push);
+      const merged = Array.from(byEmail.values());
+      setSelectedMemberIds(new Set(merged.filter((m) => m.deliverable).map((m) => m.key)));
+      return merged;
+    });
+  };
+
+  // CSV アップロード (会員番号,メールアドレス,氏名)
+  const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || "").replace(/^﻿/, "");
+      const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const rows = lines.slice(lines[0]?.includes("メール") || lines[0]?.includes("email") ? 1 : 0);
+      const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const recs: DmRecipient[] = [];
+      for (const line of rows) {
+        const cols = line.split(",").map((c) => c.trim());
+        const [memberNo = "", email = "", name = ""] = cols;
+        if (!emailRe.test(email)) continue;
+        recs.push({
+          key: `c:${email.toLowerCase()}`,
+          memberNo: memberNo || "-",
+          name: name || "(CSV)",
+          email,
+          contractType: "",
+          status: "CSV",
+          source: "csv",
+          deliverable: true,
+        });
+      }
+      if (recs.length === 0) setExtractError("CSVから有効なメール宛先が読み取れませんでした。");
+      else { setExtractError(""); mergeRecipients(recs); setCurrentPage(1); }
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    };
+    reader.readAsText(file, "utf-8");
   };
 
   const paginatedMembers = useMemo(() => {
@@ -137,49 +232,81 @@ export default function DmSettingsPage() {
     setSelectedMemberIds(next);
   };
 
-  const toggleConditionArray = (key: 'gender' | 'membershipStatus', value: string) => {
+  const toggleConditionArray = (key: 'gender' | 'membershipStatus' | 'contractTypes', value: string) => {
     setCondition(prev => {
       const current = prev[key];
       if (current.includes(value)) return { ...prev, [key]: current.filter(v => v !== value) };
       return { ...prev, [key]: [...current, value] };
     });
   };
+  const setAllContractTypes = (all: boolean) => {
+    setCondition(prev => ({ ...prev, contractTypes: all ? [...CONTRACT_TYPES] : [] }));
+  };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setImageUrl(reader.result as string);
-      reader.readAsDataURL(file);
+  // 送信対象 (選択済み & 配信可能 & メール保有)
+  const targetRecipients = useMemo(
+    () =>
+      extractedMembers
+        .filter((m) => selectedMemberIds.has(m.key) && m.deliverable && m.email)
+        .map((m) => ({ email: m.email as string, name: m.name })),
+    [extractedMembers, selectedMemberIds]
+  );
+
+  const submit = async (isDraft: boolean) => {
+    if (!clubCode) return alert("担当店舗を選択してください。");
+    if (!subject || !body) return alert("件名と本文は必須です。");
+    if (targetRecipients.length === 0) return alert("配信可能な宛先(メール)がありません。");
+    setSending(true);
+    try {
+      const scheduledAt =
+        !isImmediate && scheduledDate && scheduledTime ? `${scheduledDate} ${scheduledTime}` : undefined;
+      const res = await fetch("/api/store-settings/dm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clubCode,
+          brand: storeBrand,
+          subject,
+          body,
+          imageUrl: imageUrl || undefined,
+          recipients: targetRecipients,
+          isImmediate,
+          scheduledAt,
+          isDraft,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "配信失敗");
+      alert(isDraft ? "下書きを保存しました（送信されていません）。" : data.scheduled ? "予約配信を登録しました。" : `${data.sentCount}件に送信しました。`);
+      setIsModalOpen(false);
+      setSending(false);
+      resetForm();
+      fetchData();
+    } catch (e: any) {
+      alert(e?.message || "送信エラー");
+      setSending(false);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!subject || !body) return alert("件名と本文は必須です。");
-    if (selectedMemberIds.size === 0) return alert("配信対象を選択してください。");
-    setSending(true);
-    setTimeout(() => {
-      alert("配信予約を完了しました。");
-      setIsModalOpen(false);
-      setSending(false);
-      fetchData();
-      resetForm();
-    }, 1500);
+  const downloadCsvTemplate = () => {
+    window.open("/api/store-settings/dm/csv-template", "_blank");
   };
 
   const resetForm = () => {
-    setSubject(""); setBody(""); setImageUrl(""); 
-    setCondition({ 
-      joinDateFrom: "", joinDateTo: "", 
-      leaveDateFrom: "", leaveDateTo: "", 
-      visitCountFrom: "", visitCountTo: "", 
-      gender: ["male", "female"], 
-      membershipStatus: ["stable", "leaver"], 
-      hasUnpaidOnly: false 
+    setSubject(""); setBody(""); setImageUrl("");
+    setCondition({
+      joinDateFrom: "", joinDateTo: "",
+      leaveDateFrom: "", leaveDateTo: "",
+      visitCountFrom: "", visitCountTo: "",
+      gender: ["male", "female"],
+      membershipStatus: ["stable", "leaver"],
+      contractTypes: [...CONTRACT_TYPES],
+      hasUnpaidOnly: false
     });
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setExtractError("");
+    if (csvInputRef.current) csvInputRef.current.value = "";
   };
 
   return (
@@ -260,6 +387,23 @@ export default function DmSettingsPage() {
                       <div className="dm-step-badge">1</div>
                       <h3>配信コンテンツ</h3>
                     </div>
+                    {viewMode === 'create' && (
+                      <div className="dm-field">
+                        <label>配信店舗 <span className="req">*</span></label>
+                        {stores.length === 0 ? (
+                          <div className="dm-input" style={{ background: "#f8fafc", color: "#94a3b8" }}>担当店舗がありません</div>
+                        ) : stores.length === 1 ? (
+                          <div className="dm-input" style={{ background: "#f8fafc" }}>{storeName}（{storeBrand} / {clubCode}）</div>
+                        ) : (
+                          <select className="dm-input" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
+                            <option value="">店舗を選択</option>
+                            {stores.map((s) => (
+                              <option key={s.clubCode} value={s.clubCode}>{s.clubName}（{s.clubCode}）</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    )}
                     <div className="dm-field">
                       <label>件名 <span className="req">*</span></label>
                       <input 
@@ -280,8 +424,12 @@ export default function DmSettingsPage() {
                     </div>
                     {viewMode === 'create' && (
                       <div className="dm-field">
-                        <label>ヘッダー画像</label>
-                        <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileChange} className="dm-file-input" />
+                        <label>ヘッダー画像URL（任意）</label>
+                        <input
+                          type="url" className="dm-input" value={imageUrl}
+                          onChange={(e) => setImageUrl(e.target.value)}
+                          placeholder="https://example.com/banner.png"
+                        />
                       </div>
                     )}
                   </div>
@@ -325,10 +473,45 @@ export default function DmSettingsPage() {
                         </div>
 
                         <div className="dm-field">
+                          <div className="dm-label-row">
+                            <label>契約種別</label>
+                            <div className="dm-bulk-toggle">
+                              <button type="button" onClick={() => setAllContractTypes(true)}>全選択</button>
+                              <span>/</span>
+                              <button type="button" onClick={() => setAllContractTypes(false)}>解除</button>
+                            </div>
+                          </div>
+                          <div className="dm-check-grid">
+                            {CONTRACT_TYPES.map((ct) => (
+                              <label key={ct}>
+                                <input
+                                  type="checkbox"
+                                  checked={condition.contractTypes.includes(ct)}
+                                  onChange={() => toggleConditionArray('contractTypes', ct)}
+                                />
+                                {ct}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="dm-field">
                           <label className="dm-unpaid-check"><input type="checkbox" checked={condition.hasUnpaidOnly} onChange={e=>setCondition({...condition, hasUnpaidOnly:e.target.checked})} /> 未納者のみを抽出</label>
                         </div>
                         
-                        <button className="dm-extract-btn" onClick={handleExtract} disabled={isExtracting}>{isExtracting ? "検索中..." : "条件で名簿を作成"}</button>
+                        <button className="dm-extract-btn" onClick={handleExtract} disabled={isExtracting || !clubCode}>{isExtracting ? "検索中..." : "条件で名簿を作成"}</button>
+
+                        <div className="dm-divider" />
+                        <div className="dm-label-row">
+                          <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>CSVで宛先を追加</label>
+                          <button type="button" className="dm-bulk-toggle" onClick={downloadCsvTemplate} style={{ background: "none", border: "none", color: "#0f172a", textDecoration: "underline", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>
+                            フォーマットDL
+                          </button>
+                        </div>
+                        <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvUpload} style={{ fontSize: 11, marginTop: 4 }} />
+                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>列: 会員番号, メールアドレス, 氏名（メール必須）</div>
+
+                        {extractError && <div style={{ color: "#dc2626", fontSize: 11, marginTop: 8 }}>{extractError}</div>}
                       </div>
                     </div>
                   ) : (
@@ -371,45 +554,48 @@ export default function DmSettingsPage() {
               <section className="dm-col-list">
                 {viewMode === 'create' ? (
                   <>
-                    <div className="dm-panel-header-sticky">宛先リスト精査 ({selectedMemberIds.size}名)</div>
+                    <div className="dm-panel-header-sticky">宛先リスト精査 (配信可能 {targetRecipients.length} / 全 {extractedMembers.length} 件)</div>
                     <div className="dm-list-container">
                       {extractedMembers.length > 0 ? (
                         <table className="dm-list-table">
                           <thead>
                             <tr>
-                              <th width="32"><input type="checkbox" checked={selectedMemberIds.size === extractedMembers.length} onChange={() => {
-                                if(selectedMemberIds.size === extractedMembers.length) setSelectedMemberIds(new Set());
-                                else setSelectedMemberIds(new Set(extractedMembers.map(m=>m.id)));
-                              }} /></th>
-                              <th>会員属性</th>
-                              <th>区分/来館</th>
-                              <th width="30">未</th>
+                              <th style={{ width: 32 }}><input type="checkbox"
+                                checked={selectedMemberIds.size > 0 && selectedMemberIds.size === extractedMembers.filter(m=>m.deliverable).length}
+                                onChange={() => {
+                                  const del = extractedMembers.filter(m=>m.deliverable);
+                                  if(selectedMemberIds.size === del.length) setSelectedMemberIds(new Set());
+                                  else setSelectedMemberIds(new Set(del.map(m=>m.key)));
+                                }} /></th>
+                              <th>会員/宛先</th>
+                              <th>区分</th>
+                              <th style={{ width: 40 }}>配信</th>
                             </tr>
                           </thead>
                           <tbody>
                             {paginatedMembers.map(m => (
-                              <tr key={m.id} className={selectedMemberIds.has(m.id) ? "" : "excluded"}>
-                                <td><input type="checkbox" checked={selectedMemberIds.has(m.id)} onChange={()=>toggleSelectMember(m.id)} /></td>
+                              <tr key={m.key} className={selectedMemberIds.has(m.key) ? "" : "excluded"}>
+                                <td><input type="checkbox" disabled={!m.deliverable} checked={selectedMemberIds.has(m.key)} onChange={()=>toggleSelectMember(m.key)} /></td>
                                 <td>
                                   <div className="dm-u-info">
                                     <strong>{m.name}</strong>
-                                    <small>ID:{m.id} | {m.email}</small>
+                                    <small>{m.memberNo !== "-" ? `会員番号:${m.memberNo} | ` : ""}{m.email || "メールなし"}</small>
                                   </div>
                                 </td>
                                 <td>
                                   <div className="dm-u-meta">
                                     <span className={`status-badge ${m.status === '退会済' ? 'leaver' : 'stable'}`}>{m.status}</span>
-                                    <span className="visit-count">{m.visitCount}回</span>
+                                    {m.contractType && <span className="dm-contract-chip">{m.contractType}</span>}
+                                    {m.source === "csv" && <span className="dm-contract-chip">CSV</span>}
                                   </div>
-                                  <small className="date-info">入会: {m.joinDate}</small>
                                 </td>
-                                <td>{m.hasUnpaid && <span className="unpaid-dot" title="未納あり">!</span>}</td>
+                                <td>{m.deliverable ? <span className="status-badge stable">可</span> : <span className="unpaid-dot" title="メールなし">×</span>}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       ) : (
-                        <div className="dm-empty-state">STEP 2 で条件を指定して<br/>「名簿を作成」してください</div>
+                        <div className="dm-empty-state">STEP 2 で条件抽出、または CSV で<br/>宛先を追加してください</div>
                       )}
                     </div>
                     {extractedMembers.length > itemsPerPage && (
@@ -487,9 +673,14 @@ export default function DmSettingsPage() {
                 {viewMode === 'create' ? 'キャンセル' : '閉じる'}
               </button>
               {viewMode === 'create' && (
-                <button className="dm-modal-submit" onClick={handleSubmit} disabled={selectedMemberIds.size === 0 || !subject}>
-                  配信を確定する ({selectedMemberIds.size}件)
-                </button>
+                <>
+                  <button className="dm-modal-cancel" onClick={() => submit(true)} disabled={!clubCode || !subject || !body || sending} title="送信せず下書き保存">
+                    下書き保存
+                  </button>
+                  <button className="dm-modal-submit" onClick={() => submit(false)} disabled={targetRecipients.length === 0 || !subject || sending}>
+                    {isImmediate ? "配信する" : "予約配信する"} ({targetRecipients.length}件)
+                  </button>
+                </>
               )}
             </footer>
           </div>
@@ -557,6 +748,13 @@ export default function DmSettingsPage() {
         .dm-row-2 input { width: 100%; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 6px; font-size: 12px; }
         .dm-check-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
         .dm-check-row label, .dm-unpaid-check { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #334155; }
+        .dm-check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
+        .dm-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .dm-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+        .dm-bulk-toggle { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; }
+        .dm-bulk-toggle button { background: none; border: none; padding: 0; font-size: 11px; font-weight: 700; color: #0f172a; cursor: pointer; text-decoration: underline; }
+        .dm-bulk-toggle button:hover { color: #2563eb; }
+        .dm-contract-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; color: #475569; font-weight: 700; }
         .dm-unpaid-check { color: #ef4444; margin-top: 8px; }
         
         .dm-extract-btn { width: 100%; background: #0f172a; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 12px; margin-top: 16px; cursor: pointer; transition: 0.2s; }
