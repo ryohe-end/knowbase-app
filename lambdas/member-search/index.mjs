@@ -314,12 +314,19 @@ const UNPAID_CURRENT_BASE = `
     p.EMAIL              AS EMAIL,
     p.T連絡先TEL          AS PHONE,
     f.契約SEQ            AS KEIYAKU_SEQ,
+    f.クラブコード        AS CLUB_CODE,
     f.振替年月           AS FURIKAE_YM,
     TRIM(f.振替結果コード) AS RESULT_CODE,
-    ${UNPAID_NET_EXPR}   AS OUTSTANDING
+    ${UNPAID_NET_EXPR}   AS OUTSTANDING,
+    NVL(f.年管理費金額,0) AS ANNUAL_FEE,
+    k.会員区分名          AS PLAN_NAME,
+    c.退会日             AS WITHDRAWN_DATE,
+    c.退会理由コード1     AS WITHDRAW_REASON1
   FROM FIT_ADMIN."振替契約別" f
   INNER JOIN FIT_ADMIN."会員番号" b ON f.契約者SEQ = b.契約者SEQ
   INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
+  LEFT  JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ   = f.契約SEQ
+  LEFT  JOIN FIT_ADMIN."会員区分" k ON k.会員区分コード = c.会員区分コード
   WHERE f.クラブコード = :clubCode
     AND TRIM(f.振替結果コード) <> '0'
     AND ABS(${UNPAID_NET_EXPR}) > 1
@@ -329,15 +336,15 @@ const UNPAID_CURRENT_BASE = `
          AND a.入金年月日 IS NOT NULL
     )`;
 
-// ① 現在の未納 (貸倒対象=12ヶ月超 の過去分は除外。直近の回収対象のみ)
+// ① 現在の未納 (貸倒予定=強制退会 は除外。連絡すべき現役/通常退会の未納)
 const UNPAID_CURRENT_SQL = UNPAID_CURRENT_BASE + `
-    AND f.振替年月 > :cutoffYm
+    AND (c.退会理由コード1 IS NULL OR TRIM(TO_CHAR(c.退会理由コード1)) <> :forcedReason)
   ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
 `;
-// ③ 貸し倒れ候補 (未入金のまま振替年月が12ヶ月以上前)
+// ③ 貸倒予定 (過去強制退会で請求が継続している人 = 退会理由コード=強制退会)
 const UNPAID_WRITEOFF_SQL = UNPAID_CURRENT_BASE + `
-    AND f.振替年月 <= :cutoffYm
+    AND TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason
   ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
 `;
@@ -393,7 +400,7 @@ function buildUnpaidFurikae(type, rows) {
     return { items };
   }
 
-  // ① 現在の未納 / ③ 貸し倒れ候補: 未納額 = 振替金額。会員単位で集計。
+  // ① 現在の未納 / ③ 貸し倒れ候補: 未納額 = 単月純額。会員単位で集計。
   const items = rows.map((r) => ({
     memberNo: r.MEMBER_NO != null ? String(r.MEMBER_NO) : null,
     memberName: r.NAME_KANJI != null ? String(r.NAME_KANJI) : null,
@@ -401,9 +408,16 @@ function buildUnpaidFurikae(type, rows) {
     email: r.EMAIL != null ? String(r.EMAIL).trim() || null : null,
     phone: r.PHONE != null ? String(r.PHONE).trim() || null : null,
     contractSeq: r.KEIYAKU_SEQ != null ? Number(r.KEIYAKU_SEQ) : null,
+    clubCode: r.CLUB_CODE != null ? String(r.CLUB_CODE) : null,
     furikaeMonth: _fmtYm(r.FURIKAE_YM),
     resultCode: r.RESULT_CODE != null ? String(r.RESULT_CODE).trim() : null,
     outstanding: Number(r.OUTSTANDING) || 0,
+    annualFee: Number(r.ANNUAL_FEE) || 0,        // ⑦ FIT365 セキュリティ費 = 年管理費
+    plan: r.PLAN_NAME ?? null,                    // ① 会員区分
+    // 退会日 99999999 は未退会(現役)のセンチネル → null 扱い
+    withdrawnDate: (r.WITHDRAWN_DATE != null && String(r.WITHDRAWN_DATE).trim() !== "" && String(r.WITHDRAWN_DATE).trim() !== "99999999") ? String(r.WITHDRAWN_DATE).trim() : null,
+    withdrawReason1: r.WITHDRAW_REASON1 != null ? String(r.WITHDRAW_REASON1).trim() : null,
+    forced: r.WITHDRAW_REASON1 != null && String(r.WITHDRAW_REASON1).trim() === "42", // 強制退会(暫定)
   }));
 
   const byMember = new Map();
@@ -411,16 +425,39 @@ function buildUnpaidFurikae(type, rows) {
     const key = it.memberNo || "";
     let m = byMember.get(key);
     if (!m) {
-      m = { memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone, unpaidCount: 0, outstanding: 0, oldestMonth: it.furikaeMonth, _contracts: new Set() };
+      m = {
+        memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone,
+        clubCode: it.clubCode, plan: it.plan,
+        unpaidCount: 0, outstanding: 0, annualFeeTotal: 0,
+        oldestMonth: it.furikaeMonth, latestMonth: it.furikaeMonth,
+        withdrawn: false, forced: false, withdrawReason1: null,
+        _contracts: new Set(), _months: new Map(),
+      };
       byMember.set(key, m);
     }
     m.unpaidCount += 1;
     m.outstanding += it.outstanding;
+    m.annualFeeTotal += it.annualFee;
     if (it.furikaeMonth && (!m.oldestMonth || it.furikaeMonth < m.oldestMonth)) m.oldestMonth = it.furikaeMonth;
+    if (it.furikaeMonth && (!m.latestMonth || it.furikaeMonth > m.latestMonth)) { m.latestMonth = it.furikaeMonth; if (it.plan) m.plan = it.plan; }
+    if (it.withdrawnDate) m.withdrawn = true;
+    if (it.forced) { m.forced = true; m.withdrawReason1 = it.withdrawReason1; }
     if (it.contractSeq != null) m._contracts.add(it.contractSeq);
+    // 月別内訳 (振替年月ごとに純額を合算)
+    if (it.furikaeMonth) m._months.set(it.furikaeMonth, (m._months.get(it.furikaeMonth) || 0) + it.outstanding);
   }
   const members = [...byMember.values()]
-    .map((m) => { const { _contracts, ...rest } = m; rest.contractCount = _contracts.size; return rest; })
+    .map((m) => {
+      const { _contracts, _months, ...rest } = m;
+      rest.contractCount = _contracts.size;
+      // 月別内訳: 新しい順 (④ 1か月目/2か月目…)
+      rest.monthlyBreakdown = [..._months.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([month, amount]) => ({ month, amount }));
+      rest.unpaidMonths = _months.size; // 未納月数
+      // ② ステータス: 過去強制退会(退会理由コード=42・暫定)→貸倒予定 / それ以外は未納月数
+      rest.status = m.forced ? "貸倒予定" : `${_months.size}か月目`;
+      rest.hasSecurityFee = rest.annualFeeTotal > 0; // ⑦
+      return rest;
+    })
     // 未納者の抽出基準: 会員合計の絶対値 > 1円 (Lecto連携 債務者登録SQL に統一)
     .filter((m) => Math.abs(m.outstanding) > 1)
     .sort((a, b) => b.outstanding - a.outstanding);
@@ -528,19 +565,18 @@ export const handler = async (event) => {
     const now = new Date();
     // 振替契約別.クラブコード は NUMBER。数値でバインド。
     const binds = { clubCode: Number(clubCode) };
-    // 現在の未納 / 貸倒候補 の境界 = 12ヶ月前 (現在=それ以降, 貸倒=それ以前)
-    const cut = new Date(now); cut.setMonth(cut.getMonth() - 12);
-    const cutoffYm = Number(params.cutoffYm || ym(cut));
+    // 強制退会(=貸倒予定)の退会理由コード。暫定 '42' (実データ上の唯一の非NULL値)。要確認。
+    const forcedReason = (params.forcedReason || "42").trim();
     let sql;
     if (type === "unpaid_current") {
-      binds.cutoffYm = cutoffYm; // 貸倒対象(過去分)を除外
+      binds.forcedReason = forcedReason; // 貸倒予定(強制退会)を除外
       sql = UNPAID_CURRENT_SQL;
     } else if (type === "unpaid_paid") {
       const from = new Date(now); from.setMonth(from.getMonth() - 12);
       binds.fromYmd = Number(params.fromYmd || `${ym(from)}01`); // 既定: 直近12ヶ月の入金分
       sql = UNPAID_PAID_SQL;
     } else {
-      binds.cutoffYm = cutoffYm; // 12ヶ月以上前
+      binds.forcedReason = forcedReason; // 貸倒予定(強制退会)のみ
       sql = UNPAID_WRITEOFF_SQL;
     }
     let conn;
