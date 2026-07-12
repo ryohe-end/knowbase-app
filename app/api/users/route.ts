@@ -28,6 +28,7 @@ export type KbUser = {
   deptIds?: string[];
   groupIds?: string[];
   clubCodes?: string[];
+  areas?: string[]; // 担当エリア (companyGroup)。実効スコープ = clubCodes ∪ areasの店舗
   permissions?: KbPermission[];
   isActive?: boolean;
   createdAt?: string;
@@ -190,7 +191,7 @@ export async function GET() {
       new ScanCommand({
         TableName: TABLE_NAME,
         ProjectionExpression:
-           "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, #p, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
+           "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, areas, #p, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
@@ -392,6 +393,10 @@ const requestedClubCodes = Array.isArray(user.clubCodes) ? user.clubCodes : [];
 const sanitizedClubCodes = Array.from(
   new Set(requestedClubCodes.map((c) => String(c).trim()).filter(Boolean))
 );
+const requestedAreas: any[] = Array.isArray((user as any).areas) ? (user as any).areas : [];
+const sanitizedAreas: string[] = Array.from(
+  new Set(requestedAreas.map((a) => String(a).trim()).filter(Boolean))
+);
 
 const putItem: KbUser = {
   userId: user.userId,
@@ -402,6 +407,7 @@ const putItem: KbUser = {
   deptIds: user.deptIds ?? [],
   groupIds: user.groupIds ?? [],
   clubCodes: sanitizedClubCodes,
+  areas: sanitizedAreas,
   permissions: sanitizedPermissions,
   isActive: user.isActive ?? true,
   createdAt: mode === "update" ? (existing?.createdAt ?? now) : (user.createdAt ?? now),

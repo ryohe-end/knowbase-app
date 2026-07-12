@@ -7,6 +7,7 @@ import { verifySignedValue } from "@/lib/auth";
 import { query } from "@/lib/memberDb";
 import type { StoreAppConfig } from "@/types/storeAppConfig";
 import { getOverlay, putOverlay, OVERLAY_TOGGLE_KEYS } from "@/lib/storeAppOverlay";
+import { effectiveClubCodes } from "@/lib/clubScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,7 +48,7 @@ async function getCurrentUser() {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, isActive",
+        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, areas, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
@@ -60,7 +61,7 @@ async function getCurrentUser() {
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
-      clubCodes: normalizeStringArray(user.clubCodes),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas)),
     };
   } catch (e) {
     console.error("[basic API] Failed to get current user:", e);
