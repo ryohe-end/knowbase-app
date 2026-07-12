@@ -70,6 +70,8 @@ async function setup(adminCfg, roCfg) {
     const roTables = [
       "個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号", "会員クラブ契約", "CSクラブ",
       "振替契約別", "会員入金歴", "会員契約", "会員区分", "会費分類",
+      // ビーコン日次同期用 (ゲート/ビーコン系)
+      "ゲートコントロールマスタ", "BEACONQRマスタ", "PDAゲートNO変換", "クラブWS", "エリア入室設定",
     ];
     for (const tbl of roTables) {
       await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);

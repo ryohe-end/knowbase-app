@@ -22,6 +22,108 @@
 
 import oracledb from "oracledb";
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda"; // ビーコン同期でdb-proxy呼出 (runtime同梱)
+
+// ビーコン日次同期: Oracleゲート/ビーコンから (major=クラブコード, minor=WSコード) を取得。
+// UUID = "クラブコード-WSコード" = major-minor。場所名=エリア名称【コメント】。
+const BEACON_SOURCE_SQL = `
+  SELECT DISTINCT
+    g.クラブコード AS CLUB_CODE,
+    g.WSコード     AS WS,
+    DECODE(g.WSコード,1,'ゲート入館',2,'ゲート出館',3,'浴室入館',4,'浴室出館',5,'浴室入館2',6,'浴室出館2',
+           e.エリア名称||DECODE(e.コメント,NULL,'','【'||e.コメント||'】')) AS PLACE_NAME,
+    e.コメント     AS MEMO
+  FROM FIT_ADMIN.ゲートコントロールマスタ g
+  INNER JOIN FIT_ADMIN.PDAゲートNO変換 p ON p.クラブコード = g.クラブコード AND p.PDAコード = g.WSコード
+  INNER JOIN FIT_ADMIN.クラブWS w        ON w.クラブコード = p.クラブコード AND w.WSコード = p.WSコード
+  LEFT  JOIN FIT_ADMIN.エリア入室設定 e  ON e.クラブコード = w.クラブコード AND e.エリアコード = w.入場エリアコード
+  WHERE g.状態コード <> 0
+`;
+
+const DB_PROXY_FN = process.env.DB_PROXY_FUNCTION_NAME || "knowbie-db-proxy";
+const DB_PROXY_REGION = process.env.DB_PROXY_REGION || "us-east-1";
+const _lambda = new LambdaClient({ region: DB_PROXY_REGION });
+
+// db-proxy(Fly PG) 経由でSQL実行
+async function proxyQuery(text, params) {
+  const res = await _lambda.send(new InvokeCommand({
+    FunctionName: DB_PROXY_FN,
+    Payload: Buffer.from(JSON.stringify({ text, params, target: "member" })),
+  }));
+  const payload = JSON.parse(Buffer.from(res.Payload).toString());
+  if (!payload || payload.ok !== true) throw new Error("db-proxy: " + (payload && payload.error ? payload.error : "unknown"));
+  return payload.rows || [];
+}
+
+// ビーコン日次同期本体: Oracleの解錠機器を Fly PG unlocking_machine_code__c に
+// (club_sfid, major, minor) が無い新規のみ INSERT する。既存は上書きしない。
+async function beaconSync() {
+  let conn;
+  try {
+    const pool = await getPool();
+    conn = await pool.getConnection();
+    const beacons = (await conn.execute(BEACON_SOURCE_SQL, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows || [];
+
+    const clubCodes = [...new Set(beacons.map((b) => String(b.CLUB_CODE)))];
+    if (clubCodes.length === 0) return resp(200, { ok: true, action: "beacon_sync", scanned: 0, inserted: 0 });
+
+    // club_code -> sfid
+    const clubRows = await proxyQuery(
+      `SELECT club_code__c AS code, sfid FROM club__c WHERE club_code__c = ANY($1) AND COALESCE(isdeleted,false)=false`,
+      [clubCodes]
+    );
+    const sfidByCode = new Map(clubRows.map((r) => [String(r.code), r.sfid]));
+    const sfids = [...sfidByCode.values()];
+
+    // 既存 major-minor
+    const existing = new Set();
+    if (sfids.length) {
+      const exRows = await proxyQuery(
+        `SELECT major__c, minor__c FROM unlocking_machine_code__c WHERE club_sfid__c = ANY($1) AND COALESCE(isdeleted,false)=false`,
+        [sfids]
+      );
+      for (const r of exRows) existing.add(`${r.major__c}-${r.minor__c}`);
+    }
+
+    // 新規のみ収集 (バッチINSERT用。db-proxy往復を1回に抑える)
+    const cols = { sfid: [], major: [], minor: [], door: [], disp: [], entrance: [] };
+    let skipped = 0, noClub = 0;
+    const newlyInserted = [];
+    const seenThisRun = new Set();
+    for (const b of beacons) {
+      const major = String(b.CLUB_CODE), minor = String(b.WS);
+      const sfid = sfidByCode.get(major);
+      if (!sfid) { noClub++; continue; }
+      const key = `${major}-${minor}`;
+      if (existing.has(key) || seenThisRun.has(key)) { skipped++; continue; }
+      seenThisRun.add(key);
+      const placeName = (b.PLACE_NAME || `WS${minor}`).toString().slice(0, 255);
+      const memo = b.MEMO ? String(b.MEMO).slice(0, 255) : null;
+      const isEntrance = minor === "1" || /入館/.test(placeName);
+      cols.sfid.push(sfid); cols.major.push(major); cols.minor.push(minor);
+      cols.door.push(memo || placeName); cols.disp.push(placeName); cols.entrance.push(isEntrance);
+      newlyInserted.push({ major, minor, placeName });
+    }
+    const inserted = cols.sfid.length;
+    if (inserted > 0) {
+      await proxyQuery(
+        `INSERT INTO unlocking_machine_code__c
+           (club_sfid__c, major__c, minor__c, door_type__c, display_name__c, is_for_entrance__c, isdeleted)
+         SELECT sfid, major, minor, door, disp, entrance, false
+           FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::boolean[])
+                AS t(sfid, major, minor, door, disp, entrance)`,
+        [cols.sfid, cols.major, cols.minor, cols.door, cols.disp, cols.entrance]
+      );
+    }
+    console.log(`[beacon_sync] scanned=${beacons.length} inserted=${inserted} skipped=${skipped} noClub=${noClub}`);
+    return resp(200, { ok: true, action: "beacon_sync", scanned: beacons.length, inserted, skipped, noClub, sample: newlyInserted.slice(0, 20) });
+  } catch (err) {
+    console.error("beacon_sync error", err);
+    return resp(500, { error: "internal_error", message: err.message });
+  } finally {
+    if (conn) { try { await conn.close(); } catch (_) {} }
+  }
+}
 
 oracledb.fetchAsString = [oracledb.CLOB, oracledb.DATE];
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
@@ -588,6 +690,8 @@ function normalize(type, q) {
 // --- メインハンドラ ----------------------------------------------------------
 export const handler = async (event) => {
   console.log("[diag] handler entered");
+  // EventBridge 直接起動: ビーコン日次同期
+  if (event?.action === "beacon_sync") return beaconSync();
   const params = event?.queryStringParameters || {};
   const type = params.type;
   const q = normalize(type, params.q);
