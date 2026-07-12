@@ -78,6 +78,7 @@ export default function StoreSettingsMenu() {
       href: "/store-settings/admin-portal",
       icon: <StorefrontIcon />,
       color: "#e11d48",
+      comingSoon: true,
     },
     // 入会画面設定は一旦クローズ (後日開発)。メニューから非表示。ページ/APIは残置。
     {
@@ -107,10 +108,11 @@ export default function StoreSettingsMenu() {
         </header>
 
         <div className="kb-store-grid">
-          {menuItems.map((item) => (
-            <Link href={item.href} key={item.title} className="kb-menu-link">
-              <div className="kb-modern-card">
+          {menuItems.map((item) => {
+            const card = (
+              <div className={`kb-modern-card${item.comingSoon ? " kb-card-soon" : ""}`}>
                 <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
+                {item.comingSoon && <span className="kb-soon-badge">Coming Soon</span>}
                 <div className="kb-card-body">
                   <div
                     className="kb-card-icon-wrapper"
@@ -122,12 +124,17 @@ export default function StoreSettingsMenu() {
                   <p className="kb-card-subtext">{item.desc}</p>
                 </div>
                 <div className="kb-card-footer">
-                  <span className="kb-action-label">設定を開く</span>
+                  <span className="kb-action-label">{item.comingSoon ? "準備中" : "設定を開く"}</span>
                   <span className="kb-action-icon">→</span>
                 </div>
               </div>
-            </Link>
-          ))}
+            );
+            return item.comingSoon ? (
+              <div key={item.title} className="kb-menu-link kb-menu-disabled" aria-disabled title="準備中です">{card}</div>
+            ) : (
+              <Link href={item.href} key={item.title} className="kb-menu-link">{card}</Link>
+            );
+          })}
         </div>
       </main>
 
@@ -143,6 +150,10 @@ export default function StoreSettingsMenu() {
         .kb-page-header p { font-size: 14px; color: #64748b; margin: 0; }
         .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
+        .kb-menu-disabled { cursor: not-allowed; }
+        .kb-card-soon { opacity: 0.6; filter: grayscale(0.5); }
+        .kb-menu-disabled:hover .kb-card-soon { transform: none; box-shadow: none; }
+        .kb-soon-badge { position: absolute; top: 10px; right: 10px; z-index: 2; background: #64748b; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 20px; }
 
         .kb-modern-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; position: relative; height: 100%; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s; overflow: hidden; }
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }
