@@ -175,22 +175,34 @@ export async function GET(req: Request) {
       .filter(Boolean);
     const inquiryEmails = parsedEmails.length > 0 ? parsedEmails : [""];
 
-    // DynamoDB オーバーレイ (トグル + マシン詳細)。club__c に無い付加設定。
+    // DynamoDB オーバーレイ (7トグルのみ。マシン詳細は machine__c マスタが SoT)。
     const overlay = await getOverlay(club.club_code__c);
-    const overlayMachineByName = new Map((overlay?.machines ?? []).map((m) => [m.name, m]));
 
-    // machine_names はセミコロン区切り。詳細(imageUrl/maker/bodyRegion)はオーバーレイから補完。
-    const machines = (club.machine_names || "")
+    // 店舗のマシン: 名前は club__c.machine_names__c、詳細(画像/部位/メーカー)は
+    // machine__c マスタ(Salesforce連携)から名前で引く。
+    const machineNameList = (club.machine_names || "")
       .split(";")
       .map((s: string) => s.trim())
-      .filter(Boolean)
-      .map((name: string) => {
-        const d = overlayMachineByName.get(name);
-        return { name, imageUrl: d?.imageUrl ?? "", maker: d?.maker, bodyRegion: d?.bodyRegion };
+      .filter(Boolean);
+    let machines: { name: string; imageUrl: string; maker?: string; bodyRegion?: string }[] =
+      machineNameList.map((name: string) => ({ name, imageUrl: "" }));
+    if (machineNameList.length > 0) {
+      const detail = await query(
+        `SELECT machine_name__c AS name,
+                COALESCE(img_url1__c, '') AS image_url,
+                COALESCE(body_region__c, 'その他') AS body_region,
+                CASE WHEN machine_name__c ~ '\\(.*\\)$'
+                     THEN regexp_replace(machine_name__c, '.*\\(([^)]+)\\)$', '\\1')
+                     ELSE 'その他' END AS maker
+           FROM machine__c
+          WHERE isdeleted = false AND machine_name__c = ANY($1)`,
+        [machineNameList]
+      );
+      const byName = new Map(detail.rows.map((r: any) => [r.name, r]));
+      machines = machineNameList.map((name: string) => {
+        const d: any = byName.get(name);
+        return { name, imageUrl: d?.image_url ?? "", maker: d?.maker, bodyRegion: d?.body_region };
       });
-    // オーバーレイにしか無いマシン(カスタム登録直後で club__c 未反映など)も拾う
-    for (const m of overlay?.machines ?? []) {
-      if (m.name && !machines.some((x: { name: string }) => x.name === m.name)) machines.push({ name: m.name, imageUrl: m.imageUrl ?? "", maker: m.maker, bodyRegion: m.bodyRegion });
     }
 
     const unlockDevices = devicesResult.rows.map((d: any) => ({
@@ -347,21 +359,12 @@ export async function POST(req: Request) {
       ]
     );
 
-    // club__c に無い付加設定 (7トグル + マシン詳細) を DynamoDB オーバーレイへ保存。
+    // 7トグルは club__c にカラムが無いため DynamoDB オーバーレイへ保存 (アプリ読取り先の
+    // 正式DBは別途接続予定。現状は管理画面での選択を保持)。マシン詳細は machine__c マスタが SoT。
     try {
       const toggles: Record<string, boolean> = {};
       for (const k of OVERLAY_TOGGLE_KEYS) toggles[k] = Boolean((body as any)[k]);
-      const machines = Array.isArray(body.machines)
-        ? body.machines
-            .filter((m) => m && typeof m.name === "string" && m.name.trim())
-            .map((m) => ({
-              name: String(m.name).trim(),
-              imageUrl: typeof m.imageUrl === "string" ? m.imageUrl.trim() : "",
-              maker: (m as any).maker ? String((m as any).maker).trim() : undefined,
-              bodyRegion: (m as any).bodyRegion ? String((m as any).bodyRegion).trim() : undefined,
-            }))
-        : [];
-      await putOverlay(clubCode, { toggles, machines });
+      await putOverlay(clubCode, { toggles, machines: [] });
     } catch (e: any) {
       console.error("[basic API] overlay save failed:", e?.message || e);
     }
