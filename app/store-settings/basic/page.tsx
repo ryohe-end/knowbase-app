@@ -137,6 +137,12 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
     majorCode: "", minorCode: "", type: "入口", isEntrance: false, displayName: ""
   });
 
+  // モーダル (マシン追加用)
+  const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
+  const [newMachine, setNewMachine] = useState<{ name: string; maker: string; bodyRegion: string; imageUrl: string }>({
+    name: "", maker: "", bodyRegion: "", imageUrl: ""
+  });
+
   // バリデーション
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -375,6 +381,39 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
   };
   const removeMachine = (machineName: string) => {
     setForm((prev) => ({ ...prev, machines: getSafeMachines(prev.machines).filter((m) => m.name !== machineName) }));
+  };
+
+  // マスタに無いマシンをローカル追加 (+ 現在の店舗マシンにも自動選択)
+  const openMachineModal = () => {
+    setNewMachine({
+      name: "",
+      maker: activeMaker !== "all" ? activeMaker : "",
+      bodyRegion: activeRegion || "",
+      imageUrl: "",
+    });
+    setIsMachineModalOpen(true);
+  };
+  const handleAddMachine = () => {
+    const name = newMachine.name.trim();
+    const maker = newMachine.maker.trim();
+    const bodyRegion = newMachine.bodyRegion.trim();
+    if (!name || !maker || !bodyRegion) {
+      showToast("マシン名・メーカー・部位を入力してください", "warning");
+      return;
+    }
+    if (masterMachines.some((m) => m.name === name)) {
+      showToast("同名のマシンが既にマスタに存在します", "error");
+      return;
+    }
+    const imageUrl = newMachine.imageUrl.trim();
+    const added: MasterMachine = { name, maker, bodyRegion, imageUrl };
+    setMasterMachines((prev) => [...prev, added]);
+    // 追加と同時に店舗のマシンリストにも入れて即選択状態にする
+    setForm((prev) => ({ ...prev, machines: [...getSafeMachines(prev.machines), { name, imageUrl }] }));
+    setActiveMaker(maker);
+    setActiveRegion(bodyRegion);
+    setIsMachineModalOpen(false);
+    showToast(`${name} を追加しました`, "success");
   };
 
   // --- 解錠機器関連 ---
@@ -777,18 +816,24 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                       </button>
                     ))}
                   </div>
-                  <div className="kbs-search-box">
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="kbs-search-icon"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" /><path d="M9.5 9.5L13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                    <input
-                      type="text"
-                      placeholder="マシン名で検索..."
-                      value={machineSearch}
-                      onChange={(e) => setMachineSearch(e.target.value)}
-                      className="kbs-search-input"
-                    />
-                    {machineSearch && (
-                      <button type="button" onClick={() => setMachineSearch("")} className="kbs-search-clear">×</button>
-                    )}
+                  <div className="kbs-toolbar-row">
+                    <div className="kbs-search-box">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="kbs-search-icon"><circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.5" /><path d="M9.5 9.5L13 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                      <input
+                        type="text"
+                        placeholder="マシン名で検索..."
+                        value={machineSearch}
+                        onChange={(e) => setMachineSearch(e.target.value)}
+                        className="kbs-search-input"
+                      />
+                      {machineSearch && (
+                        <button type="button" onClick={() => setMachineSearch("")} className="kbs-search-clear">×</button>
+                      )}
+                    </div>
+                    <button type="button" onClick={openMachineModal} className="kbs-m-add-btn">
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                      マシンを追加
+                    </button>
                   </div>
                 </div>
 
@@ -822,6 +867,12 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                   {filteredMasterMachines.length === 0 && (
                     <div className="kbs-m-empty">該当するマシンがありません</div>
                   )}
+                  <button type="button" onClick={openMachineModal} className="kbs-m-card add-new" aria-label="マシンを追加">
+                    <div className="kbs-m-add-inner">
+                      <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><circle cx="14" cy="14" r="13" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" /><path d="M14 8v12M8 14h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                      <span>マシンを追加</span>
+                    </div>
+                  </button>
                 </div>
               </div>
             </div>
@@ -833,6 +884,51 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
           </div>
         </form>
       </main>
+
+      {/* マシン追加モーダル */}
+      {isMachineModalOpen && (
+        <div className="kbs-modal-backdrop" onClick={() => setIsMachineModalOpen(false)}>
+          <div className="kbs-modal" onClick={e => e.stopPropagation()}>
+            <div className="kbs-modal-header">
+              <h3>マシンを追加</h3>
+              <button type="button" className="kbs-modal-close" onClick={() => setIsMachineModalOpen(false)}>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5l-10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+            <div className="kbs-modal-body">
+              <div className="kbs-field">
+                <label className="kbs-label">マシン名 <span className="kbs-req">必須</span></label>
+                <input type="text" className="kbs-input" value={newMachine.name} onChange={e => setNewMachine({ ...newMachine, name: e.target.value })} placeholder="例: ラットプルダウン (新型)" />
+              </div>
+              <div className="kbs-field-grid-2">
+                <div className="kbs-field">
+                  <label className="kbs-label">メーカー <span className="kbs-req">必須</span></label>
+                  <input type="text" className="kbs-input" list="kbs-maker-list" value={newMachine.maker} onChange={e => setNewMachine({ ...newMachine, maker: e.target.value })} placeholder="例: ライフフィットネス" />
+                  <datalist id="kbs-maker-list">
+                    {makers.map((mk) => (<option key={mk} value={mk} />))}
+                  </datalist>
+                </div>
+                <div className="kbs-field">
+                  <label className="kbs-label">部位 <span className="kbs-req">必須</span></label>
+                  <input type="text" className="kbs-input" list="kbs-region-list" value={newMachine.bodyRegion} onChange={e => setNewMachine({ ...newMachine, bodyRegion: e.target.value })} placeholder="例: 背中" />
+                  <datalist id="kbs-region-list">
+                    {[...new Set(masterMachines.map((m) => m.bodyRegion))].map((r) => (<option key={r} value={r} />))}
+                  </datalist>
+                </div>
+              </div>
+              <div className="kbs-field">
+                <label className="kbs-label">画像 URL (任意)</label>
+                <input type="text" className="kbs-input" value={newMachine.imageUrl} onChange={e => setNewMachine({ ...newMachine, imageUrl: e.target.value })} placeholder="https://..." />
+                <p className="kbs-modal-hint">空欄の場合はマシン名の先頭 2 文字が表示されます。</p>
+              </div>
+            </div>
+            <div className="kbs-modal-footer">
+              <button type="button" className="kbs-btn ghost" onClick={() => setIsMachineModalOpen(false)}>キャンセル</button>
+              <button type="button" className="kbs-btn primary" onClick={handleAddMachine}>追加</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 解錠機器追加モーダル */}
       {isDeviceModalOpen && (
@@ -1286,9 +1382,19 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
         .kbs-m-card:hover { border-color: #93c5fd; transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06); }
         .kbs-m-card.selected { border: 2px solid #3b82f6; background: #f0f7ff; }
         .kbs-m-card.add-new { border: 2px dashed #cbd5e1; background: #fafbfc; display: flex; align-items: center; justify-content: center; min-height: 180px; }
-        .kbs-m-card.add-new:hover { border-color: #3b82f6; background: #eff6ff; }
+        .kbs-m-card.add-new:hover { border-color: #3b82f6; background: #eff6ff; transform: none; box-shadow: none; }
         .kbs-m-add-inner { display: flex; flex-direction: column; align-items: center; gap: 8px; color: #94a3b8; font-size: 12px; font-weight: 700; }
         .kbs-m-card.add-new:hover .kbs-m-add-inner { color: #3b82f6; }
+        .kbs-toolbar-row { display: flex; gap: 10px; align-items: center; }
+        .kbs-toolbar-row .kbs-search-box { flex: 1; }
+        .kbs-m-add-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 8px 14px; border-radius: 10px; border: 1.5px dashed #cbd5e1;
+          background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s;
+          white-space: nowrap;
+        }
+        .kbs-m-add-btn:hover { border-color: #3b82f6; color: #3b82f6; background: #eff6ff; }
+        .kbs-modal-hint { font-size: 11px; color: #94a3b8; margin: 6px 0 0; }
         .kbs-m-img-wrap { width: 100%; aspect-ratio: 4/3; position: relative; background: #f8fafc; overflow: hidden; }
         .kbs-m-img-wrap img { width: 100%; height: 100%; object-fit: cover; transition: 0.3s; }
         .kbs-m-card:hover .kbs-m-img-wrap img { transform: scale(1.05); }
