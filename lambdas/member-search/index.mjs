@@ -431,6 +431,54 @@ function buildUnpaidSummary(rows) {
   };
 }
 
+// 貸倒償却予定: 貸倒予定(強制退会)の未納を 振替年月 で集計。
+// 償却予定月 = 振替年月 + 12ヶ月 (1年後に貸し倒れ償却) として月次・年度(4月始まり)で集計。
+function writeoffScheduleSql(clubBindNames) {
+  return `
+  SELECT f.振替年月 AS YM, COUNT(*) AS CNT, SUM(${UNPAID_NET_EXPR}) AS AMT
+  FROM FIT_ADMIN."振替契約別" f
+  LEFT JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ = f.契約SEQ
+  WHERE f.クラブコード IN (${clubBindNames.join(",")})
+    AND TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason
+    AND TRIM(f.振替結果コード) <> '0'
+    AND ABS(${UNPAID_NET_EXPR}) > 1
+    AND NOT EXISTS (
+      SELECT 1 FROM FIT_ADMIN."会員入金歴" a
+       WHERE a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月 AND a.入金年月日 IS NOT NULL
+    )
+  GROUP BY f.振替年月
+  ORDER BY f.振替年月`;
+}
+function _addMonthsYm(ym, add) {
+  const y = Math.floor(ym / 100), m = ym % 100;
+  const t = y * 12 + (m - 1) + add;
+  return Math.floor(t / 12) * 100 + (t % 12) + 1;
+}
+function _fiscalYear(ym) { const y = Math.floor(ym / 100), m = ym % 100; return m >= 4 ? y : y - 1; }
+function buildWriteoffSchedule(rows) {
+  const monthMap = new Map();
+  const fyMap = new Map();
+  let totalAmount = 0, totalCount = 0;
+  for (const r of rows) {
+    const ym = Number(r.YM);
+    if (!ym) continue;
+    const cnt = Number(r.CNT) || 0, amt = Number(r.AMT) || 0;
+    const sched = _addMonthsYm(ym, 12); // 償却予定 = 振替年月 + 12ヶ月
+    const sm = `${Math.floor(sched / 100)}-${String(sched % 100).padStart(2, "0")}`;
+    const m = monthMap.get(sm) || { month: sm, count: 0, amount: 0 };
+    m.count += cnt; m.amount += amt; monthMap.set(sm, m);
+    const fy = _fiscalYear(sched);
+    const f = fyMap.get(fy) || { fiscalYear: fy, count: 0, amount: 0 };
+    f.count += cnt; f.amount += amt; fyMap.set(fy, f);
+    totalAmount += amt; totalCount += cnt;
+  }
+  return {
+    byMonth: [...monthMap.values()].sort((a, b) => (a.month < b.month ? -1 : 1)),
+    byFiscalYear: [...fyMap.values()].sort((a, b) => a.fiscalYear - b.fiscalYear).map((x) => ({ ...x, label: `${x.fiscalYear}年度` })),
+    totalAmount, totalCount,
+  };
+}
+
 function _fmtYmd(raw) { const s = raw != null ? String(raw) : ""; return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : null; }
 function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length === 6 ? `${s.slice(0,4)}-${s.slice(4,6)}` : s; }
 
@@ -608,6 +656,29 @@ export const handler = async (event) => {
       return resp(200, { results: buildUnpaidResult(result.rows || []) });
     } catch (err) {
       console.error("unpaid error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // 未納管理 貸倒償却予定 (年度別・月別。償却予定=振替年月+12ヶ月)
+  if (type === "unpaid_writeoff_schedule") {
+    const clubs = (params.clubCodes || params.clubCode || "")
+      .split(",").map((s) => s.trim()).filter(Boolean).map(Number).filter((n) => !Number.isNaN(n));
+    if (clubs.length === 0) return resp(400, { error: "missing_params", required: ["clubCode or clubCodes"] });
+    const forcedReason = (params.forcedReason || "42").trim();
+    const clubBindNames = clubs.map((_, i) => `:club${i}`);
+    const binds = { forcedReason };
+    clubs.forEach((c, i) => { binds[`club${i}`] = c; });
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(writeoffScheduleSql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      return resp(200, buildWriteoffSchedule(r.rows || []));
+    } catch (err) {
+      console.error("unpaid_writeoff_schedule error", err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }
