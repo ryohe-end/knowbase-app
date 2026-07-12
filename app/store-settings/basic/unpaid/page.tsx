@@ -20,6 +20,11 @@ interface Member {
   monthlyBreakdown: { month: string; amount: number }[];
   annualFeeTotal: number; hasSecurityFee: boolean;
 }
+interface Schedule {
+  totalAmount: number; totalCount: number;
+  byFiscalYear: { fiscalYear: number; label: string; amount: number; count: number }[];
+  byMonth: { month: string; amount: number; count: number }[];
+}
 
 const yen = (n: number) => "¥" + (n || 0).toLocaleString();
 
@@ -38,9 +43,11 @@ function UnpaidManager() {
   const [clubCount, setClubCount] = useState(0);
   const [members, setMembers] = useState<Member[]>([]);
   const [bucket, setBucket] = useState<"current" | "writeoff">("current");
-  const [tab, setTab] = useState<"dashboard" | "list" | "csv">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "list" | "csv" | "schedule">("dashboard");
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loadingSum, setLoadingSum] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
+  const [loadingSched, setLoadingSched] = useState(false);
   const [err, setErr] = useState("");
 
   // クラブ辞書
@@ -91,8 +98,22 @@ function UnpaidManager() {
     finally { setLoadingList(false); }
   }, [mode, clubCode, bucket]);
 
+  // 貸倒償却予定
+  const loadSchedule = useCallback(async () => {
+    if (!hasSelection) { setSchedule(null); return; }
+    setLoadingSched(true);
+    try {
+      const res = await fetch(`/api/store-settings/unpaid/writeoff-schedule?${filterQuery()}`, { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d?.error || "取得失敗");
+      setSchedule(d.schedule || null);
+    } catch (e: any) { setErr(e?.message || "エラー"); setSchedule(null); }
+    finally { setLoadingSched(false); }
+  }, [filterQuery, hasSelection]);
+
   useEffect(() => { loadSummary(); }, [loadSummary]);
   useEffect(() => { if (tab === "list" || tab === "csv") loadList(); }, [tab, loadList]);
+  useEffect(() => { if (tab === "schedule") loadSchedule(); }, [tab, loadSchedule]);
 
   // CSV出力
   const downloadCsv = async () => {
@@ -183,6 +204,7 @@ function UnpaidManager() {
               <button className={`up-tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>ダッシュボード</button>
               <button className={`up-tab ${tab === "list" ? "active" : ""}`} onClick={() => setTab("list")}>一覧</button>
               <button className={`up-tab ${tab === "csv" ? "active" : ""}`} onClick={() => setTab("csv")}>CSV出力</button>
+              <button className={`up-tab ${tab === "schedule" ? "active" : ""}`} onClick={() => setTab("schedule")}>貸倒償却予定</button>
             </div>
 
             {/* ダッシュボード */}
@@ -263,6 +285,42 @@ function UnpaidManager() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* 貸倒償却予定 */}
+            {tab === "schedule" && (
+              <div className="up-sched">
+                {loadingSched ? <div className="up-empty">読み込み中…</div> : schedule ? (
+                  <>
+                    <div className="up-cards">
+                      <Card icon={<AlertTriangle size={18} />} label="貸倒償却予定 総額" value={yen(schedule.totalAmount)} tone="amber" sub={`${schedule.totalCount.toLocaleString()}件`} />
+                    </div>
+                    <div className="up-panel" style={{ marginBottom: 16 }}>
+                      <div className="up-panel-h">年度別 償却予定額（償却予定＝振替年月+12ヶ月・年度は4月始まり）</div>
+                      <table className="up-table">
+                        <thead><tr><th>年度</th><th>償却予定件数</th><th>償却予定金額</th></tr></thead>
+                        <tbody>
+                          {schedule.byFiscalYear.map((f) => (
+                            <tr key={f.fiscalYear}><td>{f.label}</td><td>{f.count.toLocaleString()}</td><td className="up-amber">{yen(f.amount)}</td></tr>
+                          ))}
+                          {schedule.byFiscalYear.length === 0 && <tr><td colSpan={3} className="up-muted">データがありません</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="up-panel">
+                      <div className="up-panel-h">月別 償却予定額</div>
+                      <table className="up-table">
+                        <thead><tr><th>償却予定月</th><th>件数</th><th>金額</th></tr></thead>
+                        <tbody>
+                          {[...schedule.byMonth].reverse().map((m) => (
+                            <tr key={m.month}><td>{m.month}</td><td>{m.count.toLocaleString()}</td><td className="up-amber">{yen(m.amount)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : <div className="up-empty">データがありません</div>}
               </div>
             )}
           </>
