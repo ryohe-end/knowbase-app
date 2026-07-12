@@ -9,7 +9,9 @@ import {
 import type {
   RefundApplication as ApiApplication,
   ApprovalStep as ApiStep,
+  RefundEvent,
 } from "@/types/refundApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 // ---- 型 ----
 type StepState = "完了" | "対応中" | "未対応" | "差戻し";
@@ -32,6 +34,7 @@ type Application = {
   submittedAt: string;
   myAction?: { state: "完了" | "差戻し"; actedAt: string; comment?: string };
   steps: { approver: Approver; state: StepState; actedAt?: string; comment?: string }[];
+  events: RefundEvent[]; // 監査ログ (誰がいつ何をしたか)
 };
 
 const APPROVERS = {
@@ -91,10 +94,16 @@ function apiToLocalApp(a: ApiApplication): Application {
       ? { state: approverStep.state as "完了" | "差戻し", actedAt: approverStep.actedAt || "", comment: approverStep.comment }
       : undefined,
     steps: (a.steps ?? []).map(apiStepToLocal),
+    events: a.events ?? [],
     updatedAt: a.updatedAt || "",
   };
 }
 
+
+const ACTION_LABEL: Record<string, string> = {
+  create: "作成", edit: "編集", submit: "申請", approve: "承認",
+  reject: "差戻し", arrange: "振込手配", transfer: "振込",
+};
 
 const STATE_COLOR: Record<StepState, string> = {
   完了: "#10b981", 対応中: "#f59e0b", 未対応: "#cbd5e1", 差戻し: "#ef4444",
@@ -106,11 +115,13 @@ const STATUS_COLOR: Record<Application["status"], string> = {
 };
 
 export default function RefundApproverPage() {
+  const guardAllowed = useRefundGuard("canApprove");
   const shopName = "旭川アモール";
   const shopId = "000121";
 
   const [apps, setApps] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState<"pending" | "processed" | "all">("pending");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -124,20 +135,24 @@ export default function RefundApproverPage() {
   //          処理済み/全てタブは queue=all で履歴含む。タブ変更時に再取得。
   const reload = async () => {
     setLoading(true);
+    setLoadError("");
     try {
       const url = tab === "pending"
         ? "/api/store-settings/refund-payment/applications?queue=approver"
         : "/api/store-settings/refund-payment/applications?queue=all";
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      if (res.status === 401 || res.status === 403) throw new Error("この画面の閲覧権限がありません");
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得に失敗しました");
       const mapped = (data.applications as ApiApplication[]).map(apiToLocalApp);
       setApps(mapped);
       if (!mapped.find((m) => m.id === selectedId)) {
         setSelectedId(mapped[0]?.id ?? null);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setApps([]);
+      setLoadError(e?.message || "取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -192,6 +207,7 @@ export default function RefundApproverPage() {
     }
     setActing(true);
     try {
+      const current = apps.find((a) => a.id === actionModal.appId);
       const res = await fetch(
         `/api/store-settings/refund-payment/applications/${encodeURIComponent(actionModal.appId)}/transition`,
         {
@@ -200,10 +216,18 @@ export default function RefundApproverPage() {
           body: JSON.stringify({
             action: isApprove ? "approve" : "reject",
             comment: actionComment || undefined,
+            expectedUpdatedAt: current?.updatedAt, // 楽観ロック(表示中の版)
           }),
         }
       );
       const data = await res.json();
+      // 競合(他ユーザが更新済み)は再読込を促す
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        setActionModal(null);
+        await reload();
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "処理失敗");
       const updated = apiToLocalApp(data.application as ApiApplication);
       setApps((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
@@ -214,6 +238,15 @@ export default function RefundApproverPage() {
       setActing(false);
     }
   };
+
+  // 権限ガード: 承認者(admin/approver)のみ。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
 
   return (
     <div className="rfap-root">
@@ -286,9 +319,18 @@ export default function RefundApproverPage() {
               </div>
 
               <div className="rfap-list">
-                {filtered.length === 0 && (
+                {loadError ? (
+                  <div className="rfap-empty" style={{ color: "#dc2626", borderColor: "#fecaca" }}>
+                    {loadError}
+                    <div style={{ marginTop: 8 }}>
+                      <button type="button" onClick={reload} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読込</button>
+                    </div>
+                  </div>
+                ) : loading ? (
+                  <div className="rfap-empty">読み込み中…</div>
+                ) : filtered.length === 0 ? (
                   <div className="rfap-empty">該当する申請はありません</div>
-                )}
+                ) : null}
                 {filtered.map((a) => (
                   <button
                     key={a.id}
@@ -537,6 +579,23 @@ function DetailPanel({ app, onApprove, onReject }: { app: Application; onApprove
           ))}
         </div>
       </section>
+
+      {app.events.length > 0 && (
+        <section className="dp-section">
+          <div className="dp-section-title"><FileText size={14} /> 操作履歴（監査ログ）</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {[...app.events].reverse().map((ev, i) => (
+              <div key={i} style={{ fontSize: 12, color: "#475569", borderLeft: "2px solid #e2e8f0", paddingLeft: 10, lineHeight: 1.5 }}>
+                <span className="mono" style={{ color: "#94a3b8", fontSize: 11 }}>{ev.at?.replace("T", " ").slice(0, 16)}</span>{" "}
+                <strong style={{ color: "#0f172a" }}>{ACTION_LABEL[ev.action] ?? ev.action}</strong>
+                {ev.fromStatus && ev.toStatus && <span style={{ color: "#94a3b8" }}> {ev.fromStatus}→{ev.toStatus}</span>}
+                <span style={{ color: "#64748b" }}> / {ev.byUserName || ev.byUserId || "—"}</span>
+                {ev.comment && <span style={{ color: "#b45309" }}>「{ev.comment}」</span>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="dp-actions">
         {canAct ? (

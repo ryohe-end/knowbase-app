@@ -52,7 +52,7 @@ function computeTotalAmount(items: unknown): number {
 // 一覧 GET
 //   ?queue=mine        → 自分が createdBy のもの
 //   ?queue=approver    → 承認ステップが対応中のもの (要 approver/admin)
-//   ?queue=finance     → 経理ステップが対応中のもの (要 finance/admin)
+//   ?queue=finance     → 経理ステージ到達済み全件 (経理待ち/手配中/振込完了/経理差戻し) (要 finance)
 //   ?queue=all         → 自スコープ内すべて
 //   ?status=承認待ち    → status 絞り
 //   ?clubCode=xxx      → クラブ絞り
@@ -91,9 +91,11 @@ export async function GET(req: Request) {
         return step?.state === "対応中";
       });
     } else if (queue === "finance") {
+      // 経理ステージに到達した申請すべて (経理待ち=対応中 / 手配中 / 振込完了=完了 / 経理差戻し)。
+      // finance step が「未対応」= まだ経理に回っていない (下書き/承認待ち[承認者対応中]/承認者差戻し) は除外。
       items = items.filter((it) => {
         const step = it.steps?.find((s) => s.role === "finance");
-        return step?.state === "対応中";
+        return !!step && step.state !== "未対応";
       });
     }
 
@@ -156,6 +158,16 @@ export async function POST(req: Request) {
   }
 
   const items = Array.isArray(body.items) ? body.items : [];
+  // 金額検証: 各返金項目は 0 より大きい有限値であること (0/負数/NaN を拒否)。
+  for (const it of items) {
+    const amt = Number(it?.amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return NextResponse.json(
+        { ok: false, error: `返金額が不正です（各項目は0より大きい必要があります）: ${it?.label ?? ""}` },
+        { status: 400 }
+      );
+    }
+  }
   const totalAmount = computeTotalAmount(items);
 
   // 新規の場合は draft step 3 件を作成。既存は step を保持。

@@ -1,14 +1,33 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, RotateCcw, Wallet, Database, ClipboardCheck, Calculator, Send, ShieldCheck } from "lucide-react";
+
+type RefundCaps = { role: string; canApply: boolean; canApprove: boolean; canFinance: boolean };
 
 export default function RefundPaymentTopPage() {
   const shopName = "旭川アモール";
   const shopId = "000121";
 
+  const [caps, setCaps] = useState<RefundCaps | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/store-settings/refund-payment/me", { cache: "no-store" });
+        if (res.ok) setCaps(await res.json());
+      } catch {
+        /* noop */
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
   const sections: {
+    key: "apply" | "approve" | "finance";
     role: string;
     badge: string;
     icon: React.ReactNode;
@@ -17,6 +36,7 @@ export default function RefundPaymentTopPage() {
     items: { title: string; href: string; icon: React.ReactNode; bullets: string[] }[];
   }[] = [
     {
+      key: "apply",
       role: "申請する",
       badge: "APPLICANT",
       icon: <Send size={18} />,
@@ -38,6 +58,7 @@ export default function RefundPaymentTopPage() {
       ],
     },
     {
+      key: "approve",
       role: "承認する",
       badge: "APPROVER",
       icon: <ShieldCheck size={18} />,
@@ -54,6 +75,7 @@ export default function RefundPaymentTopPage() {
       ],
     },
     {
+      key: "finance",
       role: "経理処理",
       badge: "FINANCE",
       icon: <Calculator size={18} />,
@@ -75,6 +97,15 @@ export default function RefundPaymentTopPage() {
       ],
     },
   ];
+
+  // 権限に応じて表示するセクションを絞る
+  const visibleSections = sections.filter((sec) => {
+    if (!caps) return false;
+    if (sec.key === "apply") return caps.canApply;
+    if (sec.key === "approve") return caps.canApprove;
+    if (sec.key === "finance") return caps.canFinance;
+    return false;
+  });
 
   return (
     <div className="rp-root">
@@ -102,11 +133,21 @@ export default function RefundPaymentTopPage() {
             <span className="rp-badge">WORKFLOW</span>
             <h2>ロール別メニュー</h2>
             <p>
-              「申請者 → 承認者 → 経理部」の3段階で進行します。あなたのロールに合わせて該当メニューを選択してください。
+              「申請者 → 承認者 → 経理部」の3段階で進行します。あなたの権限に応じたメニューのみ表示されます。
             </p>
           </section>
 
-          {sections.map((sec) => (
+          {loading && <section className="rp-role-section"><div className="rp-role-head"><p>読み込み中...</p></div></section>}
+
+          {!loading && caps && visibleSections.length === 0 && (
+            <section className="rp-role-section">
+              <div className="rp-role-head">
+                <p>利用可能な返金・入金メニューがありません。権限については管理者にお問い合わせください。</p>
+              </div>
+            </section>
+          )}
+
+          {!loading && visibleSections.map((sec) => (
             <section className="rp-role-section" key={sec.role}>
               <div className="rp-role-head" style={{ ["--accent" as any]: sec.color }}>
                 <div className="rp-role-head-left">

@@ -76,9 +76,10 @@ export async function GET(req: Request) {
     if (queue === "mine") {
       items = items.filter((it) => it.createdBy === user.userId);
     } else if (queue === "finance") {
+      // 経理ステージ到達済み全件 (受付中=対応中 / 消込完了 / 差戻し)。未対応(=提出前)は除外。
       items = items.filter((it) => {
         const step = it.steps?.find((s) => s.role === "finance");
-        return step?.state === "対応中";
+        return !!step && step.state !== "未対応";
       });
     }
 

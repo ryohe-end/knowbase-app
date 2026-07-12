@@ -13,7 +13,7 @@ import sgMail from "@sendgrid/mail";
 import { hashPassword, validateNewPassword } from "@/lib/password";
 import { verifySignedValue } from "@/lib/auth";
 
-export type KbUserRole = "admin" | "editor" | "viewer";
+export type KbUserRole = "admin" | "editor" | "viewer" | "store" | "finance";
 
 // permissions は機能単位の特殊権限。
 // role: admin と独立しており、admin でも明示付与が必要。

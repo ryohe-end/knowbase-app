@@ -7,6 +7,7 @@ import {
   Receipt, FileText, Calculator, DollarSign, Wallet, Calendar
 } from "lucide-react";
 import type { DepositApplication as ApiDepositApplication } from "@/types/depositApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 type DepositApp = {
   id: string;
@@ -76,6 +77,7 @@ function apiToLocal(a: ApiDepositApplication): DepositApp {
 }
 
 export default function DepositFinancePage() {
+  const guardAllowed = useRefundGuard("canFinance");
   const today = new Date().toISOString().slice(0, 10);
   const [apps, setApps] = useState<DepositApp[]>([]);
   const [tab, setTab] = useState<"pending" | "done" | "all">("pending");
@@ -85,6 +87,8 @@ export default function DepositFinancePage() {
   const [rejectOpen, setRejectOpen] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState("");
   const [acting, setActing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({ receiptDate: today, oracleBatchId: "", note: "" });
 
   const currentYm = useMemo(() => {
@@ -93,10 +97,10 @@ export default function DepositFinancePage() {
   }, []);
 
   const reload = async () => {
+    setLoadError("");
+    setLoading(true);
     try {
-      const url = tab === "pending"
-        ? "/api/store-settings/refund-payment/deposit/applications?queue=finance"
-        : "/api/store-settings/refund-payment/deposit/applications?queue=all";
+      const url = "/api/store-settings/refund-payment/deposit/applications?queue=finance";
       const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
@@ -105,8 +109,11 @@ export default function DepositFinancePage() {
       if (!local.find((a) => a.id === selectedId)) {
         setSelectedId(local[0]?.id ?? null);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("finance reload failed", e);
+      setLoadError(e?.message || "取得に失敗しました");
+    } finally {
+      setLoading(false);
     }
   };
   useEffect(() => {
@@ -204,6 +211,15 @@ export default function DepositFinancePage() {
     }
   };
 
+  // 権限ガード: 経理(finance)のみ。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
+
   return (
     <div className="dpf-root">
       <header className="dpf-header">
@@ -257,8 +273,19 @@ export default function DepositFinancePage() {
               </div>
             </div>
             <div className="dpf-list">
-              {filtered.length === 0 && <div className="dpf-empty">該当する申請はありません</div>}
-              {filtered.map((a) => (
+              {loadError ? (
+                <div className="dpf-empty" style={{ color: "#dc2626", borderColor: "#fecaca" }}>
+                  {loadError}
+                  <div style={{ marginTop: 8 }}>
+                    <button type="button" onClick={reload} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読込</button>
+                  </div>
+                </div>
+              ) : loading ? (
+                <div className="dpf-empty">読み込み中…</div>
+              ) : filtered.length === 0 ? (
+                <div className="dpf-empty">該当する申請はありません</div>
+              ) : null}
+              {!loadError && !loading && filtered.map((a) => (
                 <button key={a.id} className={`dpf-card ${a.id === selected?.id ? "active" : ""}`} onClick={() => setSelectedId(a.id)}>
                   <div className="dpf-card-top">
                     <span className="dpf-card-id mono">{a.id}</span>

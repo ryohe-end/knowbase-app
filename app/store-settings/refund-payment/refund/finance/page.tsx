@@ -8,9 +8,11 @@ import {
   Building2, FileSpreadsheet, AlertCircle, CheckCircle2, ChevronDown
 } from "lucide-react";
 import type { RefundApplication as ApiApplication } from "@/types/refundApplication";
+import { useRefundGuard } from "@/lib/useRefundGuard";
 
 type RefundApp = {
   id: string;
+  updatedAt: string; // 楽観ロック用 (表示中の版)
   applicantName: string;
   applicantDept: string;
   memberId: string;
@@ -90,6 +92,7 @@ function apiToLocal(a: ApiApplication): RefundApp {
   const accountTypeIs1 = bank?.accountType !== "当座";
   return {
     id: a.applicationId,
+    updatedAt: a.updatedAt || "",
     applicantName: a.createdByName || "—",
     applicantDept: applicantStep?.dept || "—",
     memberId: a.memberNo,
@@ -162,17 +165,21 @@ function downloadFile(filename: string, content: string, mime = "text/csv;charse
 }
 
 export default function RefundFinancePage() {
+  const guardAllowed = useRefundGuard("canFinance");
   const today = new Date().toISOString().slice(0, 10);
   const [apps, setApps] = useState<RefundApp[]>([]);
   const [batches, setBatches] = useState<CsvBatch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   // 一覧の取得
   const reload = async () => {
+    setLoadError("");
     try {
-      const res = await fetch("/api/store-settings/refund-payment/applications?queue=all", { cache: "no-store" });
+      const res = await fetch("/api/store-settings/refund-payment/applications?queue=finance", { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data?.error || "取得失敗");
+      if (res.status === 401 || res.status === 403) throw new Error("この画面の閲覧権限がありません");
+      if (!res.ok || !data.ok) throw new Error(data?.error || "取得に失敗しました");
       const all = data.applications as ApiApplication[];
       // 経理ステージに到達したもの (deriveStatus が null を返さないもの) のみ
       const reached = all.filter((a) => deriveStatus(a) !== null);
@@ -220,8 +227,11 @@ export default function RefundFinancePage() {
         else if (anyDone || anyReturned) b.status = "一部完了";
       });
       setBatches(Array.from(batchMap.values()).sort((x, y) => y.generatedAt.localeCompare(x.generatedAt)));
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setApps([]);
+      setBatches([]);
+      setLoadError(e?.message || "取得に失敗しました");
     } finally {
       setLoading(false);
     }
@@ -396,7 +406,7 @@ export default function RefundFinancePage() {
   }, [selectedApps]);
 
   // CSV出力実行（全銀協 1ファイル）
-  const doCsvExport = () => {
+  const doCsvExport = async () => {
     if (!csvModal) return;
     if (selectedApps.length === 0) { alert("対象がありません"); return; }
     const scheduled = csvModal.scheduledDate || today;
@@ -449,19 +459,6 @@ export default function RefundFinancePage() {
     const csv = [header, ...data, trailer, end].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`zengin_refund_${stampShort}.csv`, csv);
 
-    // API: 選択した各 app を arrange (振込手配中) に
-    Promise.all(
-      selectedApps.map((a) =>
-        fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})` }),
-        })
-      )
-    )
-      .catch((e) => console.error("arrange failed", e))
-      .finally(() => reload());
-
     // 銀行別内訳サマリ CSV (社内管理用)
     const summaryHeaders = ["バッチID", "申請ID", "会員ID", "会員名", "銀行コード", "銀行名", "支店", "種別", "口座番号", "名義人", "金額", "申請理由"];
     const summaryRows = selectedApps.map((a) => [
@@ -473,8 +470,47 @@ export default function RefundFinancePage() {
     const summaryCsv = [summaryHeaders, ...summaryRows].map((r) => r.map(csvField).join(",")).join("\r\n");
     downloadFile(`refund_summary_${stampShort}.csv`, summaryCsv);
 
-    // 楽観 UI 更新は API レスポンスを待つ。整合性優先 (race を避ける)。
-    setSelectedIds(new Set());
+    // API: 選択した各 app を arrange (振込手配中) に。
+    // 部分失敗（楽観ロック衝突=HTTP 409 / 権限 / 通信断）を握りつぶさず可視化する。
+    // Promise.all + .catch では HTTP エラー(res.ok=false)を捕捉できず、CSV だけ出力されて
+    // 状態が「振込手配中」へ進まない不整合がサイレントに起きるため、各結果を個別検証する。
+    const results = await Promise.all(
+      selectedApps.map(async (a) => {
+        try {
+          const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "arrange", batchId, scheduledDate: scheduled, comment: `CSV出力(${batchId})`, expectedUpdatedAt: a.updatedAt }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) {
+            return { app: a, ok: false, error: (json?.error as string) || `HTTP ${res.status}` };
+          }
+          return { app: a, ok: true, error: "" };
+        } catch (e: any) {
+          return { app: a, ok: false, error: e?.message || "通信エラー" };
+        }
+      })
+    );
+    const failed = results.filter((r) => !r.ok);
+
+    // サーバから最新状態を取り直してから選択を確定 (整合性優先 / race 回避)。
+    await reload();
+
+    if (failed.length > 0) {
+      // 失敗分は選択に残して再実行できるようにし、成功分のみ解除。
+      setSelectedIds(new Set(failed.map((r) => r.app.id)));
+      const lines = failed
+        .map((r) => `・${r.app.id}（${r.app.memberName}）: ${r.error}`)
+        .join("\n");
+      alert(
+        `振込手配（「振込手配中」への更新）に失敗した申請が ${failed.length}/${selectedApps.length} 件あります。\n` +
+        `CSV は出力済みですが、以下は状態が更新されていません。\n` +
+        `他の担当者が同時操作した可能性があります。再読込した最新状態を確認のうえ、対象を選び直して再実行してください:\n\n${lines}`
+      );
+    } else {
+      setSelectedIds(new Set());
+    }
     setCsvModal(null);
   };
 
@@ -499,12 +535,19 @@ export default function RefundFinancePage() {
   // 1件単位の振込完了 (API)
   const markOneComplete = async (id: string) => {
     try {
+      const app = apps.find((x) => x.id === id);
       const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(id)}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "transfer", result: "成功" }),
+        body: JSON.stringify({ action: "transfer", result: "成功", expectedUpdatedAt: app?.updatedAt }),
       });
       const data = await res.json();
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        await reload();
+        setCompleteOne(null);
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
       await reload();
     } catch (e: any) {
@@ -516,19 +559,33 @@ export default function RefundFinancePage() {
   // バッチ全件まとめて振込完了 (API)
   const markBatchComplete = async (batchId: string) => {
     const targets = apps.filter((a) => a.batchId === batchId && a.status === "振込手配中");
-    try {
-      await Promise.all(
-        targets.map((a) =>
-          fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+    // 各件を個別検証。HTTP 409(楽観ロック衝突)等の部分失敗を握りつぶさない。
+    const results = await Promise.all(
+      targets.map(async (a) => {
+        try {
+          const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "transfer", result: "成功" }),
-          })
-        )
+            body: JSON.stringify({ action: "transfer", result: "成功", expectedUpdatedAt: a.updatedAt }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) {
+            return { app: a, ok: false, error: (json?.error as string) || `HTTP ${res.status}` };
+          }
+          return { app: a, ok: true, error: "" };
+        } catch (e: any) {
+          return { app: a, ok: false, error: e?.message || "通信エラー" };
+        }
+      })
+    );
+    await reload();
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length > 0) {
+      const lines = failed.map((r) => `・${r.app.id}（${r.app.memberName}）: ${r.error}`).join("\n");
+      alert(
+        `振込完了への更新に失敗した申請が ${failed.length}/${targets.length} 件あります。\n` +
+        `他の担当者が同時操作した可能性があります。再読込した最新状態を確認し、残った件を個別に処理してください:\n\n${lines}`
       );
-      await reload();
-    } catch (e: any) {
-      alert(e?.message || "一括更新エラー");
     }
     setConfirmTransfer(null);
   };
@@ -537,6 +594,7 @@ export default function RefundFinancePage() {
   const submitFailure = async () => {
     if (!failureModal) return;
     try {
+      const app = apps.find((x) => x.id === failureModal.appId);
       const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(failureModal.appId)}/transition`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -545,9 +603,16 @@ export default function RefundFinancePage() {
           result: "失敗",
           failureReason: failureModal.reason,
           failureDetail: failureModal.detail || undefined,
+          expectedUpdatedAt: app?.updatedAt,
         }),
       });
       const data = await res.json();
+      if (res.status === 409) {
+        alert(data?.error || "他のユーザにより更新されています。再読込します。");
+        await reload();
+        setFailureModal(null);
+        return;
+      }
       if (!res.ok || !data.ok) throw new Error(data?.error || "更新失敗");
       await reload();
     } catch (e: any) {
@@ -555,6 +620,15 @@ export default function RefundFinancePage() {
     }
     setFailureModal(null);
   };
+
+  // 権限ガード: 経理(finance)のみ。判定中/不許可は本体を描画しない。
+  if (guardAllowed !== true) {
+    return (
+      <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", fontSize: 14 }}>
+        {guardAllowed === false ? "権限がありません。リダイレクトします…" : "読み込み中…"}
+      </div>
+    );
+  }
 
   return (
     <div className="rff-root">
@@ -661,7 +735,16 @@ export default function RefundFinancePage() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loadError ? (
+            <div className="rff-empty" style={{ color: "#dc2626", borderColor: "#fecaca" }}>
+              {loadError}
+              <div style={{ marginTop: 8 }}>
+                <button type="button" onClick={reload} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 6, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>再読込</button>
+              </div>
+            </div>
+          ) : loading ? (
+            <div className="rff-empty">読み込み中…</div>
+          ) : filtered.length === 0 ? (
             <div className="rff-empty">該当する申請はありません</div>
           ) : groupByBank ? (
             <div className="rff-groups">
