@@ -137,6 +137,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
 
   // モーダル (解錠機器用)
   const [isDeviceModalOpen, setIsDeviceModalOpen] = useState(false);
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [newDevice, setNewDevice] = useState<Partial<UnlockDeviceConfig>>({
     majorCode: "", minorCode: "", type: "入口", isEntrance: false, displayName: ""
   });
@@ -437,30 +438,51 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
 
   // --- 解錠機器関連 ---
   const openDeviceModal = () => {
+    setEditingDeviceId(null);
     setNewDevice({ majorCode: "", minorCode: "", type: "入口", isEntrance: false, displayName: "" });
     setIsDeviceModalOpen(true);
   };
-  const handleAddDevice = () => {
+  const openEditDevice = (d: UnlockDeviceConfig) => {
+    setEditingDeviceId(d.id);
+    setNewDevice({ majorCode: d.majorCode, minorCode: d.minorCode, type: d.type, isEntrance: d.isEntrance, displayName: d.displayName });
+    setIsDeviceModalOpen(true);
+  };
+  const handleSaveDevice = () => {
     if (!newDevice.majorCode || !newDevice.minorCode || !newDevice.displayName) {
       showToast("必須項目を入力してください", "warning");
       return;
     }
+    if (!/^\d+$/.test(newDevice.majorCode) || !/^\d+$/.test(newDevice.minorCode)) {
+      showToast("Major/Minor は数値で入力してください", "warning");
+      return;
+    }
     const existing = getSafeDevices(form.unlockDevices);
-    if (existing.some(d => d.majorCode === newDevice.majorCode && d.minorCode === newDevice.minorCode)) {
+    // 重複チェック (編集中の自分自身は除外)
+    if (existing.some(d => d.majorCode === newDevice.majorCode && d.minorCode === newDevice.minorCode && d.id !== editingDeviceId)) {
       showToast("同じMajor/Minorコードの機器が既に登録されています", "error");
       return;
     }
-    const device: UnlockDeviceConfig = {
-      id: `dev_${Date.now()}`,
-      majorCode: newDevice.majorCode!,
-      minorCode: newDevice.minorCode!,
-      type: newDevice.type as UnlockDeviceType,
-      isEntrance: newDevice.isEntrance || false,
-      displayName: newDevice.displayName!,
-    };
-    setForm(prev => ({ ...prev, unlockDevices: [...getSafeDevices(prev.unlockDevices), device] }));
+    if (editingDeviceId) {
+      setForm(prev => ({
+        ...prev,
+        unlockDevices: getSafeDevices(prev.unlockDevices).map(d => d.id === editingDeviceId
+          ? { ...d, majorCode: newDevice.majorCode!, minorCode: newDevice.minorCode!, type: newDevice.type as UnlockDeviceType, isEntrance: newDevice.isEntrance || false, displayName: newDevice.displayName! }
+          : d),
+      }));
+      showToast(`${newDevice.displayName} を更新しました`, "success");
+    } else {
+      const device: UnlockDeviceConfig = {
+        id: `dev_${Date.now()}`,
+        majorCode: newDevice.majorCode!,
+        minorCode: newDevice.minorCode!,
+        type: newDevice.type as UnlockDeviceType,
+        isEntrance: newDevice.isEntrance || false,
+        displayName: newDevice.displayName!,
+      };
+      setForm(prev => ({ ...prev, unlockDevices: [...getSafeDevices(prev.unlockDevices), device] }));
+      showToast(`${device.displayName} を追加しました`, "success");
+    }
     setIsDeviceModalOpen(false);
-    showToast(`${device.displayName} を追加しました`, "success");
   };
   const removeDevice = async (id: string) => {
     const ok = await confirm("この機器を削除しますか？", "機器の削除");
@@ -761,7 +783,10 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                           <td><code className="kbs-code">{d.majorCode}</code></td>
                           <td><code className="kbs-code">{d.minorCode}</code></td>
                           <td>{d.isEntrance ? <span className="kbs-badge green">入館</span> : <span className="kbs-text-muted">-</span>}</td>
-                          <td>
+                          <td style={{ display: "flex", gap: 6 }}>
+                            <button type="button" onClick={() => openEditDevice(d)} className="kbs-icon-btn" title="編集">
+                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M11.5 2.5l2 2L6 12l-2.5.5L4 10l7.5-7.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                            </button>
                             <button type="button" onClick={() => removeDevice(d.id)} className="kbs-icon-btn danger-subtle" title="削除">
                               <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V3a1 1 0 011-1h4a1 1 0 011 1v1M6 7v5M10 7v5M3 4l1 9a1 1 0 001 1h6a1 1 0 001-1l1-9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
                             </button>
@@ -958,7 +983,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
         <div className="kbs-modal-backdrop" onClick={() => setIsDeviceModalOpen(false)}>
           <div className="kbs-modal" onClick={e => e.stopPropagation()}>
             <div className="kbs-modal-header">
-              <h3>解錠機器を追加</h3>
+              <h3>{editingDeviceId ? "解錠機器を編集" : "解錠機器を追加"}</h3>
               <button type="button" className="kbs-modal-close" onClick={() => setIsDeviceModalOpen(false)}>
                 <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M5 5l10 10M15 5l-10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
               </button>
@@ -994,7 +1019,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
             </div>
             <div className="kbs-modal-footer">
               <button type="button" className="kbs-btn ghost" onClick={() => setIsDeviceModalOpen(false)}>キャンセル</button>
-              <button type="button" className="kbs-btn primary" onClick={handleAddDevice}>追加</button>
+              <button type="button" className="kbs-btn primary" onClick={handleSaveDevice}>{editingDeviceId ? "更新" : "追加"}</button>
             </div>
           </div>
         </div>
