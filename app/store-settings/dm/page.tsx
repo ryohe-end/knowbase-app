@@ -779,11 +779,13 @@ export default function DmSettingsPage() {
         .dm-input:disabled, .dm-textarea:disabled { background: #f1f5f9; color: #64748b; }
         
         .dm-row-2 { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-        .dm-row-2 input { width: 100%; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 6px; font-size: 12px; }
-        .dm-check-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .dm-row-2 > input { flex: 1; min-width: 0; box-sizing: border-box; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 6px; font-size: 12px; height: 34px; }
+        .dm-row-2 > span { flex: 0 0 auto; font-size: 11px; color: #94a3b8; }
+        .dm-check-row { display: flex; gap: 12px 16px; align-items: center; flex-wrap: wrap; }
         .dm-check-row label, .dm-unpaid-check { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #334155; }
-        .dm-check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
-        .dm-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .dm-check-row input, .dm-check-grid input, .dm-unpaid-check input { flex: 0 0 auto; margin: 0; }
+        .dm-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; align-items: start; }
+        .dm-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer; line-height: 1.4; }
         .dm-label-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
         .dm-bulk-toggle { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; }
         .dm-bulk-toggle button { background: none; border: none; padding: 0; font-size: 11px; font-weight: 700; color: #0f172a; cursor: pointer; text-decoration: underline; }

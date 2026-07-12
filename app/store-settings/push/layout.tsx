@@ -68,12 +68,13 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-input:focus, .push-textarea:focus, .push-field input:focus, .push-field textarea:focus { border-color: #0f172a; }
         .push-textarea { resize: vertical; }
         .push-row-2 { display: flex; gap: 6px; align-items: center; }
-        .push-row-2 > input { flex: 1; min-width: 0; }
-        .push-row-2 > span { font-size: 11px; color: #94a3b8; }
-        .push-check-row { display: flex; gap: 16px; }
-        .push-check-row label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; }
-        .push-check-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 12px; }
-        .push-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .push-row-2 > input { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; }
+        .push-row-2 > span { flex: 0 0 auto; font-size: 11px; color: #94a3b8; }
+        .push-check-row { display: flex; gap: 12px 16px; flex-wrap: wrap; }
+        .push-check-row label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 6px; }
+        .push-check-row input, .push-check-grid input { flex: 0 0 auto; margin: 0; }
+        .push-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; align-items: start; }
+        .push-check-grid label { font-size: 12px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer; line-height: 1.4; }
         .push-label-row { display: flex; align-items: center; justify-content: space-between; }
         .push-bulk-toggle { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #94a3b8; }
         .push-bulk-toggle button { background: none; border: none; padding: 0; font-size: 11px; font-weight: 700; color: #0f172a; cursor: pointer; text-decoration: underline; }

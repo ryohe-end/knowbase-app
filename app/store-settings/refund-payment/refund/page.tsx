@@ -12,7 +12,7 @@ import type {
   ApprovalStep as ApiStep,
   BankAccount as ApiBankAccount,
 } from "@/types/refundApplication";
-import RefundEditDialog from "./RefundEditDialog";
+import RefundEditDialog, { type RefundEditAccount } from "./RefundEditDialog";
 
 // ---- 型 (UI 用ローカル型 — API 型 [types/refundApplication] とは adapt で接続) ----
 type BankAccount = {
@@ -501,23 +501,26 @@ export default function RefundApplicationPage() {
 
   const openEditModal = (app: RefundApplication) => setEditTargetApp(app);
   const closeEditModal = () => setEditTargetApp(null);
-  const saveEdit = async (draft: { reason: string; items: { id: string; label: string; amount: number }[] }) => {
+  const saveEdit = async (draft: { reason: string; items: { id: string; label: string; amount: number }[]; account?: RefundEditAccount }) => {
     if (!editTargetApp) return;
     const target = editTargetApp;
     setEditSaving(true);
+    const draftAccount: BankAccount | undefined = draft.account
+      ? { ...draft.account, source: (draft.account.source as BankAccount["source"]) || "登録済み（過去返金）" }
+      : undefined;
     // DEMO レコードは API を持たないのでローカル更新のみ
     if (target.id.startsWith("DEMO-") || !target._raw) {
       const newTotal = draft.items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
       setHistory((prev) => prev.map((h) => (
-        h.id === target.id ? { ...h, reason: draft.reason, items: draft.items, totalAmount: newTotal } : h
+        h.id === target.id ? { ...h, reason: draft.reason, items: draft.items, totalAmount: newTotal, account: draftAccount ?? h.account } : h
       )));
       setEditSaving(false);
       closeEditModal();
       return;
     }
     try {
-      // 元の API オブジェクトを維持し、reason/items だけ差し替えて送る (他フィールド消失を防ぐ)
-      const payload = { ...target._raw, reason: draft.reason, items: draft.items };
+      // 元の API オブジェクトを維持し、reason/items/口座 を差し替えて送る (他フィールド消失を防ぐ)
+      const payload = { ...target._raw, reason: draft.reason, items: draft.items, bankAccount: draftAccount ?? (target._raw as any).bankAccount };
       const res = await fetch("/api/store-settings/refund-payment/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1861,6 +1864,11 @@ export default function RefundApplicationPage() {
         .rfa-edit-modal-body { padding: 18px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 18px; }
         .rfa-edit-field { display: flex; flex-direction: column; gap: 6px; }
         .rfa-edit-field label { font-size: 11px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
+        .rfa-edit-acc { display: flex; flex-direction: column; gap: 8px; }
+        .rfa-edit-acc-row { display: flex; gap: 8px; }
+        .rfa-edit-acc input, .rfa-edit-acc select { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-sizing: border-box; background: #fff; }
+        .rfa-edit-acc-row select { flex: 0 0 90px; }
+        .rfa-edit-acc-hint { font-size: 11px; color: #dc2626; font-weight: 600; }
         .rfa-edit-field textarea { resize: vertical; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 10px 12px; font-size: 13px; font-family: inherit; outline: none; }
         .rfa-edit-field textarea:focus { border-color: #0ea5e9; }
         .rfa-edit-items { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
