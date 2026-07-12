@@ -2,7 +2,10 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Users } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Users, TrendingUp } from "lucide-react";
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
+} from "recharts";
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
@@ -220,6 +223,51 @@ function UnpaidManager() {
                       <Card icon={<AlertTriangle size={18} />} label="貸倒予定 件数" value={summary.writeoffCount.toLocaleString()} tone="amber" />
                       <Card icon={<AlertTriangle size={18} />} label="貸倒予定 金額" value={yen(summary.writeoffAmount)} tone="amber" />
                     </div>
+                    <div className="up-charts">
+                      <div className="up-panel">
+                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />未納 / 回収 推移と回収率（直近12ヶ月）</div>
+                        <div style={{ padding: "14px 10px 6px" }}>
+                          <ResponsiveContainer width="100%" height={260}>
+                            <ComposedChart data={summary.byMonth.map((m) => ({
+                              month: m.month.slice(2),
+                              未納: m.unpaidAmount, 回収: m.collectedAmount,
+                              回収率: m.collectedAmount + m.unpaidAmount > 0 ? Math.round((m.collectedAmount / (m.collectedAmount + m.unpaidAmount)) * 100) : 0,
+                            }))}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                              <XAxis dataKey="month" fontSize={11} />
+                              <YAxis yAxisId="l" fontSize={10} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+                              <YAxis yAxisId="r" orientation="right" domain={[0, 100]} fontSize={10} tickFormatter={(v) => `${v}%`} />
+                              <Tooltip formatter={(v: any, n: any) => (n === "回収率" ? `${v}%` : `¥${Number(v).toLocaleString()}`)} />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              <Bar yAxisId="l" dataKey="未納" fill="#f87171" radius={[3, 3, 0, 0]} />
+                              <Bar yAxisId="l" dataKey="回収" fill="#34d399" radius={[3, 3, 0, 0]} />
+                              <Line yAxisId="r" dataKey="回収率" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 2 }} />
+                            </ComposedChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                      <div className="up-panel">
+                        <div className="up-panel-h">未納残高の構成</div>
+                        <div style={{ padding: 10 }}>
+                          <ResponsiveContainer width="100%" height={230}>
+                            <PieChart>
+                              <Pie
+                                data={[
+                                  { name: "未納（回収対象）", value: summary.unpaidAmount },
+                                  { name: "貸倒予定", value: summary.writeoffAmount },
+                                ]}
+                                dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}
+                              >
+                                <Cell fill="#f87171" />
+                                <Cell fill="#fbbf24" />
+                              </Pie>
+                              <Tooltip formatter={(v: any) => `¥${Number(v).toLocaleString()}`} />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
                     <div className="up-panel">
                       <div className="up-panel-h">月次内訳（直近12ヶ月）</div>
                       <table className="up-table">
@@ -348,6 +396,8 @@ function UnpaidManager() {
         .up-tab { background: #fff; border: 1px solid #e2e8f0; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; }
         .up-tab.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
         .up-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+        .up-charts { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 18px; }
+        @media (max-width: 900px) { .up-charts { grid-template-columns: 1fr; } }
         .up-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 18px; }
         .up-card-top { display: flex; align-items: center; gap: 8px; color: #64748b; font-size: 12px; font-weight: 700; }
         .up-card-val { font-size: 24px; font-weight: 800; margin-top: 8px; }
