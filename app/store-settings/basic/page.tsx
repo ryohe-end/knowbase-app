@@ -84,6 +84,10 @@ const ALL_TOGGLE_ITEMS = TOGGLE_GROUPS.flatMap((g) => g.items);
 
 type MasterMachine = { name: string; bodyRegion: string; imageUrl: string; maker: string };
 
+// 会員アプリの部位表示は member-app-server の固定定数(MyConst.BODY_REGION)に依存するため、
+// 登録時の部位はこの7種から選択させる (これ以外はアプリのマシン画面に出ない)。
+const VALID_BODY_REGIONS = ["肩", "腕", "胸", "お腹", "背中", "腰", "脚"];
+
 const SECTIONS = [
   { id: "store-info", label: "店舗情報" },
   { id: "store-settings", label: "店舗設定" },
@@ -139,6 +143,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
 
   // モーダル (マシン追加用)
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
+  const [addingMachine, setAddingMachine] = useState(false);
   const [newMachine, setNewMachine] = useState<{ name: string; maker: string; bodyRegion: string; imageUrl: string }>({
     name: "", maker: "", bodyRegion: "", imageUrl: ""
   });
@@ -393,7 +398,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
     });
     setIsMachineModalOpen(true);
   };
-  const handleAddMachine = () => {
+  const handleAddMachine = async () => {
     const name = newMachine.name.trim();
     const maker = newMachine.maker.trim();
     const bodyRegion = newMachine.bodyRegion.trim();
@@ -401,19 +406,33 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
       showToast("マシン名・メーカー・部位を入力してください", "warning");
       return;
     }
-    if (masterMachines.some((m) => m.name === name)) {
-      showToast("同名のマシンが既にマスタに存在します", "error");
+    if (!VALID_BODY_REGIONS.includes(bodyRegion)) {
+      showToast("部位は選択肢から選んでください（アプリ表示対象のみ）", "warning");
       return;
     }
-    const imageUrl = newMachine.imageUrl.trim();
-    const added: MasterMachine = { name, maker, bodyRegion, imageUrl };
-    setMasterMachines((prev) => [...prev, added]);
-    // 追加と同時に店舗のマシンリストにも入れて即選択状態にする
-    setForm((prev) => ({ ...prev, machines: [...getSafeMachines(prev.machines), { name, imageUrl, maker, bodyRegion }] }));
-    setActiveMaker(maker);
-    setActiveRegion(bodyRegion);
-    setIsMachineModalOpen(false);
-    showToast(`${name} を追加しました`, "success");
+    setAddingMachine(true);
+    try {
+      // マシンマスタ(machine__c)へ実登録
+      const res = await fetch("/api/store-settings/machines", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, maker, bodyRegion, imageUrl: newMachine.imageUrl.trim() }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d?.error || "登録に失敗しました");
+      const created = d.machine as MasterMachine; // name は "名前(メーカー)" 形式
+      setMasterMachines((prev) => [...prev, created]);
+      // 追加と同時に店舗のマシンリストにも入れて即選択状態にする
+      setForm((prev) => ({ ...prev, machines: [...getSafeMachines(prev.machines), { name: created.name, imageUrl: created.imageUrl, maker: created.maker, bodyRegion: created.bodyRegion }] }));
+      setActiveMaker(created.maker);
+      setActiveRegion(created.bodyRegion);
+      setIsMachineModalOpen(false);
+      showToast(`${created.name} を登録しました`, "success");
+    } catch (e: any) {
+      showToast(e?.message || "登録エラー", "error");
+    } finally {
+      setAddingMachine(false);
+    }
   };
 
   // --- 解錠機器関連 ---
@@ -910,7 +929,11 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                 </div>
                 <div className="kbs-field">
                   <label className="kbs-label">部位 <span className="kbs-req">必須</span></label>
-                  <input type="text" className="kbs-input" list="kbs-region-list" value={newMachine.bodyRegion} onChange={e => setNewMachine({ ...newMachine, bodyRegion: e.target.value })} placeholder="例: 背中" />
+                  <select className="kbs-input" value={newMachine.bodyRegion} onChange={e => setNewMachine({ ...newMachine, bodyRegion: e.target.value })}>
+                    <option value="">選択してください</option>
+                    {VALID_BODY_REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                  <p className="kbs-hint" style={{ margin: "4px 0 0", fontSize: 11, color: "#94a3b8" }}>会員アプリに表示される部位はこの7種のみです</p>
                   <datalist id="kbs-region-list">
                     {[...new Set(masterMachines.map((m) => m.bodyRegion))].map((r) => (<option key={r} value={r} />))}
                   </datalist>
@@ -924,7 +947,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
             </div>
             <div className="kbs-modal-footer">
               <button type="button" className="kbs-btn ghost" onClick={() => setIsMachineModalOpen(false)}>キャンセル</button>
-              <button type="button" className="kbs-btn primary" onClick={handleAddMachine}>追加</button>
+              <button type="button" className="kbs-btn primary" onClick={handleAddMachine} disabled={addingMachine}>{addingMachine ? "登録中..." : "登録"}</button>
             </div>
           </div>
         </div>
