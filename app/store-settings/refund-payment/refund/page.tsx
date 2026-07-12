@@ -202,57 +202,6 @@ const STEPS = [
 ];
 
 // デモ用: 申請 → 承認者承認 → 経理処理 まで完了している返金申請の例
-const DEMO_APPLICATIONS: RefundApplication[] = [
-  {
-    id: "DEMO-REF-001",
-    targetMonthFrom: "2026-03",
-    targetMonthTo: "2026-03",
-    memberId: "9001234",
-    memberName: "山田 太郎",
-    items: [
-      { id: "d1-1", label: "2026年3月 月会費", amount: 8800 },
-      { id: "d1-2", label: "2026年3月 水素水オプション", amount: 1100 },
-    ],
-    totalAmount: 9900,
-    reason: "入院により休会扱いとなったため、3月分会費の返金を申請します。",
-    status: "承認済み",
-    createdAt: "2026-04-02",
-    steps: [
-      { approver: { role: "申請者", name: "遠藤 涼平", dept: "旭川アモール 店舗", email: "r-endo@okamoto-group.co.jp" }, state: "完了", actedAt: "2026-04-02 10:14", comment: "添付の診断書通り休会扱い済み" },
-      { approver: { role: "承認者", name: "後藤 充洋", dept: "旭川アモール 店長", email: "goto@fit365.jp" }, state: "完了", actedAt: "2026-04-02 15:42", comment: "事由・金額ともに妥当。承認します。" },
-      { approver: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" }, state: "完了", actedAt: "2026-04-04 11:08", comment: "登録口座へ振込完了 (振込日: 2026-04-04)" },
-    ],
-    account: {
-      bankName: "三井住友銀行", branchName: "旭川支店", bankCode: "0009", branchCode: "521",
-      accountType: "普通", accountNumber: "1234567", holderName: "ヤマダ タロウ",
-      source: "登録済み（引落口座）",
-    },
-  },
-  {
-    id: "DEMO-REF-002",
-    targetMonthFrom: "2026-02",
-    targetMonthTo: "2026-02",
-    memberId: "9002311",
-    memberName: "佐藤 花子",
-    items: [
-      { id: "d2-1", label: "2026年2月 月会費", amount: 9900 },
-    ],
-    totalAmount: 9900,
-    reason: "店舗工事による休館期間 (2/15-2/28) があったため日割相当分を返金。",
-    status: "承認済み",
-    createdAt: "2026-03-05",
-    steps: [
-      { approver: { role: "申請者", name: "遠藤 涼平", dept: "旭川アモール 店舗", email: "r-endo@okamoto-group.co.jp" }, state: "完了", actedAt: "2026-03-05 09:00", comment: "対象会員リストより自動算出" },
-      { approver: { role: "承認者", name: "後藤 充洋", dept: "旭川アモール 店長", email: "goto@fit365.jp" }, state: "完了", actedAt: "2026-03-05 13:20", comment: "工事告知対応。承認。" },
-      { approver: { role: "経理部", name: "経理部 担当", dept: "本部 経理部", email: "keiri@fit365.jp" }, state: "完了", actedAt: "2026-03-07 10:30", comment: "振込完了" },
-    ],
-    account: {
-      bankName: "北海道銀行", branchName: "本店", bankCode: "0501", branchCode: "100",
-      accountType: "普通", accountNumber: "7654321", holderName: "サトウ ハナコ",
-      source: "登録済み（過去返金）",
-    },
-  },
-];
 
 
 // BankCode JP オートコンプリート用デバウンス hook
@@ -589,11 +538,9 @@ export default function RefundApplicationPage() {
         ]);
         const appData = await appRes.json();
         if (appData.ok && Array.isArray(appData.applications)) {
-          const real = appData.applications.map((a: ApiApplication) => apiToUi(a));
-          // DEMO_APPLICATIONS をデモ用に先頭に挿入 (実データと重複しない ID 接頭辞)
-          setHistory([...DEMO_APPLICATIONS, ...real]);
+          const real = appData.applications.map((a: ApiApplication) => apiToUi(a));          setHistory(real);
         } else {
-          setHistory([...DEMO_APPLICATIONS]);
+          setHistory([]);
         }
         const clubData = await clubRes.json();
         if (clubData.ok && Array.isArray(clubData.clubs)) {
@@ -618,7 +565,7 @@ export default function RefundApplicationPage() {
       const data = await res.json();
       if (data.ok && Array.isArray(data.applications)) {
         const real = data.applications.map((a: ApiApplication) => apiToUi(a));
-        setHistory([...DEMO_APPLICATIONS, ...real]);
+        setHistory(real);
       }
     } catch (e) {
       console.error("history reload failed", e);
