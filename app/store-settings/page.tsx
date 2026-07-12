@@ -40,11 +40,7 @@ const StorefrontIcon = () => (
   </svg>
 );
 
-const UserPlusIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: 32, height: 32 }}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" />
-  </svg>
-);
+// UserPlusIcon は入会画面設定クローズに伴い未使用のため削除 (後日復活)
 
 export default function StoreSettingsMenu() {
   const menuItems = [
@@ -83,13 +79,7 @@ export default function StoreSettingsMenu() {
       icon: <StorefrontIcon />,
       color: "#e11d48",
     },
-    {
-      title: "入会画面設定",
-      desc: "Web入会画面の表示内容を設定しながら、リアルタイムでプレビューを確認できます。",
-      href: "/store-settings/entry-screen",
-      icon: <UserPlusIcon />,
-      color: "#14b8a6",
-    },
+    // 入会画面設定は一旦クローズ (後日開発)。メニューから非表示。ページ/APIは残置。
     {
       title: "返金・入金申請",
       desc: "対象月の返金申請、未納金の入金登録を行います。",
