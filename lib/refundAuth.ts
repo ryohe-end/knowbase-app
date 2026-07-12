@@ -44,19 +44,22 @@ export async function getRefundUser(): Promise<RefundUser | null> {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, dept, clubCodes, isActive",
+        ProjectionExpression: "userId, #n, email, #r, dept, clubCodes, areas, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
     const u = res.Items?.[0] as any;
     if (!u || u.isActive === false) return null;
+    // 担当エリア(companyGroup)を店舗に展開し、個別clubCodesと union した実効スコープを返す
+    const { effectiveClubCodes } = await import("./clubScope");
+    const clubCodes = await effectiveClubCodes(normArr(u.clubCodes), normArr(u.areas));
     return {
       userId: String(u.userId ?? ""),
       name: String(u.name ?? ""),
       email: String(u.email ?? ""),
       role: String(u.role ?? ""),
       dept: typeof u.dept === "string" ? u.dept : undefined,
-      clubCodes: normArr(u.clubCodes),
+      clubCodes,
     };
   } catch (e) {
     console.error("[refundAuth] error:", e);
