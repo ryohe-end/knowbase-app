@@ -1566,6 +1566,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       desc: "1日利用券およびワンタイムパスの料金・販売設定を管理します。",
       href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}`,
       color: "#f59e0b",
+      comingSoon: true,
       iconPath: "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z",
     },
     {
@@ -1573,6 +1574,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       desc: "ポイント付与ルール、有効期限、ポイント残高の確認・調整を行います。",
       href: `/store-settings/basic/points?clubCode=${clubCode}`,
       color: "#10b981",
+      comingSoon: true,
       iconPath: "M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z",
     },
     {
@@ -1580,6 +1582,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       desc: "オプションの都度利用設定、料金、利用条件を管理します。",
       href: `/store-settings/basic/option-usage?clubCode=${clubCode}`,
       color: "#8b5cf6",
+      comingSoon: true,
       iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
     },
     {
@@ -1627,10 +1630,12 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
         </header>
 
         <div className="kb-store-grid">
-          {menuItems.map((item) => (
-            <Link href={item.href} key={item.title} className="kb-menu-link">
-              <div className="kb-modern-card">
+          {menuItems.map((item) => {
+            const soon = (item as any).comingSoon;
+            const card = (
+              <div className={`kb-modern-card${soon ? " kb-card-soon" : ""}`}>
                 <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
+                {soon && <span className="kb-soon-badge">Coming Soon</span>}
                 <div className="kb-card-body">
                   <div
                     className="kb-card-icon-wrapper"
@@ -1644,12 +1649,17 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
                   <p className="kb-card-subtext">{item.desc}</p>
                 </div>
                 <div className="kb-card-footer">
-                  <span className="kb-action-label">設定を開く</span>
+                  <span className="kb-action-label">{soon ? "準備中" : "設定を開く"}</span>
                   <span className="kb-action-icon">→</span>
                 </div>
               </div>
-            </Link>
-          ))}
+            );
+            return soon ? (
+              <div key={item.title} className="kb-menu-link kb-menu-disabled" aria-disabled title="準備中です">{card}</div>
+            ) : (
+              <Link href={item.href} key={item.title} className="kb-menu-link">{card}</Link>
+            );
+          })}
         </div>
       </main>
 
@@ -1667,6 +1677,10 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
         .kb-page-header p { font-size: 14px; color: #64748b; margin: 0; }
         .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
+        .kb-menu-disabled { cursor: not-allowed; }
+        .kb-card-soon { opacity: 0.6; filter: grayscale(0.5); }
+        .kb-menu-disabled:hover .kb-card-soon { transform: none; box-shadow: none; }
+        .kb-soon-badge { position: absolute; top: 10px; right: 10px; z-index: 2; background: #64748b; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 20px; }
 
         .kb-modern-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; position: relative; height: 100%; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s; overflow: hidden; }
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }
