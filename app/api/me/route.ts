@@ -59,7 +59,7 @@ export async function GET() {
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
         ProjectionExpression:
-          "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, #p, isActive, mustChangePassword, createdAt, updatedAt",
+          "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, areas, #p, isActive, mustChangePassword, createdAt, updatedAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
@@ -81,6 +81,10 @@ export async function GET() {
     const groupIds = normalizeStringArray(user.groupIds);
     const groupId = groupIds[0] || ""; // 先頭を primary として扱う
 
+    const { effectiveClubCodes } = await import("@/lib/clubScope");
+    const areas = normalizeStringArray(user.areas);
+    const effectiveClubs = await effectiveClubCodes(normalizeStringArray(user.clubCodes), areas);
+
     const res = NextResponse.json({
       ok: true,
       user: {
@@ -91,7 +95,9 @@ export async function GET() {
 
         brandIds: normalizeStringArray(user.brandIds),
         deptIds: normalizeStringArray(user.deptIds),
-        clubCodes: normalizeStringArray(user.clubCodes),
+        clubCodes: effectiveClubs,
+        clubCodesRaw: normalizeStringArray(user.clubCodes),
+        areas,
         permissions: normalizeStringArray(user.permissions),
 
         // ✅ 両方返す（フロント互換）

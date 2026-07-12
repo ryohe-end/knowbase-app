@@ -52,20 +52,21 @@ async function getCurrentUser() {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, isActive",
+        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, areas, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
     const user = result.Items?.[0] as any;
     if (!user || user.isActive === false) return null;
 
+    const { effectiveClubCodes } = await import("@/lib/clubScope");
     return {
       userId: String(user.userId ?? ""),
       name: user.name,
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
-      clubCodes: normalizeStringArray(user.clubCodes),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas)),
     };
   } catch (e) {
     console.error("[stores API] Failed to get current user:", e);
