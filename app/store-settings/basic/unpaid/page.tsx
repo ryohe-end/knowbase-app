@@ -46,6 +46,7 @@ function UnpaidManager() {
   const [clubCount, setClubCount] = useState(0);
   const [members, setMembers] = useState<Member[]>([]);
   const [bucket, setBucket] = useState<"current" | "writeoff">("current");
+  const [statusFilter, setStatusFilter] = useState<"all" | "1" | "2" | "3plus">("all");
   const [tab, setTab] = useState<"dashboard" | "list" | "csv" | "schedule">("dashboard");
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loadingSum, setLoadingSum] = useState(false);
@@ -127,6 +128,8 @@ function UnpaidManager() {
       const d = await res.json();
       rows = d.members || [];
     }
+    // ステータス絞り込みを CSV にも反映 (SMS文面の出し分け用)
+    if (bucket === "current" && statusFilter !== "all") rows = rows.filter((m) => statusCat(m.status) === statusFilter);
     const header = ["会員区分", "ステータス", "会員番号", "名前", "未納金額", "1ヶ月目", "2ヶ月目", "3ヶ月目", "4ヶ月目以降", "電話番号", "メールアドレス", "セキュリティ費(年管理費)"];
     const lines = rows.map((m) => {
       const b = m.monthlyBreakdown || [];
@@ -150,6 +153,22 @@ function UnpaidManager() {
   };
 
   const clubName = clubs.find((c) => c.clubCode === clubCode)?.clubName;
+
+  // ステータス分類 (Nか月目 → 1/2/3plus)。SMS文面の出し分け用。
+  const statusCat = (status: string): "1" | "2" | "3plus" | "wo" => {
+    if (status === "貸倒予定") return "wo";
+    const n = parseInt(status, 10);
+    return n === 1 ? "1" : n === 2 ? "2" : "3plus";
+  };
+  const statusCounts = useMemo(() => {
+    const c = { all: members.length, "1": 0, "2": 0, "3plus": 0 } as Record<string, number>;
+    for (const m of members) { const k = statusCat(m.status); if (k !== "wo") c[k]++; }
+    return c;
+  }, [members]);
+  const filteredMembers = useMemo(
+    () => (bucket === "writeoff" || statusFilter === "all" ? members : members.filter((m) => statusCat(m.status) === statusFilter)),
+    [members, statusFilter, bucket]
+  );
 
   return (
     <div className="up-root">
@@ -301,20 +320,32 @@ function UnpaidManager() {
                     <button className={`up-bkt ${bucket === "writeoff" ? "active" : ""}`} onClick={() => setBucket("writeoff")}>貸倒予定（強制退会）</button>
                   </div>
                   {mode === "club" ? (
-                    <button className="up-csv-btn" onClick={downloadCsv}><Download size={15} /> CSV出力</button>
+                    <button className="up-csv-btn" onClick={downloadCsv}><Download size={15} /> CSV出力{bucket === "current" && statusFilter !== "all" ? `（${statusFilter === "3plus" ? "3か月目以上" : statusFilter + "か月目"}）` : ""}</button>
                   ) : <span className="up-muted">CSV/一覧は店舗モードで利用できます</span>}
                 </div>
+
+                {mode === "club" && bucket === "current" && (
+                  <div className="up-statusfilter">
+                    <span className="up-sf-label">ステータス:</span>
+                    {([["all", "全て"], ["1", "1か月目"], ["2", "2か月目"], ["3plus", "3か月目以上"]] as const).map(([k, lbl]) => (
+                      <button key={k} className={`up-sf ${statusFilter === k ? "active" : ""}`} onClick={() => setStatusFilter(k)}>
+                        {lbl} <b>{statusCounts[k] ?? 0}</b>
+                      </button>
+                    ))}
+                    <span className="up-muted" style={{ marginLeft: "auto", fontSize: 11 }}>SMS文面をステータス別に出し分けるための絞り込み</span>
+                  </div>
+                )}
 
                 {mode !== "club" ? (
                   <div className="up-empty">一覧・CSVは「店舗」を選択して表示してください（エリア/ブランドはダッシュボード合算のみ）。</div>
                 ) : loadingList ? <div className="up-empty">読み込み中…</div> : (
                   <div className="up-panel">
-                    <div className="up-panel-h">{clubName}（{members.length}名） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
+                    <div className="up-panel-h">{clubName}（{filteredMembers.length}名{filteredMembers.length !== members.length ? ` / 全${members.length}名` : ""}） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
                     <div style={{ overflowX: "auto" }}>
                       <table className="up-table">
                         <thead><tr><th>会員区分</th><th>ステータス</th><th>会員番号</th><th>名前</th><th>未納金額</th><th>月別内訳</th><th>電話</th><th>メール</th><th>ｾｷｭﾘﾃｨ費</th></tr></thead>
                         <tbody>
-                          {members.map((m) => (
+                          {filteredMembers.map((m) => (
                             <tr key={m.memberNo}>
                               <td>{m.plan}</td>
                               <td><span className={`up-status ${m.status === "貸倒予定" ? "wo" : m.status.startsWith("1") ? "s1" : m.status.startsWith("2") ? "s2" : "sn"}`}>{m.status}</span></td>
@@ -327,7 +358,7 @@ function UnpaidManager() {
                               <td>{m.hasSecurityFee ? yen(m.annualFeeTotal) : "—"}</td>
                             </tr>
                           ))}
-                          {members.length === 0 && <tr><td colSpan={9} className="up-muted">該当者がいません</td></tr>}
+                          {filteredMembers.length === 0 && <tr><td colSpan={9} className="up-muted">該当者がいません</td></tr>}
                         </tbody>
                       </table>
                     </div>
@@ -416,6 +447,11 @@ function UnpaidManager() {
         .up-bd { font-size: 11px; color: #475569; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
         .up-list-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
         .up-bucket { display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; }
+        .up-statusfilter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .up-sf-label { font-size: 12px; font-weight: 700; color: #64748b; }
+        .up-sf { border: 1px solid #e2e8f0; background: #fff; border-radius: 20px; padding: 5px 14px; font-size: 12px; font-weight: 700; color: #475569; cursor: pointer; }
+        .up-sf.active { background: #0ea5e9; color: #fff; border-color: #0ea5e9; }
+        .up-sf b { margin-left: 4px; }
         .up-bkt { border: none; background: none; padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; color: #64748b; cursor: pointer; }
         .up-bkt.active { background: #fff; color: #0f172a; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
         .up-csv-btn { margin-left: auto; display: flex; align-items: center; gap: 7px; background: #0f172a; color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
