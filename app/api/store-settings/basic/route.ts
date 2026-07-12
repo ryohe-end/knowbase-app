@@ -369,11 +369,78 @@ export async function POST(req: Request) {
       console.error("[basic API] overlay save failed:", e?.message || e);
     }
 
-    // 解錠機器 (unlocking_machine_code__c) は Salesforce-Heroku 連携テーブルのため、
-    // 直接 INSERT/DELETE すると SF 側との同期が崩れる恐れがある。別途同期処理が必要。
-    // TODO: Salesforce API 経由での upsert もしくは Heroku Connect の writable 設定確認後に実装。
-    if (Array.isArray(body.unlockDevices) && body.unlockDevices.length > 0) {
-      console.warn("[basic API] unlockDevices write is not yet implemented (SF sync required)");
+    // 解錠機器 (unlocking_machine_code__c) を同期。SF連携は停止済み(残骸)で
+    // id/name/sfid は自動採番されるため直接 INSERT/UPDATE/削除できる。
+    // フォーム配列と DB を突合し、新規=INSERT / 既存(sfid一致)=UPDATE / 消えたもの=論理削除。
+    if (Array.isArray(body.unlockDevices)) {
+      const clubSfid = existing.rows[0].sfid;
+      const devices = body.unlockDevices.map((d: any) => ({
+        id: String(d?.id ?? ""),
+        major: String(d?.majorCode ?? "").trim(),
+        minor: String(d?.minorCode ?? "").trim(),
+        type: String(d?.type ?? "").trim(),
+        displayName: String(d?.displayName ?? "").trim(),
+        isEntrance: Boolean(d?.isEntrance),
+      }));
+      // バリデーション: major/minor/表示名 必須、major は数値、セット内 major+minor 重複禁止
+      const seen = new Set<string>();
+      for (const d of devices) {
+        if (!d.major || !d.minor || !d.displayName) {
+          return NextResponse.json({ ok: false, error: "解錠機器: Major/Minor/表示名は必須です" }, { status: 400 });
+        }
+        if (!/^\d+$/.test(d.major) || !/^\d+$/.test(d.minor)) {
+          return NextResponse.json({ ok: false, error: "解錠機器: Major/Minor は数値で入力してください" }, { status: 400 });
+        }
+        const key = `${d.major}-${d.minor}`;
+        if (seen.has(key)) {
+          return NextResponse.json({ ok: false, error: `解錠機器: Major/Minor が重複しています (${key})` }, { status: 400 });
+        }
+        seen.add(key);
+      }
+      // 他店舗との major+minor 重複チェック (解錠は major+minor でクラブを特定するため全社で一意)
+      if (devices.length > 0) {
+        const dup = await query(
+          `SELECT major__c, minor__c FROM unlocking_machine_code__c
+            WHERE COALESCE(isdeleted,false)=false AND club_sfid__c <> $1
+              AND (major__c || '-' || minor__c) = ANY($2)`,
+          [clubSfid, devices.map((d: { major: string; minor: string }) => `${d.major}-${d.minor}`)]
+        );
+        if (dup.rows.length > 0) {
+          const c = dup.rows[0];
+          return NextResponse.json({ ok: false, error: `解錠機器: Major/Minor ${c.major__c}-${c.minor__c} は他店舗で使用済みです` }, { status: 409 });
+        }
+      }
+
+      const cur = await query(
+        `SELECT sfid, major__c, minor__c FROM unlocking_machine_code__c WHERE club_sfid__c = $1 AND COALESCE(isdeleted,false)=false`,
+        [clubSfid]
+      );
+      const curSfids = new Set(cur.rows.map((r: any) => String(r.sfid)));
+      const keepSfids = new Set<string>();
+      for (const d of devices) {
+        if (d.id && curSfids.has(d.id)) {
+          keepSfids.add(d.id);
+          await query(
+            `UPDATE unlocking_machine_code__c
+                SET major__c=$2, minor__c=$3, door_type__c=$4, display_name__c=$5, is_for_entrance__c=$6, lastupdateddate=NOW()
+              WHERE sfid=$1`,
+            [d.id, d.major, d.minor, d.type || null, d.displayName, d.isEntrance]
+          );
+        } else {
+          await query(
+            `INSERT INTO unlocking_machine_code__c
+               (club_sfid__c, major__c, minor__c, door_type__c, display_name__c, is_for_entrance__c, isdeleted)
+             VALUES ($1,$2,$3,$4,$5,$6,false)`,
+            [clubSfid, d.major, d.minor, d.type || null, d.displayName, d.isEntrance]
+          );
+        }
+      }
+      // フォームから消えた既存機器は論理削除
+      for (const r of cur.rows) {
+        if (!keepSfids.has(String(r.sfid))) {
+          await query(`UPDATE unlocking_machine_code__c SET isdeleted=true, lastupdateddate=NOW() WHERE sfid=$1`, [r.sfid]);
+        }
+      }
     }
 
     // 保存後の最新状態を返すために GET と同等のロジックで再取得
