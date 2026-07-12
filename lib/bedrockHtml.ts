@@ -33,6 +33,79 @@ const SYSTEMS: Record<HtmlKind, string> = {
 - ブランドカラーを見出しやボタンのアクセントに。日本語。誇大・不当表示は避ける。`,
 };
 
+// お知らせ/通知の「タイトル」と「本文」プレーンテキストを生成する。
+// HTMLではなく、そのまま title/body 入力欄へ反映して使う。
+export async function generateText(
+  input: { prompt?: string; subject?: string; body?: string; brand?: string }
+): Promise<{ ok: true; title: string; body: string } | { ok: false; error: string; status: number }> {
+  const prompt = (input.prompt || "").trim();
+  if (!prompt && !input.body && !input.subject) {
+    return { ok: false, error: "prompt is required", status: 400 };
+  }
+  const brand = brandLabel(input.brand);
+  const system = `あなたはフィットネスクラブ「${brand.name}」の会員向けPUSH通知・お知らせ文を書く日本語コピーライターです。
+制約:
+- 出力は必ず JSON オブジェクト1個のみ。前置き・説明・コードフェンス(\`\`\`)は付けない。
+- 形式: {"title": "…", "body": "…"}
+- title は通知バナーに出る短い見出し(全角30文字以内目安、絵文字は控えめ)。
+- body は本文。丁寧で読みやすく、誇大・不当表示は避ける。改行は \\n。過度に長くしない(目安200文字以内)。`;
+  const userText = [
+    input.subject ? `現在のタイトル: ${input.subject}` : "",
+    input.body ? `現在の本文(下書き):\n${input.body}` : "",
+    prompt ? `作成指示: ${prompt}` : "",
+    "",
+    "上記を踏まえ、タイトルと本文を JSON で生成してください。JSONのみ出力。",
+  ].filter(Boolean).join("\n");
+
+  const payload = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: 1024,
+    system,
+    messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
+  };
+
+  try {
+    const res = await bedrock.send(
+      new InvokeModelCommand({
+        modelId: MODEL_ID,
+        contentType: "application/json",
+        accept: "application/json",
+        body: JSON.stringify(payload),
+      })
+    );
+    const decoded = JSON.parse(new TextDecoder().decode(res.body)) as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    let text = (decoded.content ?? [])
+      .filter((b) => b.type === "text" && b.text)
+      .map((b) => b.text as string)
+      .join("")
+      .trim();
+    text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    // JSON 抽出 (前後にノイズが混ざっても最初の { … } を拾う)
+    const m = text.match(/\{[\s\S]*\}/);
+    let parsed: { title?: string; body?: string } = {};
+    try {
+      parsed = JSON.parse(m ? m[0] : text);
+    } catch {
+      return { ok: false, error: "生成結果を解釈できませんでした。もう一度お試しください。", status: 502 };
+    }
+    const title = String(parsed.title ?? "").trim();
+    const body = String(parsed.body ?? "").trim();
+    if (!title && !body) return { ok: false, error: "empty_generation", status: 502 };
+    return { ok: true, title, body };
+  } catch (e: any) {
+    console.error("[bedrockText] error:", e?.name, e?.message);
+    const error =
+      e?.name === "AccessDeniedException"
+        ? "Bedrock へのアクセス権限がありません（bedrock:InvokeModel / モデルアクセス設定を確認）"
+        : e?.name === "ValidationException"
+        ? "Bedrock のモデルID/リージョン設定を確認してください"
+        : "AI生成に失敗しました";
+    return { ok: false, error, status: 502 };
+  }
+}
+
 export async function generateHtml(
   kind: HtmlKind,
   input: { prompt?: string; subject?: string; body?: string; imageUrl?: string; brand?: string }

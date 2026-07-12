@@ -5,10 +5,12 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
+import { type ContractTypeOption } from "@/components/ContractTypePicker";
 import type { DmNotification } from "@/types/dmNotification";
 
 // 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
-const CONTRACT_TYPES = ["レギュラー", "ナイト", "デイ", "ホリデー", "学生", "家族", "法人", "1day/OTP"];
+// 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
+const CONTRACT_TYPES: string[] = [];
 
 type StoreItem = { clubCode: string; clubName: string; brand: string };
 // DM 宛先の統一モデル (抽出 or CSV)
@@ -52,7 +54,9 @@ export default function DmSettingsPage() {
   // フォームState
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState(""); // S3 公開URL (メール内 <img> で表示)
+  const [imgUploading, setImgUploading] = useState(false);
+  const [imgError, setImgError] = useState("");
   // AI(Claude on Bedrock) による HTML 生成
   const [htmlBody, setHtmlBody] = useState(""); // 生成済み完成HTML(空=通常のテキストメール)
   const [aiPrompt, setAiPrompt] = useState("");
@@ -63,9 +67,12 @@ export default function DmSettingsPage() {
   // 条件グループ (グループ内は AND、グループ間は groupOp)
   const [groups, setGroups] = useState<CondGroup[]>([newCondGroup(CONTRACT_TYPES)]);
   const [groupOp, setGroupOp] = useState<"OR" | "AND">("OR");
+  // 店舗に属する契約種別(会員区分)。店舗選択で動的取得。
+  const [ctOptions, setCtOptions] = useState<ContractTypeOption[]>([]);
+  const [ctLoading, setCtLoading] = useState(false);
   const updateGroup = (i: number, patch: Partial<CondGroup>) =>
     setGroups((prev) => prev.map((g, gi) => (gi === i ? { ...g, ...patch } : g)));
-  const addGroup = () => setGroups((prev) => [...prev, newCondGroup(CONTRACT_TYPES)]);
+  const addGroup = () => setGroups((prev) => [...prev, newCondGroup(ctOptions.map((o) => o.name))]);
   const removeGroup = (i: number) => setGroups((prev) => (prev.length <= 1 ? prev : prev.filter((_, gi) => gi !== i)));
 
   // リストState
@@ -105,6 +112,33 @@ export default function DmSettingsPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // 店舗選択 → その店舗に属する契約種別(会員区分)を取得。既定は全種別を選択状態にする。
+  useEffect(() => {
+    if (!clubCode) { setCtOptions([]); return; }
+    let cancelled = false;
+    (async () => {
+      setCtLoading(true);
+      try {
+        const res = await fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" });
+        const data = await res.json();
+        if (cancelled) return;
+        const opts: ContractTypeOption[] = (data.contractTypes || []).map((c: any) => ({
+          name: String(c.name),
+          activeCount: Number(c.activeCount || 0),
+          totalCount: Number(c.totalCount || 0),
+        }));
+        setCtOptions(opts);
+        const allNames = opts.map((o) => o.name);
+        setGroups((prev) => prev.map((g) => ({ ...g, contractTypes: allNames })));
+      } catch {
+        if (!cancelled) setCtOptions([]);
+      } finally {
+        if (!cancelled) setCtLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [clubCode]);
 
   // --- アクション ---
 
@@ -264,6 +298,32 @@ export default function DmSettingsPage() {
       setAiError("AI生成リクエストに失敗しました。");
     } finally {
       setAiGenerating(false);
+    }
+  };
+
+  // ヘッダー画像: S3 へアップロードして公開URLを imageUrl にセット (SendGridメール内で表示)
+  const handleImageUpload = async (file: File | null) => {
+    if (!file) return;
+    setImgError("");
+    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    if (!allowed.includes(file.type)) { setImgError("PNG / JPEG / WebP / GIF のみアップロードできます。"); return; }
+    if (file.size > 10 * 1024 * 1024) { setImgError("ファイルサイズは 10MB 以内にしてください。"); return; }
+    setImgUploading(true);
+    try {
+      const initRes = await fetch("/api/store-settings/media/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+      });
+      const init = await initRes.json();
+      if (!initRes.ok || !init.ok) throw new Error(init?.error || "アップロード準備に失敗しました");
+      const putRes = await fetch(init.presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!putRes.ok) throw new Error("S3 へのアップロードに失敗しました");
+      setImageUrl(init.publicUrl);
+    } catch (e: any) {
+      setImgError(e?.message || "アップロードに失敗しました");
+    } finally {
+      setImgUploading(false);
     }
   };
 
@@ -433,12 +493,41 @@ export default function DmSettingsPage() {
                     </div>
                     {viewMode === 'create' && (
                       <div className="dm-field">
-                        <label>ヘッダー画像URL（任意）</label>
-                        <input
-                          type="url" className="dm-input" value={imageUrl}
-                          onChange={(e) => setImageUrl(e.target.value)}
-                          placeholder="https://example.com/banner.png"
-                        />
+                        <label>ヘッダー画像（任意）</label>
+                        {imageUrl ? (
+                          <div className="dm-img-uploaded">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={imageUrl} alt="ヘッダー画像" className="dm-img-thumb" />
+                            <div className="dm-img-actions">
+                              <span className="dm-img-ok">✓ アップロード済み（メールに表示されます）</span>
+                              <button type="button" className="dm-img-remove" onClick={() => { setImageUrl(""); setImgError(""); }}>削除</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label className={`dm-img-drop${imgUploading ? " uploading" : ""}`}>
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/gif"
+                              style={{ display: "none" }}
+                              disabled={imgUploading}
+                              onChange={(e) => { handleImageUpload(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }}
+                            />
+                            {imgUploading ? (
+                              <span>アップロード中…</span>
+                            ) : (
+                              <>
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                  <path d="M17 8l-5-5-5 5" />
+                                  <path d="M12 3v12" />
+                                </svg>
+                                <span>クリックして画像を選択</span>
+                                <small>PNG / JPEG / WebP / GIF・10MBまで</small>
+                              </>
+                            )}
+                          </label>
+                        )}
+                        {imgError && <div style={{ color: "#dc2626", fontSize: 11, marginTop: 6 }}>{imgError}</div>}
                       </div>
                     )}
                     {viewMode === 'create' && (
@@ -490,7 +579,14 @@ export default function DmSettingsPage() {
                                 <span style={{ fontSize: 11, fontWeight: 800, color: "#475569" }}>条件グループ {gi + 1}</span>
                                 {groups.length > 1 && <button type="button" onClick={() => removeGroup(gi)} style={{ background: "none", border: "none", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>削除</button>}
                               </div>
-                              <ConditionGroupForm group={g} onChange={(patch) => updateGroup(gi, patch)} contractTypes={CONTRACT_TYPES} cls="dm" />
+                              <ConditionGroupForm
+                                group={g}
+                                onChange={(patch) => updateGroup(gi, patch)}
+                                contractTypes={CONTRACT_TYPES}
+                                contractTypeOptions={clubCode ? ctOptions : undefined}
+                                contractTypesLoading={ctLoading}
+                                cls="dm"
+                              />
                             </div>
                           </div>
                         ))}
@@ -792,7 +888,19 @@ export default function DmSettingsPage() {
         .dm-bulk-toggle button:hover { color: #2563eb; }
         .dm-contract-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #f1f5f9; color: #475569; font-weight: 700; }
         .dm-unpaid-check { color: #ef4444; margin-top: 8px; }
-        
+
+        /* ヘッダー画像アップロード */
+        .dm-img-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px 12px; border: 1.5px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+        .dm-img-drop:hover { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
+        .dm-img-drop.uploading { cursor: default; opacity: 0.8; }
+        .dm-img-drop small { font-size: 10px; font-weight: 600; color: #94a3b8; }
+        .dm-img-uploaded { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
+        .dm-img-thumb { width: 100%; max-height: 180px; object-fit: cover; display: block; background: #f1f5f9; }
+        .dm-img-actions { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+        .dm-img-ok { font-size: 11px; font-weight: 700; color: #0f766e; }
+        .dm-img-remove { border: none; background: none; color: #dc2626; font-size: 11px; font-weight: 800; cursor: pointer; }
+
+
         .dm-extract-btn { width: 100%; background: #0f172a; color: #fff; border: none; padding: 12px; border-radius: 8px; font-weight: 700; font-size: 12px; margin-top: 16px; cursor: pointer; transition: 0.2s; }
         .dm-extract-btn:hover:not(:disabled) { background: #334155; }
         .dm-extract-btn:disabled { opacity: 0.7; cursor: wait; }

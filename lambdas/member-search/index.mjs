@@ -343,6 +343,22 @@ const REFUNDABLE_SQL = `
   FETCH FIRST 200 ROWS ONLY
 `;
 
+// --- ターゲット抽出用: 店舗に属する契約種別(会員区分)の母集合 ---
+// 退会日は NULL または sentinel '99999999' を在籍中とみなす(未納SQL側の扱いに合わせる)。
+const CONTRACT_TYPES_SQL = `
+  SELECT
+    k.会員区分コード AS CODE,
+    k.会員区分名     AS NAME,
+    COUNT(*)         AS TOTAL_CNT,
+    SUM(CASE WHEN c.退会日 IS NULL OR TO_CHAR(c.退会日) = '99999999' THEN 1 ELSE 0 END) AS ACTIVE_CNT
+  FROM FIT_ADMIN.会員契約 c
+  INNER JOIN FIT_ADMIN.会員区分 k ON c.会員区分コード = k.会員区分コード
+  WHERE c.クラブコード = :clubCode
+  GROUP BY k.会員区分コード, k.会員区分名
+  ORDER BY ACTIVE_CNT DESC, TOTAL_CNT DESC
+  FETCH FIRST 200 ROWS ONLY
+`;
+
 // --- 入金画面用: 未納項目 (請求はあるが未入金) ---
 // 返金 SQL のフィルタを反転させたもの。口座 (latest_account) は任意。
 const UNPAID_SQL = `
@@ -853,6 +869,39 @@ export const handler = async (event) => {
       return resp(200, buildUnpaidFurikae(type, r.rows || []));
     } catch (err) {
       console.error(`${type} error`, err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // ターゲット抽出用: その店舗に属する契約種別(会員区分)を全て返す。
+  // 会員契約(クラブコード=:clubCode) を 会員区分 と JOIN し、種別ごとに
+  // 総契約数 / 在籍中契約数 を集計。在籍中(退会日 IS NULL or 99999999 sentinel)が
+  // 多い順に並べる。フロントの契約種別サジェスト/フィルタの母集合になる。
+  if (type === "contract_types") {
+    const clubCode = (params.clubCode || "").trim();
+    if (!clubCode) {
+      return resp(400, { error: "missing_params", required: ["clubCode"] });
+    }
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(
+        CONTRACT_TYPES_SQL,
+        { clubCode: Number(clubCode) },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      const results = (r.rows || []).map((row) => ({
+        code: row.CODE != null ? String(row.CODE) : "",
+        name: row.NAME != null ? String(row.NAME).trim() : "",
+        totalCount: Number(row.TOTAL_CNT || 0),
+        activeCount: Number(row.ACTIVE_CNT || 0),
+      })).filter((x) => x.name);
+      return resp(200, { ok: true, clubCode, results, totalTypes: results.length });
+    } catch (err) {
+      console.error("contract_types error", err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }

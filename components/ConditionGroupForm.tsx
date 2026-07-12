@@ -4,6 +4,7 @@
 "use client";
 
 import React from "react";
+import ContractTypePicker, { type ContractTypeOption } from "./ContractTypePicker";
 
 export type CondGroup = {
   joinDateFrom: string;
@@ -37,11 +38,16 @@ export default function ConditionGroupForm({
   group,
   onChange,
   contractTypes,
+  contractTypeOptions,
+  contractTypesLoading = false,
   cls,
 }: {
   group: CondGroup;
   onChange: (patch: Partial<CondGroup>) => void;
   contractTypes: string[];
+  // 店舗に属する契約種別(会員区分)。指定時は検索付きピッカーを表示する。
+  contractTypeOptions?: ContractTypeOption[];
+  contractTypesLoading?: boolean;
   cls: string; // "push" | "dm"
 }) {
   const toggleArr = (key: "gender" | "membershipStatus" | "contractTypes", value: string) => {
@@ -98,22 +104,34 @@ export default function ConditionGroupForm({
         </div>
       </div>
       <div className={`${cls}-field`}>
-        <div className={`${cls}-label-row`}>
-          <label>契約種別</label>
-          <div className={`${cls}-bulk-toggle`}>
-            <button type="button" onClick={() => onChange({ contractTypes: [...contractTypes] })}>全選択</button>
-            <span>/</span>
-            <button type="button" onClick={() => onChange({ contractTypes: [] })}>解除</button>
-          </div>
-        </div>
-        <div className={`${cls}-check-grid`}>
-          {contractTypes.map((ct) => (
-            <label key={ct}>
-              <input type="checkbox" checked={group.contractTypes.includes(ct)} onChange={() => toggleArr("contractTypes", ct)} />
-              {ct}
-            </label>
-          ))}
-        </div>
+        <label>契約種別（会員区分）</label>
+        {contractTypeOptions ? (
+          <ContractTypePicker
+            options={contractTypeOptions}
+            selected={group.contractTypes}
+            onChange={(names) => onChange({ contractTypes: names })}
+            loading={contractTypesLoading}
+          />
+        ) : (
+          <>
+            <div className={`${cls}-label-row`}>
+              <span style={{ fontSize: 11, color: "#94a3b8" }}>店舗を選択すると契約種別が表示されます</span>
+              <div className={`${cls}-bulk-toggle`}>
+                <button type="button" onClick={() => onChange({ contractTypes: [...contractTypes] })}>全選択</button>
+                <span>/</span>
+                <button type="button" onClick={() => onChange({ contractTypes: [] })}>解除</button>
+              </div>
+            </div>
+            <div className={`${cls}-check-grid`}>
+              {contractTypes.map((ct) => (
+                <label key={ct}>
+                  <input type="checkbox" checked={group.contractTypes.includes(ct)} onChange={() => toggleArr("contractTypes", ct)} />
+                  {ct}
+                </label>
+              ))}
+            </div>
+          </>
+        )}
       </div>
       <div className={`${cls}-field`}>
         <label className={`${cls}-unpaid-check`}>

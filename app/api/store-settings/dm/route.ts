@@ -50,6 +50,15 @@ function buildHtml(subject: string, body: string, imageUrl?: string): string {
   </div>`;
 }
 
+// bodyHtml(AI生成など)に画像が含まれていない場合でも、アップロード画像を
+// 確実にメール先頭へ埋め込む。SendGrid配信時に画像が抜けるのを防ぐ。
+function ensureImage(html: string, imageUrl?: string): string {
+  if (!imageUrl) return html;
+  if (html.includes(imageUrl)) return html; // 既に埋め込み済み
+  const img = `<img src="${imageUrl}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-bottom:16px;" />`;
+  return img + html;
+}
+
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -161,10 +170,14 @@ export async function POST(req: Request) {
     if (Number.isFinite(ms)) sendAt = Math.floor(ms / 1000);
   }
 
-  // 完成HTML(AI生成)があればそのまま、無ければ件名/本文/画像から組み立てる
-  const html = body.bodyHtml && body.bodyHtml.trim()
-    ? body.bodyHtml
-    : buildHtml(subject, content, body.imageUrl);
+  // 完成HTML(AI生成)があればそのまま、無ければ件名/本文/画像から組み立てる。
+  // どちらの経路でもアップロード画像が必ずメールに載るよう ensureImage で保証する。
+  const html = ensureImage(
+    body.bodyHtml && body.bodyHtml.trim()
+      ? body.bodyHtml
+      : buildHtml(subject, content, body.imageUrl),
+    body.imageUrl
+  );
   const fromName = `${(body.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365"} サポート`;
 
   // キャンペーンを作成 (開封率集計の紐付けキー)。ベストエフォート:

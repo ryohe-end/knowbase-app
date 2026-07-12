@@ -126,7 +126,46 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-app-name { font-size: 11px; font-weight: 700; color: #475569; }
         .push-now { font-size: 10px; color: #94a3b8; }
         .push-bubble-title { font-size: 13px; font-weight: 800; color: #0f172a; }
-        .push-bubble-body { font-size: 11px; color: #334155; margin-top: 2px; line-height: 1.45; }
+        .push-bubble-body { font-size: 11px; color: #334155; margin-top: 2px; line-height: 1.45; white-space: pre-wrap; }
+
+        /* Dual preview (ロック画面 PUSH / アプリ内お知らせ) */
+        .push-preview-dual { flex-direction: column; gap: 22px; align-items: center; }
+        .push-preview-item { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+        .push-preview-caption { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; color: #475569; align-self: flex-start; }
+        .push-preview-badge { font-size: 10px; font-weight: 800; color: #fff; padding: 2px 8px; border-radius: 999px; letter-spacing: 0.02em; }
+        .push-preview-badge.lock { background: #0f172a; }
+        .push-preview-badge.app { background: #E26E9D; }
+
+        /* ロック画面 */
+        .push-phone-mockup.lock { height: auto; min-height: 300px; background: linear-gradient(180deg, #0b1120 0%, #1e293b 60%, #334155 100%); padding-bottom: 22px; }
+        .push-screen.lock-screen { gap: 14px; }
+        .push-lock-time { text-align: center; margin-top: 20px; color: #fff; }
+        .push-lock-clock { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: 0.02em; }
+        .push-lock-date { font-size: 12px; font-weight: 600; opacity: 0.85; margin-top: 4px; }
+        .push-lock-hint { font-size: 10px; color: rgba(255,255,255,0.6); text-align: center; margin-top: 2px; }
+
+        /* アプリ内お知らせ */
+        .push-phone-mockup.app { height: auto; min-height: 360px; background: #0f172a; padding: 22px 10px 14px; }
+        .push-screen.app-screen { gap: 0; background: #f1f5f9; border-radius: 18px; overflow: hidden; margin-top: 14px; }
+        .push-app-bar { display: grid; grid-template-columns: 24px 1fr 24px; align-items: center; padding: 12px 12px; color: #fff; }
+        .push-app-bar-back { font-size: 20px; font-weight: 800; line-height: 1; }
+        .push-app-bar-title { font-size: 13px; font-weight: 800; text-align: center; }
+        .push-app-notice { background: #fff; margin: 12px; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+        .push-app-notice-title { font-size: 15px; font-weight: 800; color: #0f172a; line-height: 1.4; }
+        .push-app-notice-date { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+        .push-app-notice-img { width: 100%; border-radius: 8px; margin: 10px 0; display: block; }
+        .push-app-notice-body { font-size: 12px; color: #334155; line-height: 1.6; margin-top: 8px; white-space: pre-wrap; }
+
+        /* お知らせ画像アップロード */
+        .push-img-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px 12px; border: 1.5px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+        .push-img-drop:hover { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
+        .push-img-drop.uploading { cursor: default; opacity: 0.8; }
+        .push-img-drop small { font-size: 10px; font-weight: 600; color: #94a3b8; }
+        .push-img-uploaded { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
+        .push-img-thumb { width: 100%; max-height: 180px; object-fit: cover; display: block; background: #f1f5f9; }
+        .push-img-actions { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+        .push-img-ok { font-size: 11px; font-weight: 700; color: #0f766e; }
+        .push-img-remove { border: none; background: none; color: #dc2626; font-size: 11px; font-weight: 800; cursor: pointer; }
 
         /* Detail page */
         .push-detail-main { max-width: 1300px; margin: 0 auto; padding: 24px; }
