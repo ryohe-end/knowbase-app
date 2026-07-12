@@ -9,6 +9,8 @@ export type BusinessType =
 export type MachineConfig = {
   name: string;
   imageUrl: string;
+  maker?: string;
+  bodyRegion?: string;
 };
 
 // ✅ 新規: 解錠機器の種類

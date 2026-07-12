@@ -6,6 +6,7 @@ import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
 import { query } from "@/lib/memberDb";
 import type { StoreAppConfig } from "@/types/storeAppConfig";
+import { getOverlay, putOverlay, OVERLAY_TOGGLE_KEYS } from "@/lib/storeAppOverlay";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ async function getCurrentUser() {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, groupIds, isActive",
+        ProjectionExpression: "userId, #n, email, #r, groupIds, clubCodes, isActive",
         ExpressionAttributeNames: { "#n": "name", "#r": "role" },
       })
     );
@@ -59,6 +60,7 @@ async function getCurrentUser() {
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
+      clubCodes: normalizeStringArray(user.clubCodes),
     };
   } catch (e) {
     console.error("[basic API] Failed to get current user:", e);
@@ -105,6 +107,10 @@ export async function GET(req: Request) {
 
   if (!clubCode) {
     return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
+  }
+  // 担当クラブ(clubCodes)スコープ (空=admin全店舗)
+  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
+    return NextResponse.json({ ok: false, error: "Forbidden: club not in your scope" }, { status: 403 });
   }
 
   try {
@@ -169,12 +175,23 @@ export async function GET(req: Request) {
       .filter(Boolean);
     const inquiryEmails = parsedEmails.length > 0 ? parsedEmails : [""];
 
-    // machine_names はセミコロン区切り
+    // DynamoDB オーバーレイ (トグル + マシン詳細)。club__c に無い付加設定。
+    const overlay = await getOverlay(club.club_code__c);
+    const overlayMachineByName = new Map((overlay?.machines ?? []).map((m) => [m.name, m]));
+
+    // machine_names はセミコロン区切り。詳細(imageUrl/maker/bodyRegion)はオーバーレイから補完。
     const machines = (club.machine_names || "")
       .split(";")
       .map((s: string) => s.trim())
       .filter(Boolean)
-      .map((name: string) => ({ name, imageUrl: "" }));
+      .map((name: string) => {
+        const d = overlayMachineByName.get(name);
+        return { name, imageUrl: d?.imageUrl ?? "", maker: d?.maker, bodyRegion: d?.bodyRegion };
+      });
+    // オーバーレイにしか無いマシン(カスタム登録直後で club__c 未反映など)も拾う
+    for (const m of overlay?.machines ?? []) {
+      if (m.name && !machines.some((x: { name: string }) => x.name === m.name)) machines.push({ name: m.name, imageUrl: m.imageUrl ?? "", maker: m.maker, bodyRegion: m.bodyRegion });
+    }
 
     const unlockDevices = devicesResult.rows.map((d: any) => ({
       id: d.sfid,
@@ -208,14 +225,15 @@ export async function GET(req: Request) {
       appPointPopup: club.app_point_popup,
       lesMillsAvailable: club.les_mills,
       canUseDormantMember: club.recess_member,
-      showAppEnableButton: false,
-      enableReferral: false,
-      showMainContractChange: false,
-      showKioskContractChange: false,
-      showOptionChange: false,
-      showFamilyAdd: false,
+      // 7つの表示トグルはオーバーレイ(DynamoDB)から。未保存は false。
+      showAppEnableButton: overlay?.toggles?.showAppEnableButton ?? false,
+      enableReferral: overlay?.toggles?.enableReferral ?? false,
+      showMainContractChange: overlay?.toggles?.showMainContractChange ?? false,
+      showKioskContractChange: overlay?.toggles?.showKioskContractChange ?? false,
+      showOptionChange: overlay?.toggles?.showOptionChange ?? false,
+      showFamilyAdd: overlay?.toggles?.showFamilyAdd ?? false,
       showUnpaidPayment: !club.hide_unpaid,
-      showWithdrawal: false,
+      showWithdrawal: overlay?.toggles?.showWithdrawal ?? false,
 
       unlockDevices,
       machines,
@@ -254,13 +272,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
   }
 
-  // groupIds が空でない場合 (=管理範囲が指定されている場合) は所属チェック。
-  // 空配列は「全店舗管理可能」の暗黙ルールとして許容。
-  // ※ yamauchi-Users に clubCode マッピングが未整備のため、現状 groupIds は空想定。
-  if (user.groupIds.length > 0 && !user.groupIds.includes(clubCode)) {
+  // 担当クラブ(clubCodes)スコープで所属チェック (他ルートと統一。空=admin全店舗)。
+  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
     return NextResponse.json({ ok: false, error: "Forbidden: club not in your scope" }, { status: 403 });
   }
-
   try {
     // 店舗の存在確認 + sfid 取得
     const existing = await query(
@@ -331,6 +346,25 @@ export async function POST(req: Request) {
         machineNames,
       ]
     );
+
+    // club__c に無い付加設定 (7トグル + マシン詳細) を DynamoDB オーバーレイへ保存。
+    try {
+      const toggles: Record<string, boolean> = {};
+      for (const k of OVERLAY_TOGGLE_KEYS) toggles[k] = Boolean((body as any)[k]);
+      const machines = Array.isArray(body.machines)
+        ? body.machines
+            .filter((m) => m && typeof m.name === "string" && m.name.trim())
+            .map((m) => ({
+              name: String(m.name).trim(),
+              imageUrl: typeof m.imageUrl === "string" ? m.imageUrl.trim() : "",
+              maker: (m as any).maker ? String((m as any).maker).trim() : undefined,
+              bodyRegion: (m as any).bodyRegion ? String((m as any).bodyRegion).trim() : undefined,
+            }))
+        : [];
+      await putOverlay(clubCode, { toggles, machines });
+    } catch (e: any) {
+      console.error("[basic API] overlay save failed:", e?.message || e);
+    }
 
     // 解錠機器 (unlocking_machine_code__c) は Salesforce-Heroku 連携テーブルのため、
     // 直接 INSERT/DELETE すると SF 側との同期が崩れる恐れがある。別途同期処理が必要。

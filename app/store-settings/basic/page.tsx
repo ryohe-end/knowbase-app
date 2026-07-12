@@ -371,12 +371,12 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
   };
 
   // --- マシン関連 ---
-  const toggleMachine = (machineName: string, imgUrl: string) => {
+  const toggleMachine = (machine: { name: string; imageUrl: string; maker?: string; bodyRegion?: string }) => {
     setForm((prev) => {
       const current = getSafeMachines(prev.machines);
-      const exists = current.some((m) => m.name === machineName);
-      if (exists) return { ...prev, machines: current.filter((m) => m.name !== machineName) };
-      return { ...prev, machines: [...current, { name: machineName, imageUrl: imgUrl }] };
+      const exists = current.some((m) => m.name === machine.name);
+      if (exists) return { ...prev, machines: current.filter((m) => m.name !== machine.name) };
+      return { ...prev, machines: [...current, { name: machine.name, imageUrl: machine.imageUrl, maker: machine.maker, bodyRegion: machine.bodyRegion }] };
     });
   };
   const removeMachine = (machineName: string) => {
@@ -409,7 +409,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
     const added: MasterMachine = { name, maker, bodyRegion, imageUrl };
     setMasterMachines((prev) => [...prev, added]);
     // 追加と同時に店舗のマシンリストにも入れて即選択状態にする
-    setForm((prev) => ({ ...prev, machines: [...getSafeMachines(prev.machines), { name, imageUrl }] }));
+    setForm((prev) => ({ ...prev, machines: [...getSafeMachines(prev.machines), { name, imageUrl, maker, bodyRegion }] }));
     setActiveMaker(maker);
     setActiveRegion(bodyRegion);
     setIsMachineModalOpen(false);
@@ -842,7 +842,7 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                   {filteredMasterMachines.map((m) => {
                     const isSelected = currentMachines.some((cm) => cm.name === m.name);
                     return (
-                      <button key={m.name} type="button" onClick={() => toggleMachine(m.name, m.imageUrl)} className={`kbs-m-card ${isSelected ? "selected" : ""}`}>
+                      <button key={m.name} type="button" onClick={() => toggleMachine(m)} className={`kbs-m-card ${isSelected ? "selected" : ""}`}>
                         <div className="kbs-m-img-wrap">
                           {m.imageUrl ? (
                             <img src={m.imageUrl} alt={m.name} />
