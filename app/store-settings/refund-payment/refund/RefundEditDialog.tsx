@@ -9,12 +9,28 @@ import { X } from "lucide-react";
 
 export type RefundEditItem = { id: string; label: string; amount: number };
 
+export type RefundEditAccount = {
+  bankName: string;
+  branchName: string;
+  accountType: "普通" | "当座";
+  accountNumber: string;
+  holderName: string;
+  bankCode?: string;
+  branchCode?: string;
+  source?: string;
+};
+
 export type RefundEditTarget = {
   id: string;
   memberName: string;
   memberId: string;
   reason: string;
   items: RefundEditItem[];
+  account?: RefundEditAccount;
+};
+
+const EMPTY_ACCOUNT: RefundEditAccount = {
+  bankName: "", branchName: "", accountType: "普通", accountNumber: "", holderName: "",
 };
 
 export default function RefundEditDialog({
@@ -27,20 +43,25 @@ export default function RefundEditDialog({
   app: RefundEditTarget | null;
   saving: boolean;
   onClose: () => void;
-  onSave: (draft: { reason: string; items: RefundEditItem[] }) => void;
+  onSave: (draft: { reason: string; items: RefundEditItem[]; account: RefundEditAccount }) => void;
 }) {
   const [reason, setReason] = useState("");
   const [items, setItems] = useState<RefundEditItem[]>([]);
+  const [account, setAccount] = useState<RefundEditAccount>(EMPTY_ACCOUNT);
 
   // 対象が変わったらドラフトを初期化
   useEffect(() => {
     if (app) {
       setReason(app.reason);
       setItems(app.items.map((it) => ({ ...it })));
+      setAccount({ ...EMPTY_ACCOUNT, ...(app.account ?? {}) });
     }
   }, [app]);
 
   if (!app) return null;
+
+  const accountValid = !!(account.bankName && account.branchName && account.accountNumber && account.holderName);
+  const setAcc = (patch: Partial<RefundEditAccount>) => setAccount((a) => ({ ...a, ...patch }));
 
   const total = items.reduce((s, it) => s + (Number(it.amount) || 0), 0);
 
@@ -91,6 +112,24 @@ export default function RefundEditDialog({
               合計 <strong>¥{total.toLocaleString()}</strong>
             </div>
           </div>
+          <div className="rfa-edit-field">
+            <label>振込先口座</label>
+            <div className="rfa-edit-acc">
+              <div className="rfa-edit-acc-row">
+                <input placeholder="銀行名" value={account.bankName} onChange={(e) => setAcc({ bankName: e.target.value })} />
+                <input placeholder="支店名" value={account.branchName} onChange={(e) => setAcc({ branchName: e.target.value })} />
+              </div>
+              <div className="rfa-edit-acc-row">
+                <select value={account.accountType} onChange={(e) => setAcc({ accountType: e.target.value as "普通" | "当座" })}>
+                  <option value="普通">普通</option>
+                  <option value="当座">当座</option>
+                </select>
+                <input placeholder="口座番号" value={account.accountNumber} onChange={(e) => setAcc({ accountNumber: e.target.value.replace(/[^0-9]/g, "") })} />
+              </div>
+              <input placeholder="口座名義（カナ）" value={account.holderName} onChange={(e) => setAcc({ holderName: e.target.value })} />
+              {!accountValid && <div className="rfa-edit-acc-hint">銀行名・支店名・口座番号・名義は必須です</div>}
+            </div>
+          </div>
         </div>
         <div className="rfa-edit-modal-footer">
           <button className="rfa-btn ghost" onClick={onClose} disabled={saving}>
@@ -98,8 +137,8 @@ export default function RefundEditDialog({
           </button>
           <button
             className="rfa-btn primary"
-            onClick={() => onSave({ reason, items })}
-            disabled={saving || reason.trim().length === 0}
+            onClick={() => onSave({ reason, items, account })}
+            disabled={saving || reason.trim().length === 0 || !accountValid}
           >
             {saving ? "保存中..." : "保存する"}
           </button>
