@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import StoreSelector from "@/components/StoreSelector";
 
 type EntryScreenConfig = {
   brandColor: string;
@@ -29,10 +31,34 @@ const DEFAULT_CONFIG: EntryScreenConfig = {
   ctaLabel: "Web入会を始める",
 };
 
-export default function EntryScreenSettingsPage() {
+function EntryScreenSettingsPage({ clubCode }: { clubCode: string }) {
   const [config, setConfig] = useState<EntryScreenConfig>(DEFAULT_CONFIG);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+
+  // 保存済み設定を取得 (未保存クラブは既定値)
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/store-settings/entry-screen?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!alive || !d?.config) return;
+        const c = d.config;
+        setConfig({
+          brandColor: c.brandColor ?? DEFAULT_CONFIG.brandColor,
+          logoUrl: c.logoUrl ?? "",
+          headline: c.headline ?? "",
+          subHeadline: c.subHeadline ?? "",
+          description: c.description ?? "",
+          campaignTitle: c.campaignTitle ?? "",
+          campaignBody: c.campaignBody ?? "",
+          notes: c.notes ?? "",
+          ctaLabel: c.ctaLabel ?? DEFAULT_CONFIG.ctaLabel,
+        });
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [clubCode]);
 
   const update = <K extends keyof EntryScreenConfig>(key: K, value: EntryScreenConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }));
@@ -40,9 +66,20 @@ export default function EntryScreenSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setSaving(false);
-    setSavedAt(new Date().toLocaleTimeString("ja-JP"));
+    try {
+      const res = await fetch("/api/store-settings/entry-screen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clubCode, ...config }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d?.error || "保存に失敗しました");
+      setSavedAt(new Date().toLocaleTimeString("ja-JP"));
+    } catch (e: any) {
+      alert(e?.message || "保存エラー");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleReset = () => {
@@ -295,5 +332,29 @@ function PreviewContent({ config }: { config: EntryScreenConfig }) {
         </button>
       </div>
     </>
+  );
+}
+
+function EntryScreenRouter() {
+  const sp = useSearchParams();
+  const clubCode = sp.get("clubCode");
+  if (!clubCode) {
+    return (
+      <StoreSelector
+        basePath="/store-settings/entry-screen"
+        title="入会画面設定 - 店舗選択"
+        backHref="/store-settings"
+        backLabel="メニューへ戻る"
+      />
+    );
+  }
+  return <EntryScreenSettingsPage clubCode={clubCode} />;
+}
+
+export default function EntryScreenPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40 }}>読み込み中…</div>}>
+      <EntryScreenRouter />
+    </Suspense>
   );
 }
