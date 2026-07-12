@@ -214,7 +214,7 @@ function normalizeStringArray(raw: any): string[] {
  */
 export async function getSessionUser(
   req: Request
-): Promise<{ email: string; role: string; clubCodes: string[]; groupIds: string[] } | null> {
+): Promise<{ email: string; role: string; clubCodes: string[]; groupIds: string[]; areas: string[] } | null> {
   const cookieHeader = req.headers.get("cookie") || "";
   const cookieMap = parseCookieHeader(cookieHeader);
   const session = await readVerifiedSession({
@@ -235,17 +235,22 @@ export async function getSessionUser(
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": session.email },
         Limit: 1,
-        ProjectionExpression: "email, #r, groupIds, clubCodes, isActive",
+        ProjectionExpression: "email, #r, groupIds, clubCodes, areas, isActive",
         ExpressionAttributeNames: { "#r": "role" },
       })
     );
     const u = res.Items?.[0] as any;
     if (!u || u.isActive === false) return null;
+    const areas = normalizeStringArray(u.areas);
+    // 担当エリア(companyGroup)を店舗に展開し、個別clubCodesと union した実効スコープを返す
+    const { effectiveClubCodes } = await import("./clubScope");
+    const clubCodes = await effectiveClubCodes(normalizeStringArray(u.clubCodes), areas);
     return {
       email: String(u.email ?? session.email),
       role: String(u.role ?? ""),
-      clubCodes: normalizeStringArray(u.clubCodes),
+      clubCodes,
       groupIds: normalizeStringArray(u.groupIds),
+      areas,
     };
   } catch (e) {
     console.error("[getSessionUser] DynamoDB error", e);

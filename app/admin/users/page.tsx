@@ -15,6 +15,7 @@ export type KbUser = {
   brandIds?: string[];
   groupIds?: string[];
   clubCodes?: string[];
+  areas?: string[]; // 担当エリア (companyGroup)。実効スコープ = clubCodes ∪ areasの店舗
   permissions?: KbPermission[];
   isActive?: boolean;
   createdAt?: string;
@@ -60,6 +61,7 @@ const DEFAULT_USER_FORM: KbUser = {
   brandIds: [],
   groupIds: [],
   clubCodes: [],
+  areas: [],
   permissions: [],
   isActive: true,
 };
@@ -186,6 +188,7 @@ export default function AdminUsersPage() {
       brandIds: u.brandIds ?? [],
       groupIds: u.groupIds ?? [],
       clubCodes: u.clubCodes ?? [],
+      areas: u.areas ?? [],
       permissions: u.permissions ?? [],
       isActive: u.isActive ?? true,
       createdAt: u.createdAt,
@@ -246,6 +249,24 @@ export default function AdminUsersPage() {
         ? cur.filter((c) => c !== clubCode)
         : [...cur, clubCode];
       return { ...prev, clubCodes: next };
+    });
+  };
+
+  // 担当エリア (companyGroup)。付与するとそのエリアの全店舗に自動でスコープが広がる
+  const allAreas = useMemo(
+    () => Array.from(new Set(clubs.map((c) => c.companyGroup?.trim()).filter(Boolean) as string[])).sort(),
+    [clubs]
+  );
+  const clubCountByArea = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const c of clubs) { const a = c.companyGroup?.trim(); if (a) m[a] = (m[a] || 0) + 1; }
+    return m;
+  }, [clubs]);
+  const handleAreaToggle = (area: string) => {
+    setForm((prev) => {
+      const cur = prev.areas ?? [];
+      const next = cur.includes(area) ? cur.filter((a) => a !== area) : [...cur, area];
+      return { ...prev, areas: next };
     });
   };
 
@@ -938,9 +959,28 @@ export default function AdminUsersPage() {
                 </div>
               </div>
 
+              {/* 担当エリア (companyGroup) — 付与するとエリアの全店舗に自動スコープ */}
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">担当エリア</label>
+                <div className="kb-area-picker">
+                  <div className="kb-area-hint">エリアを担当にすると、そのエリアの全店舗に自動でスコープが広がります（店舗の増減に自動追従）。個別店舗は下の「担当クラブ」で追加できます。</div>
+                  <div className="kb-area-chips">
+                    {allAreas.map((a) => {
+                      const on = (form.areas ?? []).includes(a);
+                      return (
+                        <button type="button" key={a} className={`kb-area-chip ${on ? "on" : ""}`} onClick={() => handleAreaToggle(a)}>
+                          {a} <span className="kb-area-chip-count">{clubCountByArea[a] ?? 0}</span>
+                        </button>
+                      );
+                    })}
+                    {allAreas.length === 0 && <span className="kb-area-empty">エリア情報を読み込み中…</span>}
+                  </div>
+                </div>
+              </div>
+
               {/* 担当クラブ (複数選択可) */}
               <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">担当クラブ</label>
+                <label className="kb-admin-label full">担当クラブ（個別店舗）</label>
                 <div className="kb-club-picker">
                   {/* ヘッダー: 選択数 + 検索 + 一括操作 */}
                   <div className="kb-club-picker-toolbar">
