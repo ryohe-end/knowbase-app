@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import type {
   DepositApplication,
   DepositStep,
@@ -191,6 +192,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       }
       throw e;
     }
+    void writeAudit({
+      userId: (user as any).email || (user as any).userId || "unknown",
+      userName: (user as any).name,
+      action: `deposit.${action}`,
+      clubCodes: app.clubCode ? [String(app.clubCode)] : undefined,
+      resource: `depositApplication:${(app as any).applicationId ?? id}`,
+      detail: { toStatus: app.status, memberNo: (app as any).memberNo, amount: (app as any).totalAmount ?? (app as any).amount },
+      ip: clientIp(req),
+    });
     return NextResponse.json({ ok: true, application: app });
   } catch (e: any) {
     console.error("[deposit transition] error:", e);

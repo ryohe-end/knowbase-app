@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import { notifyRefundRejected } from "@/lib/refundNotify";
 import type {
   RefundApplication,
@@ -342,6 +343,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       );
     }
 
+    void writeAudit({
+      userId: (user as any).email || (user as any).userId || "unknown",
+      userName: (user as any).name,
+      action: `refund.${action}`,
+      clubCodes: app.clubCode ? [String(app.clubCode)] : undefined,
+      resource: `refundApplication:${app.applicationId ?? id}`,
+      detail: { toStatus: app.status, memberNo: app.memberNo, amount: app.totalAmount ?? (app as any).amount },
+      ip: clientIp(req),
+    });
     return NextResponse.json({ ok: true, application: app });
   } catch (e: any) {
     console.error("[refund transition] error:", e);

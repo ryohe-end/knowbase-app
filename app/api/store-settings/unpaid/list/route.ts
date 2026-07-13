@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { callMemberSearch } from "@/lib/unpaid";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,15 @@ export async function GET(req: NextRequest) {
 
   try {
     const data = await callMemberSearch({ type, clubCodes: clubs.join(",") });
+    void writeAudit({
+      userId: (user as any).email || (user as any).userId || "unknown",
+      userName: (user as any).name,
+      action: "unpaid.list",
+      clubCodes: clubs,
+      targetCount: bucket === "paid" ? (data.items?.length ?? 0) : (data.totalMembers ?? 0),
+      detail: { bucket },
+      ip: clientIp(req),
+    });
     if (bucket === "paid") {
       return NextResponse.json({ ok: true, bucket, items: data.items ?? [] });
     }

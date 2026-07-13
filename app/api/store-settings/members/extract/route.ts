@@ -65,6 +65,7 @@
 // ────────────────────────────────────────────────────────────────────
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import { query } from "@/lib/memberDb";
 
 export const runtime = "nodejs";
@@ -298,6 +299,16 @@ export async function POST(req: Request) {
   });
 
   const deliverableCount = members.filter((m) => m.deliverable).length;
+
+  void writeAudit({
+    userId: (user as any).email || (user as any).userId || "unknown",
+    userName: (user as any).name,
+    action: "member.extract",
+    clubCodes,
+    targetCount: members.length,
+    detail: { deliveryType, deliverableCount, totalCount },
+    ip: clientIp(req),
+  });
 
   return NextResponse.json({
     ok: true,

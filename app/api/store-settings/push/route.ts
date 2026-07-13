@@ -15,6 +15,7 @@
 // お知らせ欄の画像は content(HTML) に <img> を埋め込む (今回スコープ)。
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import { query } from "@/lib/memberDb";
 import { createInformation, type AppType } from "@/lib/information";
 import type { PushNotification, PushStatus } from "@/types/pushNotification";
@@ -221,6 +222,16 @@ export async function POST(req: Request) {
       endAt,
       isPrivate: !!body.isDraft, // 下書き=送信も表示もしない
       destinations,
+    });
+    void writeAudit({
+      userId: (user as any).email || (user as any).userId || "unknown",
+      userName: (user as any).name,
+      action: body.isDraft ? "push.draft" : "push.send",
+      clubCodes,
+      targetCount: targetType === "ALL" ? undefined : destinations.length,
+      resource: `information:${informationId}`,
+      detail: { title, brand: body.brand, targetType, isImmediate: !!body.isImmediate, scheduledAt: body.scheduledAt ?? null },
+      ip: clientIp(req),
     });
     return NextResponse.json({ ok: true, id: String(informationId) });
   } catch (e: any) {

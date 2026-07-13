@@ -98,6 +98,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -164,6 +165,15 @@ export async function GET(req: NextRequest) {
 
   const payload = await upstream.json() as { results?: { member?: any; account?: any; items?: any[] } };
   const r = payload.results || {};
+  void writeAudit({
+    userId: (user as any).email || (user as any).userId || "unknown",
+    userName: (user as any).name,
+    action: "refund.memberDetail",
+    clubCodes: [clubCode],
+    resource: `member:${memberNo}`,
+    detail: { hasAccount: !!r.account, itemCount: Array.isArray(r.items) ? r.items.length : 0 },
+    ip: clientIp(req),
+  });
   return NextResponse.json({
     ok: true,
     member: r.member ?? null,

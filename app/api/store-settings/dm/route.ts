@@ -12,6 +12,7 @@
 import { NextResponse } from "next/server";
 import sgMail from "@sendgrid/mail";
 import { getSessionUser } from "@/lib/auth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import {
   createCampaign,
   updateCampaignSendResult,
@@ -246,6 +247,17 @@ export async function POST(req: Request) {
     console.error("[dm POST] updateCampaignSendResult failed:", e?.message || e);
   }
 
+  void writeAudit({
+    userId: (user as any).email || (user as any).userId || "unknown",
+    userName: (user as any).name,
+    action: "dm.send",
+    clubCodes,
+    targetCount: sent,
+    resource: `dmCampaign:${campaignId}`,
+    detail: { subject, brand: body.brand, scheduled: !!sendAt, errorCount: recipients.length - sent },
+    ip: clientIp(req),
+    result: sent === 0 ? "error" : "ok",
+  });
   if (sent === 0) {
     return NextResponse.json({ ok: false, error: "send_failed", detail: errors[0] }, { status: 502 });
   }

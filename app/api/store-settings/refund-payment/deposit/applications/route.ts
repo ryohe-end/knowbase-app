@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
 import { getRefundUser, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import type { DepositApplication, DepositStep } from "@/types/depositApplication";
 
 export const runtime = "nodejs";
@@ -188,6 +189,15 @@ export async function POST(req: Request) {
     } else {
       await ddb.send(new PutCommand({ TableName: TABLE, Item: application }));
     }
+    void writeAudit({
+      userId: (user as any).email || user.userId || "unknown",
+      userName: user.name,
+      action: isNew ? "deposit.create" : "deposit.update",
+      clubCodes: body.clubCode ? [String(body.clubCode)] : undefined,
+      resource: `depositApplication:${application.applicationId}`,
+      detail: { memberNo: application.memberNo, amount: totalAmount, status: application.status },
+      ip: clientIp(req),
+    });
     return NextResponse.json({ ok: true, application });
   } catch (e: any) {
     console.error("[deposit applications] POST error:", e);
