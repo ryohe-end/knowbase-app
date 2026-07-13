@@ -469,10 +469,14 @@ const UNPAID_CURRENT_BASE = `
     AND f.振替年月 >= :fromYm
     AND TRIM(f.振替結果コード) <> '0'
     AND ABS(${UNPAID_NET_EXPR}) > 1
-    AND NOT EXISTS (
+    -- 現行未納の権威判定: 会員入金歴.入金区分コード = 4(未納)。
+    -- 3(支払済)/90(売上取消)/91(貸倒れ)/1(支払義務無し)/2(未請求) は現行未納ではない。
+    -- ※ 振替失敗(振替結果≠0)でも後から支払済(区分3)になるケースがあり、入金年月日はNULLのままの
+    --   ことがあるため、入金年月日ではなく入金区分コードで判定する。
+    AND EXISTS (
       SELECT 1 FROM FIT_ADMIN."会員入金歴" a
        WHERE a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
-         AND a.入金年月日 IS NOT NULL
+         AND a.入金区分コード = 4
     )`;
 
 // ① 現在の未納 (貸倒予定=強制退会 は除外。連絡すべき現役/通常退会の未納)
@@ -564,6 +568,55 @@ function buildUnpaidSummary(rows) {
     unpaidCount: t.unpaidCount, unpaidAmount: t.unpaidAmount,
     collectionRate: denom > 0 ? Math.round((t.collectedAmount / denom) * 100) : 0,
     byMonth: byMonth.sort((a, b) => (a.month < b.month ? -1 : 1)),
+  };
+}
+
+// ダッシュボード②: 「初回振替が失敗した人(=未納になった人)」のその後の入金状況。
+// 振替系(振替契約別)で初回振替が不成立(振替結果≠0)だった分を、入金系(会員入金歴)の
+// 入金区分コードで追跡する。1=支払義務無し/2=未請求/3=支払済/4=未納/90=売上取消/91=貸倒れ。
+// 入金歴が無い分(初回振替直後で未処理)は KUBUN=0 として集計。
+function unpaidFollowupSql(clubBindNames) {
+  return `
+  SELECT NVL(a.入金区分コード, 0) AS KUBUN,
+         COUNT(DISTINCT f.契約者SEQ) AS CNT,
+         SUM(NVL(a.請求額, 0)) AS BILLED_AMT,
+         SUM(NVL(a.入金額, 0)) AS PAID_AMT,
+         SUM(CASE WHEN a.入金区分コード IS NULL THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS NOENTRY_NET
+  FROM FIT_ADMIN."振替契約別" f
+  LEFT JOIN FIT_ADMIN."会員入金歴" a ON a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
+  WHERE f.クラブコード IN (${clubBindNames.join(",")})
+    AND f.振替年月 BETWEEN :fromYm AND :toYm
+    AND TRIM(f.振替結果コード) <> '0'
+    AND ABS(${UNPAID_NET_EXPR}) > 1
+  GROUP BY NVL(a.入金区分コード, 0)
+  ORDER BY KUBUN`;
+}
+
+function buildUnpaidFollowup(rows) {
+  const LABELS = { 0: "未処理", 1: "支払義務無し", 2: "未請求", 3: "支払済", 4: "未納", 90: "売上取消", 91: "貸倒れ" };
+  const buckets = {};
+  for (const r of rows) {
+    const k = Number(r.KUBUN);
+    buckets[k] = {
+      kubun: k,
+      label: LABELS[k] || `区分${k}`,
+      count: Number(r.CNT) || 0,
+      billedAmount: Number(r.BILLED_AMT) || 0,
+      paidAmount: Number(r.PAID_AMT) || 0,
+      // 未処理(入金歴なし)は請求額が無いので振替純額を金額とする
+      amount: k === 0 ? (Number(r.NOENTRY_NET) || 0) : (Number(r.BILLED_AMT) || 0),
+    };
+  }
+  const g = (k) => buckets[k] || { kubun: k, label: LABELS[k], count: 0, billedAmount: 0, paidAmount: 0, amount: 0 };
+  return {
+    paid: g(3),        // 支払済 = 未納後に回収できた
+    unpaid: g(4),      // 未納 = 現行未納
+    writeoff: g(91),   // 貸倒れ
+    cancelled: g(90),  // 売上取消
+    noObligation: g(1),// 支払義務無し
+    notBilled: g(2),   // 未請求
+    pending: g(0),     // 未処理(入金歴なし)
+    all: Object.values(buckets).sort((a, b) => a.kubun - b.kubun),
   };
 }
 
@@ -844,7 +897,10 @@ export const handler = async (event) => {
       const pool = await getPool();
       conn = await pool.getConnection();
       const r = await conn.execute(unpaidSummarySql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
-      return resp(200, buildUnpaidSummary(r.rows || []));
+      const fu = await conn.execute(unpaidFollowupSql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const out = buildUnpaidSummary(r.rows || []);
+      out.followup = buildUnpaidFollowup(fu.rows || []); // ②未納その後(会員入金歴 入金区分)
+      return resp(200, out);
     } catch (err) {
       console.error("unpaid_summary error", err);
       return resp(500, { error: "internal_error", message: err.message });

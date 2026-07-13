@@ -2,6 +2,7 @@
 
 import React, { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Users, TrendingUp } from "lucide-react";
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
@@ -11,11 +12,17 @@ import { UNPAID_AREAS } from "@/lib/unpaidAreaMap";
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
 interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number }
+interface FollowupBucket { kubun: number; label: string; count: number; billedAmount: number; paidAmount: number; amount: number }
+interface Followup {
+  paid: FollowupBucket; unpaid: FollowupBucket; writeoff: FollowupBucket;
+  cancelled: FollowupBucket; noObligation: FollowupBucket; notBilled: FollowupBucket; pending: FollowupBucket;
+}
 interface Summary {
   billedCount: number; billedAmount: number;
   unpaidCount: number; unpaidAmount: number;
   collectedCount: number; collectedAmount: number; collectionRate: number;
   byMonth: MonthRow[];
+  followup?: Followup; // ②未納(初回振替失敗)のその後
 }
 interface Member {
   memberNo: string; memberName: string | null; kana: string | null;
@@ -69,6 +76,13 @@ function UnpaidManager() {
   const [loadingList, setLoadingList] = useState(false);
   const [loadingSched, setLoadingSched] = useState(false);
   const [err, setErr] = useState("");
+  const searchParams = useSearchParams();
+
+  // 基本設定で選択したクラブを引き継ぐ (URL ?clubCode=)。再選択不要にする。
+  useEffect(() => {
+    const c = searchParams.get("clubCode");
+    if (c) { setMode("club"); setClubCode(c); }
+  }, [searchParams]);
 
   // クラブ辞書
   useEffect(() => {
@@ -224,6 +238,7 @@ function UnpaidManager() {
           {mode === "club" && (
             <select className="up-select" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
               <option value="">店舗を選択…</option>
+              {clubCode && !clubs.some((c) => c.clubCode === clubCode) && <option value={clubCode}>{clubCode}</option>}
               {clubs.map((c) => <option key={c.clubCode} value={c.clubCode}>{c.clubCode} {c.clubName}</option>)}
             </select>
           )}
@@ -271,14 +286,50 @@ function UnpaidManager() {
               <div className="up-dash">
                 {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
                   <>
+                    <div className="up-section-h">① 初回振替の結果<span>振替系テーブル（振替契約別）／件数は契約者SEQ単位</span></div>
                     <div className="up-cards">
                       <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="契約者SEQ単位" />
                       <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmount)} tone="blue" sub={yen(summary.billedAmount)} />
-                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="回収金額" value={yenC(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
-                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="未納金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
+                      <Card icon={<CheckCircle2 size={18} />} label="振替成功（回収）件数" value={summary.collectedCount.toLocaleString()} tone="green" sub="契約者SEQ単位" />
+                      <Card icon={<Wallet size={18} />} label="振替成功（回収）金額" value={yenC(summary.collectedAmount)} tone="green" sub={`振替成功率 ${summary.collectionRate}%`} />
+                      <Card icon={<Users size={18} />} label="振替不成立（未納）件数" value={summary.unpaidCount.toLocaleString()} tone="red" sub="契約者SEQ単位" />
+                      <Card icon={<Wallet size={18} />} label="振替不成立（未納）金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
                     </div>
+
+                    {summary.followup && (() => {
+                      const fu = summary.followup!;
+                      const rows = [
+                        { ...fu.paid, tone: "green" as const, note: "初回振替失敗後に回収できた" },
+                        { ...fu.unpaid, tone: "red" as const, note: "現在も未回収（現行未納）" },
+                        { ...fu.pending, tone: "blue" as const, note: "入金歴なし（処理待ち）" },
+                        { ...fu.writeoff, tone: "amber" as const, note: "貸倒れ処理済" },
+                        { ...fu.cancelled, tone: "gray" as const, note: "売上取消" },
+                      ].filter((r) => r.count > 0 || r.amount !== 0);
+                      const totalCnt = rows.reduce((s, r) => s + r.count, 0) || 1;
+                      return (
+                        <>
+                          <div className="up-section-h" style={{ marginTop: 22 }}>② 未納になった人のその後<span>入金系テーブル（会員入金歴・入金区分コード）</span></div>
+                          <div className="up-panel">
+                            <table className="up-table">
+                              <thead><tr><th>入金区分</th><th>内容</th><th>件数（契約者SEQ）</th><th>金額</th><th>構成比</th></tr></thead>
+                              <tbody>
+                                {rows.map((r) => (
+                                  <tr key={r.kubun}>
+                                    <td><span className={`up-pill ${r.tone}`}>{r.label}</span></td>
+                                    <td className="up-muted2">{r.note}</td>
+                                    <td>{r.count.toLocaleString()}名</td>
+                                    <td className={r.tone === "red" ? "up-red" : r.tone === "green" ? "up-green" : ""}>{yen(r.amount)}</td>
+                                    <td>{Math.round((r.count / totalCnt) * 100)}%</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    <div className="up-section-h" style={{ marginTop: 22 }}>推移・内訳</div>
                     <div className="up-charts">
                       <div className="up-panel">
                         <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />請求 / 回収 / 未納 推移と回収率（{fiscalYear}年度）</div>
@@ -483,6 +534,13 @@ function UnpaidManager() {
         .up-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
         .up-red { color: #dc2626; font-weight: 700; } .up-green { color: #059669; font-weight: 700; } .up-amber { color: #d97706; font-weight: 700; } .up-blue { color: #2563eb; font-weight: 700; }
         .up-muted { color: #94a3b8; font-weight: 600; }
+        .up-muted2 { color: #64748b; font-size: 12px; }
+        .up-section-h { font-size: 14px; font-weight: 800; color: #0f172a; margin: 4px 0 12px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .up-section-h span { font-size: 11px; font-weight: 600; color: #94a3b8; }
+        .up-pill { display: inline-block; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 10px; }
+        .up-pill.green { background: #ecfdf5; color: #059669; } .up-pill.red { background: #fef2f2; color: #dc2626; }
+        .up-pill.blue { background: #eff6ff; color: #2563eb; } .up-pill.amber { background: #fffbeb; color: #d97706; }
+        .up-pill.gray { background: #f1f5f9; color: #64748b; }
         .up-mail { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
         .up-bd { font-size: 11px; color: #475569; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
         .up-list-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
