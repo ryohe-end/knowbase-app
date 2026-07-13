@@ -17,7 +17,8 @@ export type CondGroup = {
   visitPeriodTo: string;
   gender: string[];
   membershipStatus: string[];
-  contractTypes: string[];
+  contractTypes: string[];   // 会員区分名
+  contractForms: string[];   // 契約形態名 (会員区分に紐づく)
   hasUnpaidOnly: boolean;
 };
 
@@ -30,6 +31,7 @@ export function newCondGroup(contractTypes: string[]): CondGroup {
     gender: ["male", "female"],
     membershipStatus: ["stable", "leaver"],
     contractTypes: [...contractTypes],
+    contractForms: [],
     hasUnpaidOnly: false,
   };
 }
@@ -40,6 +42,8 @@ export default function ConditionGroupForm({
   contractTypes,
   contractTypeOptions,
   contractTypesLoading = false,
+  contractFormOptions,
+  contractFormsLoading = false,
   cls,
 }: {
   group: CondGroup;
@@ -48,12 +52,22 @@ export default function ConditionGroupForm({
   // 店舗に属する契約種別(会員区分)。指定時は検索付きピッカーを表示する。
   contractTypeOptions?: ContractTypeOption[];
   contractTypesLoading?: boolean;
+  // 会員区分に紐づく契約形態。指定時は検索付きピッカーを表示する。
+  contractFormOptions?: ContractTypeOption[];
+  contractFormsLoading?: boolean;
   cls: string; // "push" | "dm"
 }) {
-  const toggleArr = (key: "gender" | "membershipStatus" | "contractTypes", value: string) => {
+  const toggleArr = (key: "gender" | "membershipStatus" | "contractTypes" | "contractForms", value: string) => {
     const cur = group[key];
     onChange({ [key]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value] } as Partial<CondGroup>);
   };
+  // セグメント型トグル (性別/在籍状況)
+  const Seg = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
+    <button type="button" className={`kb-seg${active ? " on" : ""}`} onClick={onClick} aria-pressed={active}>
+      <span className="kb-seg-check">{active ? "✓" : ""}</span>
+      {label}
+    </button>
+  );
 
   return (
     <>
@@ -91,16 +105,16 @@ export default function ConditionGroupForm({
       </div>
       <div className={`${cls}-field`}>
         <label>性別</label>
-        <div className={`${cls}-check-row`}>
-          <label><input type="checkbox" checked={group.gender.includes("male")} onChange={() => toggleArr("gender", "male")} /> 男性</label>
-          <label><input type="checkbox" checked={group.gender.includes("female")} onChange={() => toggleArr("gender", "female")} /> 女性</label>
+        <div className="kb-seg-row">
+          <Seg label="男性" active={group.gender.includes("male")} onClick={() => toggleArr("gender", "male")} />
+          <Seg label="女性" active={group.gender.includes("female")} onClick={() => toggleArr("gender", "female")} />
         </div>
       </div>
       <div className={`${cls}-field`}>
-        <label>会員区分</label>
-        <div className={`${cls}-check-row`}>
-          <label><input type="checkbox" checked={group.membershipStatus.includes("stable")} onChange={() => toggleArr("membershipStatus", "stable")} /> 在籍中</label>
-          <label><input type="checkbox" checked={group.membershipStatus.includes("leaver")} onChange={() => toggleArr("membershipStatus", "leaver")} /> 退会済</label>
+        <label>在籍状況</label>
+        <div className="kb-seg-row">
+          <Seg label="在籍中" active={group.membershipStatus.includes("stable")} onClick={() => toggleArr("membershipStatus", "stable")} />
+          <Seg label="退会済" active={group.membershipStatus.includes("leaver")} onClick={() => toggleArr("membershipStatus", "leaver")} />
         </div>
       </div>
       <div className={`${cls}-field`}>
@@ -133,6 +147,18 @@ export default function ConditionGroupForm({
           </>
         )}
       </div>
+      {contractFormOptions && (
+        <div className={`${cls}-field`}>
+          <label>契約形態（会員区分に紐づく）</label>
+          <ContractTypePicker
+            options={contractFormOptions}
+            selected={group.contractForms}
+            onChange={(names) => onChange({ contractForms: names })}
+            loading={contractFormsLoading}
+            emptyHint="店舗を選択すると契約形態が表示されます"
+          />
+        </div>
+      )}
       <div className={`${cls}-field`}>
         <label className={`${cls}-unpaid-check`}>
           <input type="checkbox" checked={group.hasUnpaidOnly} onChange={(e) => onChange({ hasUnpaidOnly: e.target.checked })} /> 未納者のみを抽出

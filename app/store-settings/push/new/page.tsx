@@ -61,6 +61,9 @@ export default function NewPushPage() {
   // 店舗に属する契約種別(会員区分)。店舗選択で動的取得。
   const [ctOptions, setCtOptions] = useState<ContractTypeOption[]>([]);
   const [ctLoading, setCtLoading] = useState(false);
+  // 会員区分に紐づく契約形態。店舗選択で動的取得。
+  const [cfOptions, setCfOptions] = useState<ContractTypeOption[]>([]);
+  const [cfLoading, setCfLoading] = useState(false);
   const updateGroup = (i: number, patch: Partial<CondGroup>) =>
     setGroups((prev) => prev.map((g, gi) => (gi === i ? { ...g, ...patch } : g)));
   const addGroup = () => setGroups((prev) => [...prev, newCondGroup(ctOptions.map((o) => o.name))]);
@@ -99,32 +102,45 @@ export default function NewPushPage() {
     })();
   }, []);
 
-  // 店舗選択 → その店舗に属する契約種別(会員区分)を取得。既定は全種別を選択状態にする。
+  // 店舗選択 → 契約種別(会員区分) と 契約形態 を取得。既定は全種別を選択状態にする。
   useEffect(() => {
     if (!clubCode) {
       setCtOptions([]);
+      setCfOptions([]);
       return;
     }
     let cancelled = false;
     (async () => {
       setCtLoading(true);
+      setCfLoading(true);
       try {
-        const res = await fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" });
-        const data = await res.json();
+        const [ctRes, cfRes] = await Promise.all([
+          fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
+          fetch(`/api/store-settings/members/contract-forms?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
+        ]);
+        const ctData = await ctRes.json();
+        const cfData = await cfRes.json();
         if (cancelled) return;
-        const opts: ContractTypeOption[] = (data.contractTypes || []).map((c: any) => ({
+        const ctOpts: ContractTypeOption[] = (ctData.contractTypes || []).map((c: any) => ({
           name: String(c.name),
           activeCount: Number(c.activeCount || 0),
           totalCount: Number(c.totalCount || 0),
         }));
-        setCtOptions(opts);
-        // 既定: 店舗の全契約種別を対象にする
-        const allNames = opts.map((o) => o.name);
+        setCtOptions(ctOpts);
+        const cfOpts: ContractTypeOption[] = (cfData.contractForms || []).map((c: any) => ({
+          name: String(c.name),
+          group: String(c.planName || ""),
+          activeCount: Number(c.activeCount || 0),
+          totalCount: Number(c.totalCount || 0),
+        }));
+        setCfOptions(cfOpts);
+        // 既定: 店舗の全契約種別を対象にする (契約形態は既定で絞らない=空)
+        const allNames = ctOpts.map((o) => o.name);
         setGroups((prev) => prev.map((g) => ({ ...g, contractTypes: allNames })));
       } catch {
-        if (!cancelled) setCtOptions([]);
+        if (!cancelled) { setCtOptions([]); setCfOptions([]); }
       } finally {
-        if (!cancelled) setCtLoading(false);
+        if (!cancelled) { setCtLoading(false); setCfLoading(false); }
       }
     })();
     return () => { cancelled = true; };
@@ -494,6 +510,8 @@ export default function NewPushPage() {
                         contractTypes={CONTRACT_TYPES}
                         contractTypeOptions={clubCode ? ctOptions : undefined}
                         contractTypesLoading={ctLoading}
+                        contractFormOptions={clubCode ? cfOptions : undefined}
+                        contractFormsLoading={cfLoading}
                         cls="push"
                       />
                     </div>

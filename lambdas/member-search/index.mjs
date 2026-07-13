@@ -359,6 +359,26 @@ const CONTRACT_TYPES_SQL = `
   FETCH FIRST 200 ROWS ONLY
 `;
 
+// --- ターゲット抽出用: 会員区分に紐づく契約形態(契約形態名)の母集合 ---
+// 会員契約 c → 会員契約明細 d → 契約形態 e。会員区分ごとに契約形態を集計する。
+const CONTRACT_FORMS_SQL = `
+  SELECT
+    k.会員区分コード AS PLAN_CODE,
+    k.会員区分名     AS PLAN_NAME,
+    e.契約形態コード AS FORM_CODE,
+    e.契約形態名     AS FORM_NAME,
+    COUNT(*)         AS TOTAL_CNT,
+    SUM(CASE WHEN c.退会日 IS NULL OR TO_CHAR(c.退会日) = '99999999' THEN 1 ELSE 0 END) AS ACTIVE_CNT
+  FROM FIT_ADMIN.会員契約 c
+  INNER JOIN FIT_ADMIN.会員区分     k ON c.会員区分コード = k.会員区分コード
+  INNER JOIN FIT_ADMIN.会員契約明細 d ON c.契約SEQ       = d.契約SEQ
+  INNER JOIN FIT_ADMIN.契約形態     e ON d.契約形態コード = e.契約形態コード
+  WHERE c.クラブコード = :clubCode
+  GROUP BY k.会員区分コード, k.会員区分名, e.契約形態コード, e.契約形態名
+  ORDER BY ACTIVE_CNT DESC, TOTAL_CNT DESC
+  FETCH FIRST 300 ROWS ONLY
+`;
+
 // --- 入金画面用: 未納項目 (請求はあるが未入金) ---
 // 返金 SQL のフィルタを反転させたもの。口座 (latest_account) は任意。
 const UNPAID_SQL = `
@@ -902,6 +922,38 @@ export const handler = async (event) => {
       return resp(200, { ok: true, clubCode, results, totalTypes: results.length });
     } catch (err) {
       console.error("contract_types error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally {
+      if (conn) { try { await conn.close(); } catch (_) {} }
+    }
+  }
+
+  // ターゲット抽出用: 会員区分に紐づく契約形態名を返す。
+  if (type === "contract_forms") {
+    const clubCode = (params.clubCode || "").trim();
+    if (!clubCode) {
+      return resp(400, { error: "missing_params", required: ["clubCode"] });
+    }
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(
+        CONTRACT_FORMS_SQL,
+        { clubCode: Number(clubCode) },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      const results = (r.rows || []).map((row) => ({
+        planCode: row.PLAN_CODE != null ? String(row.PLAN_CODE) : "",
+        planName: row.PLAN_NAME != null ? String(row.PLAN_NAME).trim() : "",
+        code: row.FORM_CODE != null ? String(row.FORM_CODE) : "",
+        name: row.FORM_NAME != null ? String(row.FORM_NAME).trim() : "",
+        totalCount: Number(row.TOTAL_CNT || 0),
+        activeCount: Number(row.ACTIVE_CNT || 0),
+      })).filter((x) => x.name);
+      return resp(200, { ok: true, clubCode, results, totalForms: results.length });
+    } catch (err) {
+      console.error("contract_forms error", err);
       return resp(500, { error: "internal_error", message: err.message });
     } finally {
       if (conn) { try { await conn.close(); } catch (_) {} }

@@ -79,7 +79,8 @@ type DeliveryType = "push" | "dm";
 interface GroupInput {
   gender?: string[]; // ["male","female"]
   membershipStatus?: string[]; // ["stable","leaver"]
-  contractTypes?: string[];
+  contractTypes?: string[]; // 会員区分名
+  contractForms?: string[]; // 契約形態名 (会員区分に紐づく)
   joinDateFrom?: string; // "YYYY-MM-DD"
   joinDateTo?: string;
   leaveDateFrom?: string;
@@ -110,6 +111,7 @@ function mapGroup(g: GroupInput) {
     genderCodes,
     membershipStatus: Array.isArray(g.membershipStatus) ? g.membershipStatus : [],
     contractTypes: Array.isArray(g.contractTypes) ? g.contractTypes : [],
+    contractForms: Array.isArray(g.contractForms) ? g.contractForms : [],
     joinDateFrom: toYmd(g.joinDateFrom),
     joinDateTo: toYmd(g.joinDateTo),
     leaveDateFrom: toYmd(g.leaveDateFrom),

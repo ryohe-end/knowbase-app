@@ -2547,3 +2547,14 @@ body {
 .ctp-opt.on .ctp-opt-check { background: #4f46e5; border-color: #4f46e5; }
 .ctp-opt-name { flex: 1; font-size: 13px; font-weight: 700; color: #0f172a; }
 .ctp-opt-badge { font-size: 10px; font-weight: 700; color: #64748b; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 2px 8px; flex: 0 0 auto; }
+
+/* セグメント型トグル (性別/在籍状況 など) */
+.kb-seg-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.kb-seg { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; border: 1px solid #cbd5e1; background: #fff; color: #475569; font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 999px; cursor: pointer; transition: all 0.12s; }
+.kb-seg:hover { border-color: #94a3b8; background: #f8fafc; }
+.kb-seg.on { border-color: #4f46e5; background: #eef2ff; color: #3730a3; }
+.kb-seg-check { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 5px; border: 1.5px solid #cbd5e1; font-size: 10px; font-weight: 800; color: #fff; }
+.kb-seg.on .kb-seg-check { background: #4f46e5; border-color: #4f46e5; }
+
+/* 契約形態の会員区分グループ表示 (ContractTypePicker) */
+.ctp-opt-group { display: inline-block; font-size: 10px; font-weight: 700; color: #6366f1; background: #eef2ff; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: middle; }

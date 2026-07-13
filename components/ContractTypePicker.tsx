@@ -5,7 +5,7 @@
 
 import React, { useMemo, useState } from "react";
 
-export type ContractTypeOption = { name: string; activeCount?: number; totalCount?: number };
+export type ContractTypeOption = { name: string; activeCount?: number; totalCount?: number; group?: string };
 
 export default function ContractTypePicker({
   options,
@@ -24,7 +24,14 @@ export default function ContractTypePicker({
   const selSet = useMemo(() => new Set(selected), [selected]);
   const kw = q.trim().toLowerCase();
   const filtered = useMemo(
-    () => (kw ? options.filter((o) => o.name.toLowerCase().includes(kw)) : options),
+    () =>
+      kw
+        ? options.filter(
+            (o) =>
+              o.name.toLowerCase().includes(kw) ||
+              (o.group ? o.group.toLowerCase().includes(kw) : false)
+          )
+        : options,
     [options, kw]
   );
   const allSelected = options.length > 0 && options.every((o) => selSet.has(o.name));
@@ -104,7 +111,10 @@ export default function ContractTypePicker({
                 onClick={() => toggle(o.name)}
               >
                 <span className="ctp-opt-check">{on ? "✓" : ""}</span>
-                <span className="ctp-opt-name">{o.name}</span>
+                <span className="ctp-opt-name">
+                  {o.group && <span className="ctp-opt-group">{o.group}</span>}
+                  {o.name}
+                </span>
                 {typeof o.activeCount === "number" && o.activeCount > 0 && (
                   <span className="ctp-opt-badge">在籍 {o.activeCount.toLocaleString()}</span>
                 )}

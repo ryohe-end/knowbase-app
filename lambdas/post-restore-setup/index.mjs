@@ -70,6 +70,8 @@ async function setup(adminCfg, roCfg) {
     const roTables = [
       "個人", "会員番号", "会員番号_外部ID", "会員番号_外部ID_削除", "個人電話番号", "会員クラブ契約", "CSクラブ",
       "振替契約別", "会員入金歴", "会員契約", "会員区分", "会費分類",
+      // ターゲット抽出: 会員区分に紐づく契約形態(会員契約明細→契約形態)
+      "会員契約明細", "契約形態",
       // ビーコン日次同期用 (ゲート/ビーコン系)
       "ゲートコントロールマスタ", "BEACONQRマスタ", "PDAゲートNO変換", "クラブWS", "エリア入室設定",
     ];
@@ -110,12 +112,62 @@ async function setup(adminCfg, roCfg) {
   }
 }
 
+// 契約形態(会員区分に紐づく)抽出のためのテーブル名確認 + grant。
+// FIT_ADMIN 配下の 契約/形態/明細 系テーブルを列挙し、候補に一致するものへ
+// knowbie_ro に SELECT grant を付与する。
+async function grantContractForms(adminCfg, roCfg) {
+  const conn = await oracledb.getConnection({
+    user: adminCfg.user,
+    password: adminCfg.password,
+    connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+  });
+  const out = { candidatesFound: [], granted: [], errors: [] };
+  try {
+    const r = await conn.execute(
+      `SELECT table_name FROM all_tables
+        WHERE owner = 'FIT_ADMIN'
+          AND (table_name LIKE '%契約形態%' OR table_name LIKE '%契約明細%'
+               OR table_name LIKE '%会員契約%')
+        ORDER BY table_name`,
+      {},
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    out.candidatesFound = (r.rows || []).map((x) => x.TABLE_NAME);
+    // 実在するもののうち、契約形態抽出に必要な 会員契約明細 / 契約形態 を grant
+    const need = ["会員契約明細", "契約形態"];
+    for (const tbl of need) {
+      if (!out.candidatesFound.includes(tbl)) {
+        out.errors.push(`${tbl}: not found in FIT_ADMIN`);
+        continue;
+      }
+      try {
+        await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
+        out.granted.push(tbl);
+      } catch (e) {
+        out.errors.push(`${tbl}: ${e.message}`);
+      }
+    }
+    await conn.commit();
+    return { ok: true, ...out };
+  } catch (err) {
+    return { ok: false, ...out, error: err.message };
+  } finally {
+    try { await conn.close(); } catch (_) { /* noop */ }
+  }
+}
+
 // --- メインハンドラ ----------------------------------------------------------
 export const handler = async (event) => {
   console.log("trigger event", JSON.stringify(event));
 
   const adminCfg = await getSecret(process.env.ORACLE_ADMIN_SECRET_ARN);
   const roCfg    = await getSecret(process.env.ORACLE_RO_SECRET_ARN);
+
+  if (event && event.action === "grant_contract_forms") {
+    const r = await grantContractForms(adminCfg, roCfg);
+    console.log("grant_contract_forms result", r);
+    return r;
+  }
 
   const result = await setup(adminCfg, roCfg);
   console.log("setup result", result);
