@@ -30,7 +30,7 @@ export function newCondGroup(contractTypes: string[]): CondGroup {
     visitCountFrom: "", visitCountTo: "",
     visitPeriodFrom: "", visitPeriodTo: "",
     gender: ["male", "female"],
-    membershipStatus: ["stable", "leaver"],
+    membershipStatus: ["stable"], // 既定は在籍中のみ
     contractTypes: [...contractTypes],
     contractForms: [],
     contractOptions: [],
