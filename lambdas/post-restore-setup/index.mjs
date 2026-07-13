@@ -72,6 +72,8 @@ async function setup(adminCfg, roCfg) {
       "振替契約別", "会員入金歴", "会員契約", "会員区分", "会費分類",
       // ターゲット抽出: 会員区分に紐づく契約形態(会員契約明細→契約形態)
       "会員契約明細", "契約形態",
+      // 返金・入金(返金画面): 口座情報
+      "会員契約者口座",
       // ビーコン日次同期用 (ゲート/ビーコン系)
       "ゲートコントロールマスタ", "BEACONQRマスタ", "PDAゲートNO変換", "クラブWS", "エリア入室設定",
     ];
@@ -133,8 +135,8 @@ async function grantContractForms(adminCfg, roCfg) {
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
     out.candidatesFound = (r.rows || []).map((x) => x.TABLE_NAME);
-    // 実在するもののうち、契約形態抽出に必要な 会員契約明細 / 契約形態 を grant
-    const need = ["会員契約明細", "契約形態"];
+    // 実在するもののうち、契約形態抽出 / 返金の口座 に必要なテーブルを grant
+    const need = ["会員契約明細", "契約形態", "会員契約者口座"];
     for (const tbl of need) {
       if (!out.candidatesFound.includes(tbl)) {
         out.errors.push(`${tbl}: not found in FIT_ADMIN`);

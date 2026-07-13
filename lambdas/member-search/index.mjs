@@ -302,6 +302,8 @@ const REFUNDABLE_SQL = `
   SELECT
     b.会員番号                                 AS MEMBER_NO,
     b.個人SEQ                                  AS KOJIN_SEQ,
+    p.漢字姓名                                 AS NAME_KANJI,
+    p.T連絡先TEL                               AS PHONE,
     a.契約者SEQ                                AS KEIYAKUSHA_SEQ,
     a.契約SEQ                                  AS KEIYAKU_SEQ,
     c.クラブコード                             AS CLUB_CODE,
@@ -331,10 +333,11 @@ const REFUNDABLE_SQL = `
     f.ステータス3                              AS ACCOUNT_STATUS3
   FROM FIT_ADMIN.会員入金歴 a
   INNER JOIN FIT_ADMIN.会員番号 b       ON a.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN.個人 p           ON b.個人SEQ   = p.個人SEQ
   INNER JOIN FIT_ADMIN.会員契約 c       ON a.契約SEQ   = c.契約SEQ
   LEFT  JOIN FIT_ADMIN.会員区分 k       ON c.会員区分コード = k.会員区分コード
   LEFT  JOIN FIT_ADMIN.会費分類 h       ON a.会費分類コード = h.会費分類コード
-  INNER JOIN latest_account f           ON a.契約者SEQ = f.契約者SEQ
+  LEFT  JOIN latest_account f           ON a.契約者SEQ = f.契約者SEQ
   WHERE b.会員番号 = :memberNo
     AND c.クラブコード = :clubCode
     AND a.対応年月 BETWEEN :fromMonth AND :toMonth
@@ -398,6 +401,8 @@ const UNPAID_SQL = `
   SELECT
     b.会員番号                                 AS MEMBER_NO,
     b.個人SEQ                                  AS KOJIN_SEQ,
+    p.漢字姓名                                 AS NAME_KANJI,
+    p.T連絡先TEL                               AS PHONE,
     a.契約者SEQ                                AS KEIYAKUSHA_SEQ,
     a.契約SEQ                                  AS KEIYAKU_SEQ,
     c.クラブコード                             AS CLUB_CODE,
@@ -418,6 +423,7 @@ const UNPAID_SQL = `
     TRIM(f.預金者名)                           AS HOLDER_NAME
   FROM FIT_ADMIN.会員入金歴 a
   INNER JOIN FIT_ADMIN.会員番号 b       ON a.契約者SEQ = b.契約者SEQ
+  INNER JOIN FIT_ADMIN.個人 p           ON b.個人SEQ   = p.個人SEQ
   INNER JOIN FIT_ADMIN.会員契約 c       ON a.契約SEQ   = c.契約SEQ
   LEFT  JOIN FIT_ADMIN.会員区分 k       ON c.会員区分コード = k.会員区分コード
   LEFT  JOIN FIT_ADMIN.会費分類 h       ON a.会費分類コード = h.会費分類コード
@@ -1278,9 +1284,9 @@ function buildRefundableResult(rows) {
   const member = {
     memberNo: first.MEMBER_NO != null ? String(first.MEMBER_NO) : null,
     kojinSeq: first.KOJIN_SEQ != null ? String(first.KOJIN_SEQ) : null,
-    name: null,                // 漢字氏名は別 SQL で取得 (本 SQL では未取得)
+    name: first.NAME_KANJI != null ? String(first.NAME_KANJI) : null, // 個人.漢字姓名
     kana: first.HOLDER_NAME != null ? String(first.HOLDER_NAME) : null,
-    phone: null,
+    phone: first.PHONE != null ? String(first.PHONE) : null,
     plan: first.PLAN_NAME ?? null,
     planCode: first.PLAN_CODE ?? null,
     isCorporate: first.IS_CORPORATE === 1 || first.IS_CORPORATE === "1",
@@ -1327,9 +1333,9 @@ function buildUnpaidResult(rows) {
   const member = {
     memberNo: first.MEMBER_NO != null ? String(first.MEMBER_NO) : null,
     kojinSeq: first.KOJIN_SEQ != null ? String(first.KOJIN_SEQ) : null,
-    name: null,
+    name: first.NAME_KANJI != null ? String(first.NAME_KANJI) : null,
     kana: first.HOLDER_NAME != null ? String(first.HOLDER_NAME) : null,
-    phone: null,
+    phone: first.PHONE != null ? String(first.PHONE) : null,
     plan: first.PLAN_NAME ?? null,
     planCode: first.PLAN_CODE ?? null,
     isCorporate: first.IS_CORPORATE === 1 || first.IS_CORPORATE === "1",
