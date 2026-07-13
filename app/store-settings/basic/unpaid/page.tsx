@@ -303,7 +303,7 @@ function UnpaidManager() {
               <div className="up-dash">
                 {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
                   <>
-                    <div className="up-section-h">① 初回振替の結果<span>振替系テーブル（振替契約別）／件数は振替の総数</span></div>
+                    <div className="up-section-h">① 初回振替の結果</div>
                     <div className="up-cards">
                       <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="振替総数" />
                       <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmount)} tone="blue" sub={yen(summary.billedAmount)} />
@@ -325,7 +325,7 @@ function UnpaidManager() {
                       const totalCnt = rows.reduce((s, r) => s + r.count, 0) || 1;
                       return (
                         <>
-                          <div className="up-section-h" style={{ marginTop: 22 }}>② 未納になった人のその後<span>入金系テーブル（会員入金歴・入金区分コード）</span></div>
+                          <div className="up-section-h" style={{ marginTop: 22 }}>② 未納になった人のその後</div>
                           <div className="up-panel">
                             <table className="up-table">
                               <thead><tr><th>入金区分</th><th>内容</th><th>件数（契約者SEQ）</th><th>金額</th><th>構成比</th></tr></thead>
