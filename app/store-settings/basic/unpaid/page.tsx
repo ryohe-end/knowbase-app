@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Users, TrendingUp } from "lucide-react";
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
+  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
 } from "recharts";
 import { UNPAID_AREAS } from "@/lib/unpaidAreaMap";
 import GuideTour from "@/components/GuideTour";
@@ -208,7 +208,7 @@ function UnpaidManager() {
         listClubCodes.forEach((c) => { const b = brandOf(c); m.set(b, [...(m.get(b) || []), c]); });
         groups = [...m.entries()].map(([b, cs]) => ({ key: b, label: b, codes: cs }));
       } else {
-        groups = listClubCodes.slice(0, 12).map((c) => ({ key: c, label: clubs.find((x) => x.clubCode === c)?.clubName || c, codes: [c] }));
+        groups = listClubCodes.slice(0, 20).map((c) => ({ key: c, label: clubs.find((x) => x.clubCode === c)?.clubName || c, codes: [c] }));
       }
       const { fromYm, toYm } = fyRange(fiscalYear);
       try {
@@ -417,7 +417,7 @@ function UnpaidManager() {
                       <div className="up-panel">
                         <div className="up-panel-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                           <span><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
-                            {compareMode === "none" ? `請求 / 回収 / 未納 推移と回収率（${fiscalYear}年度）` : `未納金額の推移 比較（${fiscalYear}年度）`}</span>
+                            {compareMode === "none" ? `請求 / 回収 / 未納 推移と回収率（${fiscalYear}年度）` : compareMode === "store" ? `未納金額 店舗別ランキング（${fiscalYear}年度）` : `未納金額の推移 ブランド比較（${fiscalYear}年度）`}</span>
                           <span style={{ display: "inline-flex", gap: 4, fontSize: 11 }}>
                             {compareLoading && <span style={{ color: "#94a3b8", alignSelf: "center" }}>集計中…</span>}
                             <span style={{ color: "#94a3b8", fontWeight: 700, alignSelf: "center" }}>比較:</span>
@@ -430,8 +430,20 @@ function UnpaidManager() {
                           </span>
                         </div>
                         <div style={{ padding: "14px 10px 6px" }}>
-                          <ResponsiveContainer width="100%" height={260}>
-                            {compareMode !== "none" ? (
+                          <ResponsiveContainer width="100%" height={compareMode === "store" ? Math.max(260, compareSeries.length * 30 + 40) : 260}>
+                            {compareMode === "store" ? (
+                              // 店舗別: 未納金額 合計の横棒ランキング(降順)。折れ線が多くて見にくい問題の解消。
+                              <BarChart layout="vertical" data={compareSeries
+                                .map((s) => ({ label: s.label, 未納: Object.values(s.byMonth).reduce((a, b) => a + b, 0) }))
+                                .sort((a, b) => b.未納 - a.未納)}
+                                margin={{ left: 8, right: 16 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                                <XAxis type="number" fontSize={10} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+                                <YAxis type="category" dataKey="label" width={120} fontSize={11} interval={0} />
+                                <Tooltip formatter={(v: any) => `¥${Number(v).toLocaleString()}`} />
+                                <Bar dataKey="未納" fill="#f87171" radius={[0, 4, 4, 0]} />
+                              </BarChart>
+                            ) : compareMode === "brand" ? (
                               <ComposedChart data={summary.byMonth.map((m) => {
                                 const row: any = { month: m.month.slice(2) };
                                 compareSeries.forEach((s) => { row[s.label] = s.byMonth[m.month] ?? 0; });
@@ -443,7 +455,7 @@ function UnpaidManager() {
                                 <Tooltip formatter={(v: any) => `¥${Number(v).toLocaleString()}`} />
                                 <Legend wrapperStyle={{ fontSize: 11 }} />
                                 {compareSeries.map((s, i) => (
-                                  <Line key={s.key} dataKey={s.label} stroke={["#4f46e5", "#e26e9d", "#0097a7", "#d97706", "#16a34a", "#dc2626", "#7c3aed", "#0ea5e9", "#65a30d", "#db2777", "#0891b2", "#ca8a04"][i % 12]} strokeWidth={2} dot={{ r: 2 }} />
+                                  <Line key={s.key} dataKey={s.label} stroke={["#4f46e5", "#e26e9d", "#0097a7", "#d97706"][i % 4]} strokeWidth={2.5} dot={{ r: 2 }} />
                                 ))}
                               </ComposedChart>
                             ) : (
@@ -572,7 +584,13 @@ function UnpaidManager() {
                               <td><code>{m.memberNo}</code></td>
                               <td>{m.memberName}</td>
                               <td className="up-red">{yen(m.outstanding)}</td>
-                              <td className="up-bd">{(m.monthlyBreakdown || []).slice(0, 4).map((x) => `${x.month}:${yen(x.amount)}`).join(" / ")}{(m.monthlyBreakdown?.length || 0) > 4 ? " …" : ""}</td>
+                              <td className="up-bd">
+                                <div className="up-bd-wrap">
+                                  {(m.monthlyBreakdown || []).map((x) => (
+                                    <span className="up-bd-chip" key={x.month}>{x.month.slice(2)} <b>{yen(x.amount)}</b></span>
+                                  ))}
+                                </div>
+                              </td>
                               <td>{m.phone}</td>
                               <td className="up-mail">{m.email}</td>
                               <td>{m.hasSecurityFee ? yen(m.annualFeeTotal) : "—"}</td>
@@ -728,7 +746,10 @@ function UnpaidManager() {
         .up-pill.blue { background: #eff6ff; color: #2563eb; } .up-pill.amber { background: #fffbeb; color: #d97706; }
         .up-pill.gray { background: #f1f5f9; color: #64748b; }
         .up-mail { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-        .up-bd { font-size: 11px; color: #475569; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+        .up-bd { font-size: 11px; color: #475569; max-width: 340px; white-space: normal; }
+        .up-bd-wrap { display: flex; flex-wrap: wrap; gap: 4px; max-height: 84px; overflow-y: auto; }
+        .up-bd-chip { display: inline-block; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+        .up-bd-chip b { color: #dc2626; font-weight: 700; }
         .up-list-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
         .up-bucket { display: flex; gap: 4px; background: #f1f5f9; padding: 3px; border-radius: 8px; }
         .up-statusfilter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
