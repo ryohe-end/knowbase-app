@@ -33,10 +33,16 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   const clubCode = (sp.get("clubCode") || "").trim();
+  const clubCodesParam = (sp.get("clubCodes") || "").trim();
   const bucket = sp.get("bucket") || "current";
-  if (!clubCode) return NextResponse.json({ ok: false, error: "clubCode required" }, { status: 400 });
-  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
-    return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
+
+  // 単一 or 複数(エリアCSV)。全て担当スコープ内であることを検証。
+  let clubs = clubCodesParam ? clubCodesParam.split(",").map((s) => s.trim()).filter(Boolean) : (clubCode ? [clubCode] : []);
+  if (clubs.length === 0) return NextResponse.json({ ok: false, error: "clubCode required" }, { status: 400 });
+  if (user.clubCodes.length > 0) {
+    const scope = new Set(user.clubCodes);
+    clubs = clubs.filter((c) => scope.has(c));
+    if (clubs.length === 0) return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
   }
 
   const typeMap: Record<string, string> = {
@@ -47,7 +53,7 @@ export async function GET(req: NextRequest) {
   const type = typeMap[bucket] || "unpaid_current";
 
   try {
-    const data = await callMemberSearch({ type, clubCode });
+    const data = await callMemberSearch({ type, clubCodes: clubs.join(",") });
     if (bucket === "paid") {
       return NextResponse.json({ ok: true, bucket, items: data.items ?? [] });
     }

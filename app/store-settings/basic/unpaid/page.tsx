@@ -11,7 +11,8 @@ import { UNPAID_AREAS } from "@/lib/unpaidAreaMap";
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
-interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number }
+interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number; recoveredAmount?: number; stillUnpaidAmount?: number }
+interface MonthDetailMember { memberNo: string; name: string; phone: string; email: string; unpaidAmount: number; recoveredAmount: number }
 interface FollowupBucket { kubun: number; label: string; count: number; billedAmount: number; paidAmount: number; amount: number }
 interface Followup {
   paid: FollowupBucket; unpaid: FollowupBucket; writeoff: FollowupBucket;
@@ -76,6 +77,8 @@ function UnpaidManager() {
   const [loadingList, setLoadingList] = useState(false);
   const [loadingSched, setLoadingSched] = useState(false);
   const [err, setErr] = useState("");
+  const [monthDetail, setMonthDetail] = useState<{ ym: string; unpaid: MonthDetailMember[]; recovered: MonthDetailMember[] } | null>(null);
+  const [monthLoading, setMonthLoading] = useState(false);
   const searchParams = useSearchParams();
 
   // 基本設定で選択したクラブを引き継ぐ (URL ?clubCode=)。再選択不要にする。
@@ -115,6 +118,19 @@ function UnpaidManager() {
 
   const hasSelection = (mode === "club" && !!clubCode) || (mode === "area" && areaClubCodes.length > 0) || (mode === "brand" && !!brand);
 
+  // 月次ドリルダウン (未納者/回収者)
+  const openMonthDetail = async (month: string) => {
+    const ym = month.replace("-", "");
+    setMonthDetail({ ym: month, unpaid: [], recovered: [] });
+    setMonthLoading(true);
+    try {
+      const q = filterQuery(); q.set("ym", ym);
+      const res = await fetch(`/api/store-settings/unpaid/month-detail?${q}`, { cache: "no-store" });
+      const d = await res.json();
+      if (d.ok) setMonthDetail({ ym: month, unpaid: d.unpaid || [], recovered: d.recovered || [] });
+    } catch { /* noop */ } finally { setMonthLoading(false); }
+  };
+
   // ダッシュボード数値
   const loadSummary = useCallback(async () => {
     if (!hasSelection) { setSummary(null); return; }
@@ -129,18 +145,26 @@ function UnpaidManager() {
     finally { setLoadingSum(false); }
   }, [filterQuery, hasSelection]);
 
-  // 一覧 (店舗単位のみ)
+  // 対象クラブコード群 (店舗/エリア/ブランド)
+  const listClubCodes = useMemo(() => {
+    if (mode === "club") return clubCode ? [clubCode] : [];
+    if (mode === "area") return areaClubCodes;
+    if (mode === "brand" && brand) return clubs.filter((c) => c.businessType === brand).map((c) => c.clubCode);
+    return [];
+  }, [mode, clubCode, areaClubCodes, brand, clubs]);
+
+  // 一覧 (店舗/エリア/ブランド)
   const loadList = useCallback(async () => {
-    if (mode !== "club" || !clubCode) { setMembers([]); return; }
+    if (listClubCodes.length === 0) { setMembers([]); return; }
     setLoadingList(true);
     try {
-      const res = await fetch(`/api/store-settings/unpaid/list?clubCode=${clubCode}&bucket=${bucket}`, { cache: "no-store" });
+      const res = await fetch(`/api/store-settings/unpaid/list?clubCodes=${listClubCodes.join(",")}&bucket=${bucket}`, { cache: "no-store" });
       const d = await res.json();
       if (!res.ok || !d.ok) throw new Error(d?.error || "取得失敗");
       setMembers(d.members || []);
     } catch (e: any) { setErr(e?.message || "エラー"); setMembers([]); }
     finally { setLoadingList(false); }
-  }, [mode, clubCode, bucket]);
+  }, [listClubCodes, bucket]);
 
   // 貸倒償却予定
   const loadSchedule = useCallback(async () => {
@@ -159,36 +183,29 @@ function UnpaidManager() {
   useEffect(() => { if (tab === "list" || tab === "csv") loadList(); }, [tab, loadList]);
   useEffect(() => { if (tab === "schedule") loadSchedule(); }, [tab, loadSchedule]);
 
-  // CSV出力
+  // CSV出力 (店舗 / エリア / ブランド)。列順: 会員番号, 名前, 未納金額, 電話番号, メールアドレス …
   const downloadCsv = async () => {
-    if (mode !== "club" || !clubCode) { alert("CSVは店舗を選択して出力してください"); return; }
-    let rows = members;
-    if (rows.length === 0) {
-      const res = await fetch(`/api/store-settings/unpaid/list?clubCode=${clubCode}&bucket=${bucket}`, { cache: "no-store" });
-      const d = await res.json();
-      rows = d.members || [];
-    }
-    // ステータス絞り込みを CSV にも反映 (SMS文面の出し分け用)
+    let codes: string[] = [];
+    let tag = "";
+    if (mode === "club" && clubCode) { codes = [clubCode]; tag = clubCode; }
+    else if (mode === "area" && areaClubCodes.length > 0) { codes = areaClubCodes; tag = (territory || area).replace(/\s/g, ""); }
+    else if (mode === "brand" && brand) { codes = clubs.filter((c) => c.businessType === brand).map((c) => c.clubCode); tag = brand; }
+    if (codes.length === 0) { alert("店舗・エリア・ブランドのいずれかを選択してください"); return; }
+    const res = await fetch(`/api/store-settings/unpaid/list?clubCodes=${codes.join(",")}&bucket=${bucket}`, { cache: "no-store" });
+    const d = await res.json();
+    let rows: Member[] = d.members || [];
     if (bucket === "current" && statusFilter !== "all") rows = rows.filter((m) => statusCat(m.status) === statusFilter);
-    const header = ["会員区分", "ステータス", "会員番号", "名前", "未納金額", "1ヶ月目", "2ヶ月目", "3ヶ月目", "4ヶ月目以降", "電話番号", "メールアドレス", "セキュリティ費(年管理費)"];
-    const lines = rows.map((m) => {
-      const b = m.monthlyBreakdown || [];
-      const m1 = b[0]?.amount ?? 0;
-      const m2 = b[1]?.amount ?? 0;
-      const m3 = b[2]?.amount ?? 0;
-      const rest = b.slice(3).reduce((s, x) => s + x.amount, 0);
-      return [
-        m.plan ?? "", m.status, m.memberNo, m.memberName ?? "",
-        m.outstanding, m1, m2, m3, rest,
-        m.phone ?? "", m.email ?? "", m.annualFeeTotal,
-      ].map(csvEscape).join(",");
-    });
+    const header = ["会員番号", "名前", "未納金額", "電話番号", "メールアドレス", "会員区分", "ステータス", "セキュリティ費(年管理費)"];
+    const lines = rows.map((m) => [
+      m.memberNo, m.memberName ?? "", m.outstanding, m.phone ?? "", m.email ?? "",
+      m.plan ?? "", m.status, m.annualFeeTotal,
+    ].map(csvEscape).join(","));
     const csv = "﻿" + [header.join(","), ...lines].join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     const label = bucket === "writeoff" ? "貸倒予定" : "未納者";
-    a.href = url; a.download = `${label}_${clubCode}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.href = url; a.download = `${label}_${tag}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click(); URL.revokeObjectURL(url);
   };
 
@@ -377,19 +394,19 @@ function UnpaidManager() {
                       </div>
                     </div>
                     <div className="up-panel">
-                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）</div>
+                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）　<span style={{ fontWeight: 600, color: "#94a3b8", fontSize: 11 }}>行をクリックで未納者・回収者を表示</span></div>
                       <table className="up-table">
-                        <thead><tr><th>振替年月</th><th>請求件数</th><th>請求金額</th><th>回収件数</th><th>回収金額</th><th>未納件数</th><th>未納金額</th></tr></thead>
+                        <thead><tr><th>振替年月</th><th>請求金額</th><th>回収金額</th><th>未納（初回不成立）</th><th>うち後日回収</th><th>現未納</th><th></th></tr></thead>
                         <tbody>
                           {[...summary.byMonth].reverse().map((r) => (
-                            <tr key={r.month}>
+                            <tr key={r.month} className="up-row-click" onClick={() => openMonthDetail(r.month)}>
                               <td>{r.month}</td>
-                              <td>{r.billedCount.toLocaleString()}</td>
                               <td className="up-blue">{yen(r.billedAmount)}</td>
-                              <td>{r.collectedCount.toLocaleString()}</td>
                               <td className="up-green">{yen(r.collectedAmount)}</td>
-                              <td>{r.unpaidCount.toLocaleString()}</td>
                               <td className="up-red">{yen(r.unpaidAmount)}</td>
+                              <td className="up-green">{yen(r.recoveredAmount || 0)}</td>
+                              <td className="up-red">{yen(r.stillUnpaidAmount || 0)}</td>
+                              <td style={{ color: "#94a3b8" }}>›</td>
                             </tr>
                           ))}
                           {summary.byMonth.length === 0 && <tr><td colSpan={7} className="up-muted">データがありません</td></tr>}
@@ -426,11 +443,11 @@ function UnpaidManager() {
                   </div>
                 )}
 
-                {mode !== "club" ? (
-                  <div className="up-empty">一覧・CSVは「店舗」を選択して表示してください（エリア/ブランドはダッシュボード合算のみ）。</div>
+                {listClubCodes.length === 0 ? (
+                  <div className="up-empty">店舗・エリア・ブランドのいずれかを選択してください。</div>
                 ) : loadingList ? <div className="up-empty">読み込み中…</div> : (
                   <div className="up-panel">
-                    <div className="up-panel-h">{clubName}（{filteredMembers.length}名{filteredMembers.length !== members.length ? ` / 全${members.length}名` : ""}） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
+                    <div className="up-panel-h">{mode === "club" ? clubName : mode === "area" ? (territory || area) : brand}（{filteredMembers.length}名{filteredMembers.length !== members.length ? ` / 全${members.length}名` : ""} ／ {listClubCodes.length}店舗） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
                     <div style={{ overflowX: "auto" }}>
                       <table className="up-table">
                         <thead><tr><th>会員区分</th><th>ステータス</th><th>会員番号</th><th>名前</th><th>未納金額</th><th>月別内訳</th><th>電話</th><th>メール</th><th>ｾｷｭﾘﾃｨ費</th></tr></thead>
@@ -496,8 +513,64 @@ function UnpaidManager() {
         )}
       </div>
 
+      {/* 月次ドリルダウン: 未納者 / 後日回収者 */}
+      {monthDetail && (
+        <div className="up-modal-ov" onClick={() => setMonthDetail(null)}>
+          <div className="up-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="up-modal-h">
+              <span>{monthDetail.ym} の内訳</span>
+              <button onClick={() => setMonthDetail(null)}>✕</button>
+            </div>
+            {monthLoading ? <div className="up-empty">読み込み中…</div> : (
+              <div className="up-modal-body">
+                <div className="up-modal-col">
+                  <div className="up-modal-col-h red">現未納者（{monthDetail.unpaid.length}名）</div>
+                  <div className="up-modal-list">
+                    {monthDetail.unpaid.map((m) => (
+                      <div className="up-mrow" key={m.memberNo}>
+                        <div><code>{m.memberNo}</code> {m.name}</div>
+                        <div className="up-red">{yen(m.unpaidAmount)}</div>
+                        <div className="up-mrow-sub">{m.phone} {m.email}</div>
+                      </div>
+                    ))}
+                    {monthDetail.unpaid.length === 0 && <div className="up-muted" style={{ padding: 12 }}>なし</div>}
+                  </div>
+                </div>
+                <div className="up-modal-col">
+                  <div className="up-modal-col-h green">後日回収できた人（{monthDetail.recovered.length}名）</div>
+                  <div className="up-modal-list">
+                    {monthDetail.recovered.map((m) => (
+                      <div className="up-mrow" key={m.memberNo}>
+                        <div><code>{m.memberNo}</code> {m.name}</div>
+                        <div className="up-green">{yen(m.recoveredAmount)}</div>
+                        <div className="up-mrow-sub">{m.phone} {m.email}</div>
+                      </div>
+                    ))}
+                    {monthDetail.recovered.length === 0 && <div className="up-muted" style={{ padding: 12 }}>なし</div>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         .up-root { background: #f1f5f9; min-height: 100vh; font-family: 'Inter', -apple-system, sans-serif; color: #0f172a; }
+        .up-row-click { cursor: pointer; } .up-row-click:hover { background: #f8fafc; }
+        .up-modal-ov { position: fixed; inset: 0; background: rgba(15,23,42,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+        .up-modal { background: #fff; border-radius: 14px; width: 100%; max-width: 860px; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+        .up-modal-h { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; font-weight: 800; }
+        .up-modal-h button { border: none; background: #f1f5f9; width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+        .up-modal-body { display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
+        .up-modal-col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid #e2e8f0; }
+        .up-modal-col:last-child { border-right: none; }
+        .up-modal-col-h { padding: 10px 16px; font-weight: 800; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+        .up-modal-col-h.red { color: #dc2626; } .up-modal-col-h.green { color: #059669; }
+        .up-modal-list { overflow-y: auto; max-height: 62vh; }
+        .up-mrow { padding: 8px 16px; border-bottom: 1px solid #f8fafc; font-size: 13px; display: grid; grid-template-columns: 1fr auto; gap: 4px; }
+        .up-mrow code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+        .up-mrow-sub { grid-column: 1 / -1; font-size: 11px; color: #94a3b8; }
         .up-header { background: #fff; border-bottom: 2px solid #0ea5e9; position: sticky; top: 0; z-index: 40; }
         .up-header-inner { max-width: 1240px; margin: 0 auto; height: 68px; padding: 0 24px; display: flex; align-items: center; gap: 16px; }
         .up-back { color: #94a3b8; display: flex; } .up-back:hover { color: #0ea5e9; }
