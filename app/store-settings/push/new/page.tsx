@@ -8,6 +8,7 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
 import { type ContractTypeOption } from "@/components/ContractTypePicker";
 import StorePicker from "@/components/StorePicker";
+import GuideTour from "@/components/GuideTour";
 
 // 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
 // 初期グループ生成用の空マスタ (店舗未選択時)。
@@ -331,6 +332,17 @@ export default function NewPushPage() {
 
   return (
     <div className="push-root">
+      <GuideTour
+        storageKey="tour_push_new_v1"
+        steps={[
+          { title: "PUSH通知・お知らせの作成", body: "配信を作る手順をご案内します。①店舗選択 → ②内容入力 → ③ターゲット抽出 → ④スケジュール の順です。" },
+          { selector: '[data-tour="store"]', title: "① 配信店舗", body: "配信先の店舗を選びます。複数店舗の担当者は複数選択でき、管理者はブランド・直営/FC・エリアで絞り込めます。" },
+          { selector: '[data-tour="content"]', title: "② 通知コンテンツ", body: "タイトル・本文・お知らせ画像を入力します。「AIで文章作成」で指示から文面を自動生成できます。" },
+          { selector: '[data-tour="target"]', title: "③ ターゲット抽出", body: "性別・在籍状況・契約種別・契約形態・オプション・未納などで配信対象を絞り、「条件で名簿を作成」で対象者を確定します。" },
+          { selector: '[data-tour="preview"]', title: "プレビュー", body: "ロック画面のPUSH通知と、アプリ内お知らせの2種類をリアルタイムで確認できます。" },
+          { selector: '[data-tour="schedule"]', title: "④ スケジュール", body: "即時送信または予約配信を選び、右上の「内容を確認する」から送信します。下書き保存も可能です。" },
+        ]}
+      />
       <AdminLoadingOverlay visible={sending} />
 
       <header className="push-header">
@@ -367,7 +379,7 @@ export default function NewPushPage() {
         <div className="push-new-grid">
           {/* COLUMN 1: 設定 */}
           <aside className="push-col-config">
-            <div className="push-step-group">
+            <div className="push-step-group" data-tour="store">
               <div className="push-step-header">
                 <div className="push-step-badge">1</div>
                 <h3>配信店舗</h3>
@@ -393,7 +405,7 @@ export default function NewPushPage() {
 
             <div className="push-divider" />
 
-            <div className="push-step-group">
+            <div className="push-step-group" data-tour="content">
               <div className="push-step-header">
                 <div className="push-step-badge">2</div>
                 <h3>通知コンテンツ</h3>
@@ -474,7 +486,7 @@ export default function NewPushPage() {
 
             <div className="push-divider" />
 
-            <div className="push-step-group">
+            <div className="push-step-group" data-tour="target">
               <div className="push-step-header"><div className="push-step-badge">3</div><h3>ターゲット抽出</h3></div>
               <div className="push-filter-box">
                 {groups.length > 1 && (
@@ -530,7 +542,7 @@ export default function NewPushPage() {
 
             <div className="push-divider" />
 
-            <div className="push-step-group">
+            <div className="push-step-group" data-tour="schedule">
               <div className="push-step-header"><div className="push-step-badge">4</div><h3>スケジュール</h3></div>
               <div className="push-radio-box">
                 <label className={isImmediate ? "active" : ""}>
@@ -632,7 +644,7 @@ export default function NewPushPage() {
           </section>
 
           {/* COLUMN 3: プレビュー (2種: ロック画面PUSH / アプリ内お知らせ) */}
-          <section className="push-col-preview">
+          <section className="push-col-preview" data-tour="preview">
             <div className="push-panel-header-sticky">プレビュー（{theme.label}）</div>
             <div className="push-preview-frame push-preview-dual">
               {/* ① ロック画面に出る PUSH 通知バナー */}

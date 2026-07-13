@@ -8,6 +8,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
 } from "recharts";
 import { UNPAID_AREAS } from "@/lib/unpaidAreaMap";
+import GuideTour from "@/components/GuideTour";
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
@@ -229,6 +230,17 @@ function UnpaidManager() {
 
   return (
     <div className="up-root">
+      <GuideTour
+        storageKey="tour_unpaid_v1"
+        steps={[
+          { title: "未納金管理ダッシュボード", body: "未納の全体像と、未納になった人のその後を確認できます。使い方をご案内します。" },
+          { selector: '[data-tour="filter"]', title: "対象と年度の選択", body: "店舗・エリア・ブランドで対象を選び、年度（4月〜翌3月）を切り替えます。基本設定で選んだ店舗は自動で引き継がれます。" },
+          { selector: '[data-tour="tabs"]', title: "ダッシュボード / 一覧 / CSV / 貸倒予定", body: "タブを切り替えて、集計・未納者一覧・CSV出力・貸倒償却予定を確認できます。CSVはエリア単位でも出力可能です。" },
+          { title: "① 初回振替の結果", body: "その年度に請求した振替のうち、成功（回収）と不成立（未納）の件数・金額を表示します。" },
+          { title: "② 未納になった人のその後", body: "初回振替が不成立だった人が、その後どうなったか（支払済／現未納／貸倒れ 等）を追跡します。" },
+          { title: "月次内訳をクリック", body: "月次内訳の行をクリックすると、その月の「現未納者」と「後日回収できた人」を氏名・連絡先付きで確認できます。" },
+        ]}
+      />
       <header className="up-header">
         <div className="up-header-inner">
           <Link href="/store-settings" className="up-back"><ArrowLeft size={20} /></Link>
@@ -244,7 +256,7 @@ function UnpaidManager() {
 
       <div className="up-body">
         {/* フィルタ */}
-        <div className="up-filter">
+        <div className="up-filter" data-tour="filter">
           <div className="up-modes">
             {(["club", "area", "brand"] as const).map((mo) => (
               <button key={mo} className={`up-mode ${mode === mo ? "active" : ""}`} onClick={() => setMode(mo)}>
@@ -291,7 +303,7 @@ function UnpaidManager() {
         {hasSelection && (
           <>
             {/* タブ */}
-            <div className="up-tabs">
+            <div className="up-tabs" data-tour="tabs">
               <button className={`up-tab ${tab === "dashboard" ? "active" : ""}`} onClick={() => setTab("dashboard")}>ダッシュボード</button>
               <button className={`up-tab ${tab === "list" ? "active" : ""}`} onClick={() => setTab("list")}>一覧</button>
               <button className={`up-tab ${tab === "csv" ? "active" : ""}`} onClick={() => setTab("csv")}>CSV出力</button>

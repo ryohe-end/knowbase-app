@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import GuideTour from "@/components/GuideTour";
 
 const CogIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" style={{ width: 32, height: 32 }}>
@@ -92,6 +93,15 @@ export default function StoreSettingsMenu() {
 
   return (
     <div className="kb-store-root">
+      <GuideTour
+        storageKey="tour_store_top_v1"
+        steps={[
+          { title: "店舗設定へようこそ", body: "この画面から、配信・規約・返金など店舗運営の各機能にアクセスできます。まず全体の流れをご案内します。" },
+          { selector: ".kb-page-header", title: "担当店舗の範囲", body: "表示・操作できるのは、あなたに割り当てられた担当店舗（クラブコード）の範囲です。担当外の店舗データは表示されません。" },
+          { selector: ".kb-store-grid", title: "機能メニュー", body: "各カードをクリックすると設定画面が開きます。「準備中」のカードは今後提供予定です。" },
+          { selector: ".gt-fab", title: "いつでも見返せます", body: "各画面の右下にある「使い方」ボタンから、いつでもこのガイドを再表示できます。" },
+        ]}
+      />
       <div className="kb-topbar">
         <div className="kb-topbar-inner">
           <Link href="/" className="kb-back-link">← ホームへ戻る</Link>
