@@ -510,8 +510,9 @@ export default function NewPushPage() {
                         contractTypes={CONTRACT_TYPES}
                         contractTypeOptions={clubCode ? ctOptions : undefined}
                         contractTypesLoading={ctLoading}
-                        contractFormOptions={clubCode ? cfOptions : undefined}
+                        contractFormOptions={clubCode ? cfOptions.filter((o) => o.group !== "オプション契約") : undefined}
                         contractFormsLoading={cfLoading}
+                        contractOptionOptions={clubCode ? cfOptions.filter((o) => o.group === "オプション契約") : undefined}
                         cls="push"
                       />
                     </div>

@@ -81,6 +81,7 @@ interface GroupInput {
   membershipStatus?: string[]; // ["stable","leaver"]
   contractTypes?: string[]; // 会員区分名
   contractForms?: string[]; // 契約形態名 (会員区分に紐づく)
+  contractOptions?: string[]; // オプション契約の契約形態名 (別枠選択)
   joinDateFrom?: string; // "YYYY-MM-DD"
   joinDateTo?: string;
   leaveDateFrom?: string;
@@ -111,7 +112,11 @@ function mapGroup(g: GroupInput) {
     genderCodes,
     membershipStatus: Array.isArray(g.membershipStatus) ? g.membershipStatus : [],
     contractTypes: Array.isArray(g.contractTypes) ? g.contractTypes : [],
-    contractForms: Array.isArray(g.contractForms) ? g.contractForms : [],
+    // オプション(contractOptions)も契約形態名なので contractForms に統合して絞り込む
+    contractForms: [
+      ...(Array.isArray(g.contractForms) ? g.contractForms : []),
+      ...(Array.isArray(g.contractOptions) ? g.contractOptions : []),
+    ],
     joinDateFrom: toYmd(g.joinDateFrom),
     joinDateTo: toYmd(g.joinDateTo),
     leaveDateFrom: toYmd(g.leaveDateFrom),
@@ -193,10 +198,14 @@ export async function POST(req: Request) {
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${API_BASE}/members/extract`, {
-      method: "POST",
-      headers: { "x-api-key": API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify(searchBody),
+    // 抽出は member-search の GET 経路 (?type=member_extract) に base64 ペイロードで渡す。
+    const payloadB64 = Buffer.from(JSON.stringify(searchBody), "utf-8").toString("base64");
+    const url = new URL(`${API_BASE}/members/search`);
+    url.searchParams.set("type", "member_extract");
+    url.searchParams.set("payload", payloadB64);
+    upstream = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "x-api-key": API_KEY },
       cache: "no-store",
     });
   } catch (err) {

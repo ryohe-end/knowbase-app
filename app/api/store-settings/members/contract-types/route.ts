@@ -36,7 +36,7 @@ export async function GET(req: Request) {
         name: String(r.name ?? "").trim(),
         totalCount: Number(r.totalCount ?? 0),
         activeCount: Number(r.activeCount ?? 0),
-      })).filter((r) => r.name && r.code !== "8"), // 会員区分8(タイム会員)は除外
+      })).filter((r) => r.name && !["7", "8", "90"].includes(r.code)), // スタッフ(7)/タイム会員(8)/オプション契約(90)は除外(オプションは別ピッカー)
     });
   } catch (e: any) {
     console.error("[contract-types] error", e?.message || e);

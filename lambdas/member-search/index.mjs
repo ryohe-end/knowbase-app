@@ -1016,6 +1016,93 @@ export const handler = async (event) => {
     }
   }
 
+  // 会員抽出 (DM/Push ターゲティング)。条件グループ(グループ内AND/グループ間groupOp)で
+  // 会員区分名(contractTypes)・契約形態名(contractForms)・性別・在籍状況で絞り込む。
+  if (type === "member_extract") {
+    let body = {};
+    try {
+      if (params.payload) body = JSON.parse(Buffer.from(params.payload, "base64").toString("utf-8"));
+      else if (event.body) body = JSON.parse(event.body);
+    } catch (_) { body = {}; }
+    const clubCode = String(body.clubCode || params.clubCode || "").trim();
+    if (!clubCode) return resp(400, { error: "missing_params", required: ["clubCode"] });
+    const groups = Array.isArray(body.groups) && body.groups.length > 0 ? body.groups : [{}];
+    const groupOp = body.groupOp === "AND" ? "AND" : "OR";
+    const limit = Math.min(Math.max(Number(body.limit) || 1000, 1), 5000);
+
+    const binds = { clubCode: Number(clubCode) };
+    let bi = 0;
+    const inList = (vals, cast) => vals.map((v) => { const k = `b${bi++}`; binds[k] = cast ? cast(v) : v; return `:${k}`; }).join(",");
+    // 各条件は会員(b.契約者SEQ)単位の EXISTS。契約(会員区分)と契約形態が別契約でも会員で結合。
+    const groupSql = groups.map((g) => {
+      const conds = [];
+      const genders = Array.isArray(g.genderCodes) ? g.genderCodes.filter((x) => x === 1 || x === 2) : [];
+      if (genders.length > 0 && genders.length < 2) conds.push(`a.性別コード IN (${inList(genders)})`);
+      const ms = Array.isArray(g.membershipStatus) ? g.membershipStatus : [];
+      const stable = ms.includes("stable"), leaver = ms.includes("leaver");
+      let msCond = "";
+      if (stable && !leaver) msCond = ` AND (cc.退会日 IS NULL OR TO_CHAR(cc.退会日) = '99999999')`;
+      else if (leaver && !stable) msCond = ` AND (cc.退会日 IS NOT NULL AND TO_CHAR(cc.退会日) <> '99999999')`;
+      if (msCond) conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" cc WHERE cc.契約者SEQ = b.契約者SEQ AND cc.クラブコード = :clubCode${msCond})`);
+      const cts = Array.isArray(g.contractTypes) ? g.contractTypes.filter(Boolean) : [];
+      if (cts.length > 0) {
+        conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" c1 JOIN FIT_ADMIN."会員区分" k1 ON k1.会員区分コード = c1.会員区分コード
+                    WHERE c1.契約者SEQ = b.契約者SEQ AND c1.クラブコード = :clubCode AND k1.会員区分名 IN (${inList(cts)}))`);
+      }
+      const cfs = Array.isArray(g.contractForms) ? g.contractForms.filter(Boolean) : [];
+      if (cfs.length > 0) {
+        conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" c2
+                      JOIN FIT_ADMIN."会員契約明細" d ON d.契約SEQ = c2.契約SEQ
+                      JOIN FIT_ADMIN."契約形態" e ON d.契約形態コード = e.契約形態コード
+                    WHERE c2.契約者SEQ = b.契約者SEQ AND c2.クラブコード = :clubCode AND e.契約形態名 IN (${inList(cfs)}))`);
+      }
+      return conds.length > 0 ? `(${conds.join(" AND ")})` : "(1=1)";
+    });
+    const groupWhere = groups.length > 1 ? `(${groupSql.join(` ${groupOp} `)})` : groupSql[0];
+
+    const sql = `
+      SELECT * FROM (
+        SELECT DISTINCT
+          b.会員番号 AS MEMBER_NO,
+          a.漢字姓名 AS NAME,
+          a.カナ姓 || a.カナ名 AS KANA,
+          CASE WHEN a.生年月日 BETWEEN 18000101 AND 30000101
+               THEN SUBSTR(TO_CHAR(a.生年月日),1,4)||'-'||SUBSTR(TO_CHAR(a.生年月日),5,2)||'-'||SUBSTR(TO_CHAR(a.生年月日),7,2) END AS BIRTHDAY,
+          a.性別コード AS GENDER_CODE,
+          :clubCode AS CLUB_CODE,
+          (SELECT MIN(k9.会員区分名) FROM FIT_ADMIN."会員契約" c9 JOIN FIT_ADMIN."会員区分" k9 ON k9.会員区分コード = c9.会員区分コード
+             WHERE c9.契約者SEQ = b.契約者SEQ AND c9.クラブコード = :clubCode
+               AND (c9.退会日 IS NULL OR TO_CHAR(c9.退会日) = '99999999')) AS CONTRACT_NAME,
+          a.EMAIL AS EMAIL
+        FROM FIT_ADMIN."会員番号" b
+        JOIN FIT_ADMIN."個人" a ON a.個人SEQ = b.個人SEQ
+        WHERE EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" c0 WHERE c0.契約者SEQ = b.契約者SEQ AND c0.クラブコード = :clubCode)
+          AND ${groupWhere}
+      ) WHERE ROWNUM <= ${limit}`;
+
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const results = (r.rows || []).map((x) => ({
+        memberNo: String(x.MEMBER_NO),
+        name: x.NAME || "",
+        kana: x.KANA || "",
+        birthday: x.BIRTHDAY || null,
+        genderCode: x.GENDER_CODE != null ? Number(x.GENDER_CODE) : null,
+        clubCode: x.CLUB_CODE != null ? String(x.CLUB_CODE) : clubCode,
+        contractName: x.CONTRACT_NAME || null,
+        withdrawnAt: (x.WITHDRAWN != null && String(x.WITHDRAWN).trim() !== "" && String(x.WITHDRAWN).trim() !== "99999999") ? String(x.WITHDRAWN).trim() : null,
+        email: x.EMAIL || null,
+      }));
+      return resp(200, { results, totalCount: results.length });
+    } catch (err) {
+      console.error("member_extract error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // クラブ住所一括取得は q 不要なので別経路
   if (type === "club_addresses") {
     let conn;

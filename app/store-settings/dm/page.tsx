@@ -600,8 +600,9 @@ export default function DmSettingsPage() {
                                 contractTypes={CONTRACT_TYPES}
                                 contractTypeOptions={clubCode ? ctOptions : undefined}
                                 contractTypesLoading={ctLoading}
-                                contractFormOptions={clubCode ? cfOptions : undefined}
+                                contractFormOptions={clubCode ? cfOptions.filter((o) => o.group !== "オプション契約") : undefined}
                                 contractFormsLoading={cfLoading}
+                                contractOptionOptions={clubCode ? cfOptions.filter((o) => o.group === "オプション契約") : undefined}
                                 cls="dm"
                               />
                             </div>

@@ -35,7 +35,7 @@ export async function GET(req: Request) {
         planName: String(r.planName ?? "").trim(),
         totalCount: Number(r.totalCount ?? 0),
         activeCount: Number(r.activeCount ?? 0),
-      })).filter((r) => r.name && r.planCode !== "8"), // 会員区分8(タイム会員)は除外
+      })).filter((r) => r.name && !["7", "8"].includes(r.planCode)), // スタッフ(7)/タイム会員(8)は除外。オプション(90)は残しフロントで別ピッカーに振り分け
     });
   } catch (e: any) {
     console.error("[contract-forms] error", e?.message || e);

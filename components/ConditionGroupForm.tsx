@@ -17,8 +17,9 @@ export type CondGroup = {
   visitPeriodTo: string;
   gender: string[];
   membershipStatus: string[];
-  contractTypes: string[];   // 会員区分名
-  contractForms: string[];   // 契約形態名 (会員区分に紐づく)
+  contractTypes: string[];   // 会員区分名 (スタッフ/タイム/オプション除く)
+  contractForms: string[];   // 契約形態名 (会員区分に紐づく・オプション以外)
+  contractOptions: string[]; // オプション契約(会員区分90)の契約形態名。別枠で選択。
   hasUnpaidOnly: boolean;
 };
 
@@ -32,6 +33,7 @@ export function newCondGroup(contractTypes: string[]): CondGroup {
     membershipStatus: ["stable", "leaver"],
     contractTypes: [...contractTypes],
     contractForms: [],
+    contractOptions: [],
     hasUnpaidOnly: false,
   };
 }
@@ -44,6 +46,7 @@ export default function ConditionGroupForm({
   contractTypesLoading = false,
   contractFormOptions,
   contractFormsLoading = false,
+  contractOptionOptions,
   cls,
 }: {
   group: CondGroup;
@@ -52,9 +55,11 @@ export default function ConditionGroupForm({
   // 店舗に属する契約種別(会員区分)。指定時は検索付きピッカーを表示する。
   contractTypeOptions?: ContractTypeOption[];
   contractTypesLoading?: boolean;
-  // 会員区分に紐づく契約形態。指定時は検索付きピッカーを表示する。
+  // 会員区分に紐づく契約形態(オプション以外)。指定時は検索付きピッカーを表示する。
   contractFormOptions?: ContractTypeOption[];
   contractFormsLoading?: boolean;
+  // オプション契約(会員区分90)の契約形態。別枠ピッカー。
+  contractOptionOptions?: ContractTypeOption[];
   cls: string; // "push" | "dm"
 }) {
   const toggleArr = (key: "gender" | "membershipStatus" | "contractTypes" | "contractForms", value: string) => {
@@ -156,6 +161,18 @@ export default function ConditionGroupForm({
             onChange={(names) => onChange({ contractForms: names })}
             loading={contractFormsLoading}
             emptyHint="店舗を選択すると契約形態が表示されます"
+          />
+        </div>
+      )}
+      {contractOptionOptions && contractOptionOptions.length > 0 && (
+        <div className={`${cls}-field`}>
+          <label>オプション（別枠で選択）</label>
+          <ContractTypePicker
+            options={contractOptionOptions}
+            selected={group.contractOptions}
+            onChange={(names) => onChange({ contractOptions: names })}
+            loading={contractFormsLoading}
+            emptyHint="店舗を選択するとオプションが表示されます"
           />
         </div>
       )}
