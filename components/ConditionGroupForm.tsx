@@ -160,8 +160,10 @@ export default function ConditionGroupForm({
         </div>
       )}
       <div className={`${cls}-field`}>
-        <label className={`${cls}-unpaid-check`}>
-          <input type="checkbox" checked={group.hasUnpaidOnly} onChange={(e) => onChange({ hasUnpaidOnly: e.target.checked })} /> 未納者のみを抽出
+        <label className={`kb-switch${group.hasUnpaidOnly ? " on" : ""}`}>
+          <input type="checkbox" checked={group.hasUnpaidOnly} onChange={(e) => onChange({ hasUnpaidOnly: e.target.checked })} />
+          <span className="kb-switch-track"><span className="kb-switch-thumb" /></span>
+          <span className="kb-switch-text">未納者のみを抽出</span>
         </label>
       </div>
     </>

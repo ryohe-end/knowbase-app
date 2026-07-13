@@ -2558,3 +2558,13 @@ body {
 
 /* 契約形態の会員区分グループ表示 (ContractTypePicker) */
 .ctp-opt-group { display: inline-block; font-size: 10px; font-weight: 700; color: #6366f1; background: #eef2ff; border-radius: 4px; padding: 1px 6px; margin-right: 6px; vertical-align: middle; }
+
+/* トグルスイッチ (未納者のみ抽出 など) */
+.kb-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+.kb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.kb-switch-track { position: relative; width: 40px; height: 22px; background: #cbd5e1; border-radius: 999px; transition: background 0.18s; flex: 0 0 auto; }
+.kb-switch-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: transform 0.18s; }
+.kb-switch.on .kb-switch-track { background: #dc2626; }
+.kb-switch.on .kb-switch-thumb { transform: translateX(18px); }
+.kb-switch-text { font-size: 12px; font-weight: 700; color: #334155; }
+.kb-switch.on .kb-switch-text { color: #dc2626; }
