@@ -166,16 +166,23 @@ export async function POST(req: Request) {
   }
 
   const deliveryType: DeliveryType = body.deliveryType === "dm" ? "dm" : "push";
-  const clubCode = (body.clubCode || "").trim();
-  if (!clubCode) {
-    return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
+  // クラブは複数(clubCodes)または単一(clubCode)。
+  let clubCodes: string[] = Array.isArray((body as any).clubCodes)
+    ? (body as any).clubCodes.map((s: any) => String(s).trim()).filter(Boolean)
+    : ((body.clubCode || "").trim() ? [(body.clubCode || "").trim()] : []);
+  if (clubCodes.length === 0) {
+    return NextResponse.json({ ok: false, error: "clubCode(s) required" }, { status: 400 });
   }
-  // 担当外クラブの抽出を禁止 (clubCodes 空=admin全クラブ)
-  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
-    return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
+  // 担当外クラブは除外 (clubCodes 空=admin全クラブ)
+  if (user.clubCodes.length > 0) {
+    const scope = new Set(user.clubCodes);
+    clubCodes = clubCodes.filter((c) => scope.has(c));
+    if (clubCodes.length === 0) {
+      return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
+    }
   }
 
-  const limit = Math.min(Math.max(Number(body.limit) || 100, 1), 1000);
+  const limit = Math.min(Math.max(Number(body.limit) || 1000, 1), 5000);
   const offset = Math.max(Number(body.offset) || 0, 0);
 
   // 条件グループ: groups があればそれを、無ければフラットな条件を1グループとして扱う(後方互換)。
@@ -184,11 +191,9 @@ export async function POST(req: Request) {
   const groupOp: "OR" | "AND" = body.groupOp === "AND" ? "AND" : "OR";
 
   // ── member-search(Oracle) 抽出 ──
-  // グループ内は AND、グループ間は groupOp(既定 OR)。clubCode/アプリ会員/会員区分は
-  // 全グループ共通の前提として member-search 側で常に AND する。
   const searchBody = {
     deliveryType,
-    clubCode,
+    clubCodes,
     includeOptions: !!body.includeOptions,
     groupOp,
     groups: rawGroups.map(mapGroup),
@@ -283,7 +288,7 @@ export async function POST(req: Request) {
       birthday: r.birthday ?? null,
       age: ageFrom(r.birthday),
       gender: r.genderCode === 1 ? "male" : r.genderCode === 2 ? "female" : null,
-      clubCode: r.clubCode ?? clubCode,
+      clubCode: r.clubCode ?? clubCodes[0],
       contractType: r.contractName ?? "",
       withdrawnAt: r.withdrawnAt ?? null,
       appUserId: au?.appUserId ?? null, // push: information2_destination へ

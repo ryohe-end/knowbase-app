@@ -7,12 +7,13 @@ import { useRouter } from "next/navigation";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
 import { type ContractTypeOption } from "@/components/ContractTypePicker";
+import StorePicker from "@/components/StorePicker";
 
 // 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
 // 初期グループ生成用の空マスタ (店舗未選択時)。
 const CONTRACT_TYPES: string[] = [];
 
-type StoreItem = { clubCode: string; clubName: string; brand: string };
+type StoreItem = { clubCode: string; clubName: string; brand: string; brandGroup?: string; ownership?: string; area?: string };
 type ExtractedMember = {
   memberNo: string;
   name: string;
@@ -37,10 +38,11 @@ export default function NewPushPage() {
   const [sending, setSending] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // 店舗コンテキスト (ログインユーザーの担当クラブ)
+  // 店舗コンテキスト (ログインユーザーの担当クラブ・複数選択可)
   const [stores, setStores] = useState<StoreItem[]>([]);
-  const [clubCode, setClubCode] = useState("");
+  const [selectedClubs, setSelectedClubs] = useState<string[]>([]);
   const [storeLoading, setStoreLoading] = useState(true);
+  const clubCode = selectedClubs[0] || ""; // プレビュー/AI 用の代表クラブ
   const selectedStore = useMemo(() => stores.find((s) => s.clubCode === clubCode) ?? null, [stores, clubCode]);
   const brand = selectedStore?.brand ?? "FIT365";
   const theme = useMemo(() => brandTheme(brand), [brand]);
@@ -91,9 +93,12 @@ export default function NewPushPage() {
           clubCode: String(s.clubCode),
           clubName: s.clubName,
           brand: s.brand,
+          brandGroup: s.brandGroup,
+          ownership: s.ownership,
+          area: s.area,
         }));
         setStores(list);
-        if (list.length === 1) setClubCode(list[0].clubCode); // 単一担当なら自動選択
+        if (list.length === 1) setSelectedClubs([list[0].clubCode]); // 単一担当なら自動選択
       } catch {
         /* noop */
       } finally {
@@ -102,39 +107,37 @@ export default function NewPushPage() {
     })();
   }, []);
 
-  // 店舗選択 → 契約種別(会員区分) と 契約形態 を取得。既定は全種別を選択状態にする。
+  // 店舗選択 → 契約種別(会員区分) と 契約形態 を選択店舗すべてでマージ取得。既定は全種別を選択。
+  const clubsKey = selectedClubs.join(",");
   useEffect(() => {
-    if (!clubCode) {
-      setCtOptions([]);
-      setCfOptions([]);
-      return;
-    }
+    if (selectedClubs.length === 0) { setCtOptions([]); setCfOptions([]); return; }
     let cancelled = false;
     (async () => {
-      setCtLoading(true);
-      setCfLoading(true);
+      setCtLoading(true); setCfLoading(true);
+      const mergeByName = (arr: ContractTypeOption[]) => {
+        const m = new Map<string, ContractTypeOption>();
+        for (const o of arr) {
+          const e = m.get(o.name);
+          if (e) { e.activeCount = (e.activeCount || 0) + (o.activeCount || 0); e.totalCount = (e.totalCount || 0) + (o.totalCount || 0); }
+          else m.set(o.name, { ...o });
+        }
+        return [...m.values()].sort((a, b) => (b.activeCount || 0) - (a.activeCount || 0));
+      };
       try {
-        const [ctRes, cfRes] = await Promise.all([
-          fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
-          fetch(`/api/store-settings/members/contract-forms?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
-        ]);
-        const ctData = await ctRes.json();
-        const cfData = await cfRes.json();
+        const results = await Promise.all(selectedClubs.map(async (code) => {
+          const [ctRes, cfRes] = await Promise.all([
+            fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(code)}`, { cache: "no-store" }),
+            fetch(`/api/store-settings/members/contract-forms?clubCode=${encodeURIComponent(code)}`, { cache: "no-store" }),
+          ]);
+          return { ct: await ctRes.json(), cf: await cfRes.json() };
+        }));
         if (cancelled) return;
-        const ctOpts: ContractTypeOption[] = (ctData.contractTypes || []).map((c: any) => ({
-          name: String(c.name),
-          activeCount: Number(c.activeCount || 0),
-          totalCount: Number(c.totalCount || 0),
-        }));
+        const ctAll = results.flatMap((r) => (r.ct.contractTypes || []).map((c: any) => ({ name: String(c.name), activeCount: Number(c.activeCount || 0), totalCount: Number(c.totalCount || 0) })));
+        const cfAll = results.flatMap((r) => (r.cf.contractForms || []).map((c: any) => ({ name: String(c.name), group: String(c.planName || ""), activeCount: Number(c.activeCount || 0), totalCount: Number(c.totalCount || 0) })));
+        const ctOpts = mergeByName(ctAll);
+        const cfOpts = mergeByName(cfAll);
         setCtOptions(ctOpts);
-        const cfOpts: ContractTypeOption[] = (cfData.contractForms || []).map((c: any) => ({
-          name: String(c.name),
-          group: String(c.planName || ""),
-          activeCount: Number(c.activeCount || 0),
-          totalCount: Number(c.totalCount || 0),
-        }));
         setCfOptions(cfOpts);
-        // 既定: 店舗の全契約種別を対象にする (契約形態は既定で絞らない=空)
         const allNames = ctOpts.map((o) => o.name);
         setGroups((prev) => prev.map((g) => ({ ...g, contractTypes: allNames })));
       } catch {
@@ -144,7 +147,7 @@ export default function NewPushPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [clubCode]);
+  }, [clubsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // お知らせ画像: S3 へアップロードして公開URLを imageUrl にセット
   const handleImageUpload = async (file: File | null) => {
@@ -183,7 +186,7 @@ export default function NewPushPage() {
   };
 
   const handleExtract = async () => {
-    if (!clubCode) {
+    if (selectedClubs.length === 0) {
       setExtractError("担当店舗を選択してください。");
       return;
     }
@@ -195,10 +198,10 @@ export default function NewPushPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deliveryType: "push",
-          clubCode,
+          clubCodes: selectedClubs,
           groupOp,
           groups,
-          limit: 1000,
+          limit: 5000,
         }),
       });
       const data = await res.json();
@@ -258,7 +261,7 @@ export default function NewPushPage() {
   }, [isImmediate, scheduledDate, scheduledTime]);
 
   const requestConfirm = () => {
-    if (!clubCode) return alert("担当店舗を選択してください。");
+    if (selectedClubs.length === 0) return alert("担当店舗を選択してください。");
     if (!title || !body) return alert("タイトルと本文は必須です。");
     if (targetAppUserIds.length === 0) return alert("配信可能な対象を選択してください。");
     if (!isImmediate && (!scheduledDate || !scheduledTime)) {
@@ -305,6 +308,7 @@ export default function NewPushPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clubCode,
+          clubCodes: selectedClubs,
           brand,
           title,
           body,
@@ -369,24 +373,20 @@ export default function NewPushPage() {
                 <h3>配信店舗</h3>
               </div>
               <div className="push-field">
-                <label>担当店舗 <span className="req">*</span></label>
+                <label>担当店舗（複数選択可） <span className="req">*</span></label>
                 {storeLoading ? (
                   <div className="push-hint">読み込み中...</div>
                 ) : stores.length === 0 ? (
                   <div className="push-hint">担当店舗が割り当てられていません。管理者にお問い合わせください。</div>
                 ) : stores.length === 1 ? (
                   <div className="push-input" style={{ background: "#f8fafc" }}>
-                    {selectedStore?.clubName}（{brandTheme(brand).label} / {clubCode}）
+                    {stores[0].clubName}（{brandTheme(stores[0].brand).label} / {stores[0].clubCode}）
                   </div>
                 ) : (
-                  <select className="push-input" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
-                    <option value="">店舗を選択</option>
-                    {stores.map((s) => (
-                      <option key={s.clubCode} value={s.clubCode}>
-                        {s.clubName}（{brandTheme(s.brand).label} / {s.clubCode}）
-                      </option>
-                    ))}
-                  </select>
+                  <StorePicker stores={stores} selected={selectedClubs} onChange={setSelectedClubs} />
+                )}
+                {selectedClubs.length > 1 && (
+                  <div className="push-hint">選択中 {selectedClubs.length} 店舗に配信します（プレビュー/AIは代表店舗 {clubCode} 基準）。</div>
                 )}
               </div>
             </div>
@@ -708,7 +708,7 @@ export default function NewPushPage() {
             <div className="push-confirm-body">
               <div className="push-confirm-row">
                 <span className="push-confirm-label">配信店舗</span>
-                <span className="push-confirm-val">{selectedStore?.clubName}（{theme.label}）</span>
+                <span className="push-confirm-val">{selectedClubs.length === 1 ? `${selectedStore?.clubName}（${theme.label}）` : `${selectedClubs.length} 店舗（${selectedClubs.join(", ")}）`}</span>
               </div>
               <div className="push-confirm-row">
                 <span className="push-confirm-label">タイトル</span>

@@ -6,13 +6,14 @@ import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
 import { type ContractTypeOption } from "@/components/ContractTypePicker";
+import StorePicker from "@/components/StorePicker";
 import type { DmNotification } from "@/types/dmNotification";
 
 // 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
 // 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
 const CONTRACT_TYPES: string[] = [];
 
-type StoreItem = { clubCode: string; clubName: string; brand: string };
+type StoreItem = { clubCode: string; clubName: string; brand: string; brandGroup?: string; ownership?: string; area?: string };
 // DM 宛先の統一モデル (抽出 or CSV)
 type DmRecipient = {
   key: string; // 選択キー (memberNo or csv:email)
@@ -40,7 +41,8 @@ export default function DmSettingsPage() {
   
   // 店舗コンテキスト (ログインユーザーの担当クラブ)
   const [stores, setStores] = useState<StoreItem[]>([]);
-  const [clubCode, setClubCode] = useState("");
+  const [selectedClubs, setSelectedClubs] = useState<string[]>([]);
+  const clubCode = selectedClubs[0] || ""; // 代表クラブ(プレビュー/AI用)
   const selectedStore = useMemo(() => stores.find((s) => s.clubCode === clubCode) ?? null, [stores, clubCode]);
   const storeBrand = (selectedStore?.brand || "JOYFIT").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365";
   const storeName = selectedStore?.clubName ?? "";
@@ -107,43 +109,48 @@ export default function DmSettingsPage() {
           clubCode: String(s.clubCode),
           clubName: s.clubName,
           brand: s.brand,
+          brandGroup: s.brandGroup,
+          ownership: s.ownership,
+          area: s.area,
         }));
         setStores(list);
-        if (list.length === 1) setClubCode(list[0].clubCode);
+        if (list.length === 1) setSelectedClubs([list[0].clubCode]);
       }
     } catch (e) { console.error(e); } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchData(); }, []);
 
-  // 店舗選択 → 契約種別(会員区分) と 契約形態 を取得。既定は全種別を選択状態にする。
+  // 店舗選択 → 契約種別/形態を選択店舗すべてでマージ取得。既定は全種別を選択。
+  const clubsKey = selectedClubs.join(",");
   useEffect(() => {
-    if (!clubCode) { setCtOptions([]); setCfOptions([]); return; }
+    if (selectedClubs.length === 0) { setCtOptions([]); setCfOptions([]); return; }
     let cancelled = false;
     (async () => {
-      setCtLoading(true);
-      setCfLoading(true);
+      setCtLoading(true); setCfLoading(true);
+      const mergeByName = (arr: ContractTypeOption[]) => {
+        const m = new Map<string, ContractTypeOption>();
+        for (const o of arr) {
+          const e = m.get(o.name);
+          if (e) { e.activeCount = (e.activeCount || 0) + (o.activeCount || 0); e.totalCount = (e.totalCount || 0) + (o.totalCount || 0); }
+          else m.set(o.name, { ...o });
+        }
+        return [...m.values()].sort((a, b) => (b.activeCount || 0) - (a.activeCount || 0));
+      };
       try {
-        const [ctRes, cfRes] = await Promise.all([
-          fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
-          fetch(`/api/store-settings/members/contract-forms?clubCode=${encodeURIComponent(clubCode)}`, { cache: "no-store" }),
-        ]);
-        const ctData = await ctRes.json();
-        const cfData = await cfRes.json();
+        const results = await Promise.all(selectedClubs.map(async (code) => {
+          const [ctRes, cfRes] = await Promise.all([
+            fetch(`/api/store-settings/members/contract-types?clubCode=${encodeURIComponent(code)}`, { cache: "no-store" }),
+            fetch(`/api/store-settings/members/contract-forms?clubCode=${encodeURIComponent(code)}`, { cache: "no-store" }),
+          ]);
+          return { ct: await ctRes.json(), cf: await cfRes.json() };
+        }));
         if (cancelled) return;
-        const ctOpts: ContractTypeOption[] = (ctData.contractTypes || []).map((c: any) => ({
-          name: String(c.name),
-          activeCount: Number(c.activeCount || 0),
-          totalCount: Number(c.totalCount || 0),
-        }));
+        const ctAll = results.flatMap((r) => (r.ct.contractTypes || []).map((c: any) => ({ name: String(c.name), activeCount: Number(c.activeCount || 0), totalCount: Number(c.totalCount || 0) })));
+        const cfAll = results.flatMap((r) => (r.cf.contractForms || []).map((c: any) => ({ name: String(c.name), group: String(c.planName || ""), activeCount: Number(c.activeCount || 0), totalCount: Number(c.totalCount || 0) })));
+        const ctOpts = mergeByName(ctAll);
         setCtOptions(ctOpts);
-        const cfOpts: ContractTypeOption[] = (cfData.contractForms || []).map((c: any) => ({
-          name: String(c.name),
-          group: String(c.planName || ""),
-          activeCount: Number(c.activeCount || 0),
-          totalCount: Number(c.totalCount || 0),
-        }));
-        setCfOptions(cfOpts);
+        setCfOptions(mergeByName(cfAll));
         const allNames = ctOpts.map((o) => o.name);
         setGroups((prev) => prev.map((g) => ({ ...g, contractTypes: allNames })));
       } catch {
@@ -153,7 +160,7 @@ export default function DmSettingsPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [clubCode]);
+  }, [clubsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- アクション ---
 
@@ -174,7 +181,7 @@ export default function DmSettingsPage() {
   };
 
   const handleExtract = async () => {
-    if (!clubCode) { setExtractError("担当店舗を選択してください。"); return; }
+    if (selectedClubs.length === 0) { setExtractError("担当店舗を選択してください。"); return; }
     setIsExtracting(true);
     setExtractError("");
     try {
@@ -183,7 +190,7 @@ export default function DmSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deliveryType: "dm",
-          clubCode,
+          clubCodes: selectedClubs,
           groupOp,
           groups,
           limit: 1000,
@@ -343,7 +350,7 @@ export default function DmSettingsPage() {
   };
 
   const submit = async (isDraft: boolean) => {
-    if (!clubCode) return alert("担当店舗を選択してください。");
+    if (selectedClubs.length === 0) return alert("担当店舗を選択してください。");
     if (!subject || !body) return alert("件名と本文は必須です。");
     if (targetRecipients.length === 0) return alert("配信可能な宛先(メール)がありません。");
     setSending(true);
@@ -355,6 +362,7 @@ export default function DmSettingsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           clubCode,
+          clubCodes: selectedClubs,
           brand: storeBrand,
           subject,
           body,
@@ -473,18 +481,16 @@ export default function DmSettingsPage() {
                     </div>
                     {viewMode === 'create' && (
                       <div className="dm-field">
-                        <label>配信店舗 <span className="req">*</span></label>
+                        <label>配信店舗（複数選択可） <span className="req">*</span></label>
                         {stores.length === 0 ? (
                           <div className="dm-input" style={{ background: "#f8fafc", color: "#94a3b8" }}>担当店舗がありません</div>
                         ) : stores.length === 1 ? (
-                          <div className="dm-input" style={{ background: "#f8fafc" }}>{storeName}（{storeBrand} / {clubCode}）</div>
+                          <div className="dm-input" style={{ background: "#f8fafc" }}>{stores[0].clubName}（{stores[0].clubCode}）</div>
                         ) : (
-                          <select className="dm-input" value={clubCode} onChange={(e) => setClubCode(e.target.value)}>
-                            <option value="">店舗を選択</option>
-                            {stores.map((s) => (
-                              <option key={s.clubCode} value={s.clubCode}>{s.clubName}（{s.clubCode}）</option>
-                            ))}
-                          </select>
+                          <StorePicker stores={stores} selected={selectedClubs} onChange={setSelectedClubs} />
+                        )}
+                        {selectedClubs.length > 1 && (
+                          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>選択中 {selectedClubs.length} 店舗に配信します。</div>
                         )}
                       </div>
                     )}

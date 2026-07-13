@@ -169,11 +169,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const clubCode = (body.clubCode || "").trim();
-  if (!clubCode) return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
+  // クラブは複数(clubCodes)または単一(clubCode)
+  const bodyClubCodes = Array.isArray((body as any).clubCodes) ? (body as any).clubCodes.map((s: any) => String(s).trim()).filter(Boolean) : [];
+  const clubCode = (body.clubCode || bodyClubCodes[0] || "").trim();
+  const clubCodes: string[] = bodyClubCodes.length > 0 ? bodyClubCodes : (clubCode ? [clubCode] : []);
+  if (clubCodes.length === 0) return NextResponse.json({ ok: false, error: "clubCode(s) required" }, { status: 400 });
   // 担当外クラブへの配信を禁止 (clubCodes 空=admin全クラブ)
-  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
-    return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
+  if (user.clubCodes.length > 0) {
+    const scope = new Set(user.clubCodes);
+    if (clubCodes.some((c) => !scope.has(c))) {
+      return NextResponse.json({ ok: false, error: "Forbidden: club out of scope" }, { status: 403 });
+    }
   }
   const title = (body.title || "").trim();
   const content = (body.body || "").trim();

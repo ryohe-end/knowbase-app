@@ -119,17 +119,41 @@ export async function GET() {
   try {
     const allStores = await fetchStoresFromDB();
 
+    // knowbie-clubs で エリア(companyGroup)/FC・直営(companyGroup先頭FC or 運営会社)/ブランド を付与
+    let dir: Record<string, { area: string; ownership: string; brandGroup: string }> = {};
+    try {
+      const { listClubs } = await import("@/lib/unpaid");
+      const clubs = await listClubs();
+      for (const c of clubs) {
+        const cg = c.companyGroup || "";
+        dir[String(c.clubCode)] = {
+          area: cg,
+          ownership: cg.startsWith("FC") ? "FC" : "直営",
+          brandGroup: (c.businessType || "").toUpperCase() === "FIT365" ? "FIT365" : "JOYFIT",
+        };
+      }
+    } catch (e) {
+      console.warn("[stores API] club dir enrich failed:", (e as Error)?.message);
+    }
+    const enrich = (s: any) => {
+      const d = dir[String(s.clubCode)];
+      const brandGroup = (s.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : (s.brand || "").toUpperCase() === "FIT365" ? "FIT365" : (d?.brandGroup || "");
+      return { ...s, area: d?.area || "", ownership: d?.ownership || "", brandGroup };
+    };
+
     // 表示範囲: admin かつ clubCodes 未指定 = 全件 / それ以外は user.clubCodes で whitelist
     const isAdmin = user.role === "admin";
     const userClubCodes = new Set(user.clubCodes ?? []);
-    const stores =
+    const stores = (
       isAdmin && userClubCodes.size === 0
         ? allStores
-        : allStores.filter((s: any) => userClubCodes.has(String(s.clubCode)));
+        : allStores.filter((s: any) => userClubCodes.has(String(s.clubCode)))
+    ).map(enrich);
 
     return NextResponse.json({
       ok: true,
       stores,
+      isAdmin,
       total: stores.length,
       user: {
         role: user.role,
