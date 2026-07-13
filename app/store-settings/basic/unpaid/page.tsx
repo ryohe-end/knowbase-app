@@ -9,11 +9,11 @@ import {
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
-interface MonthRow { month: string; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number; writeoffCount: number; writeoffAmount: number }
+interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number }
 interface Summary {
+  billedCount: number; billedAmount: number;
   unpaidCount: number; unpaidAmount: number;
   collectedCount: number; collectedAmount: number; collectionRate: number;
-  writeoffCount: number; writeoffAmount: number;
   byMonth: MonthRow[];
 }
 interface Member {
@@ -235,21 +235,21 @@ function UnpaidManager() {
                 {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
                   <>
                     <div className="up-cards">
-                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" />
-                      <Card icon={<Wallet size={18} />} label="未納金額" value={yen(summary.unpaidAmount)} tone="red" />
-                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" />
+                      <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="契約者SEQ単位" />
+                      <Card icon={<Wallet size={18} />} label="請求金額" value={yen(summary.billedAmount)} tone="blue" />
+                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" sub="契約者SEQ単位" />
                       <Card icon={<Wallet size={18} />} label="回収金額" value={yen(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
-                      <Card icon={<AlertTriangle size={18} />} label="貸倒予定 件数" value={summary.writeoffCount.toLocaleString()} tone="amber" />
-                      <Card icon={<AlertTriangle size={18} />} label="貸倒予定 金額" value={yen(summary.writeoffAmount)} tone="amber" />
+                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" sub="契約者SEQ単位" />
+                      <Card icon={<Wallet size={18} />} label="未納金額" value={yen(summary.unpaidAmount)} tone="red" />
                     </div>
                     <div className="up-charts">
                       <div className="up-panel">
-                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />未納 / 回収 推移と回収率（直近12ヶ月）</div>
+                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />請求 / 回収 / 未納 推移と回収率（直近12ヶ月）</div>
                         <div style={{ padding: "14px 10px 6px" }}>
                           <ResponsiveContainer width="100%" height={260}>
                             <ComposedChart data={summary.byMonth.map((m) => ({
                               month: m.month.slice(2),
-                              未納: m.unpaidAmount, 回収: m.collectedAmount,
+                              請求: m.billedAmount, 回収: m.collectedAmount, 未納: m.unpaidAmount,
                               回収率: m.collectedAmount + m.unpaidAmount > 0 ? Math.round((m.collectedAmount / (m.collectedAmount + m.unpaidAmount)) * 100) : 0,
                             }))}>
                               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -258,27 +258,28 @@ function UnpaidManager() {
                               <YAxis yAxisId="r" orientation="right" domain={[0, 100]} fontSize={10} tickFormatter={(v) => `${v}%`} />
                               <Tooltip formatter={(v: any, n: any) => (n === "回収率" ? `${v}%` : `¥${Number(v).toLocaleString()}`)} />
                               <Legend wrapperStyle={{ fontSize: 11 }} />
-                              <Bar yAxisId="l" dataKey="未納" fill="#f87171" radius={[3, 3, 0, 0]} />
+                              <Bar yAxisId="l" dataKey="請求" fill="#60a5fa" radius={[3, 3, 0, 0]} />
                               <Bar yAxisId="l" dataKey="回収" fill="#34d399" radius={[3, 3, 0, 0]} />
+                              <Bar yAxisId="l" dataKey="未納" fill="#f87171" radius={[3, 3, 0, 0]} />
                               <Line yAxisId="r" dataKey="回収率" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 2 }} />
                             </ComposedChart>
                           </ResponsiveContainer>
                         </div>
                       </div>
                       <div className="up-panel">
-                        <div className="up-panel-h">未納残高の構成</div>
+                        <div className="up-panel-h">請求金額の内訳（回収 / 未納）</div>
                         <div style={{ padding: 10 }}>
                           <ResponsiveContainer width="100%" height={230}>
                             <PieChart>
                               <Pie
                                 data={[
-                                  { name: "未納（回収対象）", value: summary.unpaidAmount },
-                                  { name: "貸倒予定", value: summary.writeoffAmount },
+                                  { name: "回収", value: summary.collectedAmount },
+                                  { name: "未納", value: summary.unpaidAmount },
                                 ]}
                                 dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}
                               >
+                                <Cell fill="#34d399" />
                                 <Cell fill="#f87171" />
-                                <Cell fill="#fbbf24" />
                               </Pie>
                               <Tooltip formatter={(v: any) => `¥${Number(v).toLocaleString()}`} />
                               <Legend wrapperStyle={{ fontSize: 11 }} />
@@ -290,19 +291,20 @@ function UnpaidManager() {
                     <div className="up-panel">
                       <div className="up-panel-h">月次内訳（直近12ヶ月）</div>
                       <table className="up-table">
-                        <thead><tr><th>振替年月</th><th>未納件数</th><th>未納金額</th><th>回収件数</th><th>回収金額</th><th>貸倒予定金額</th></tr></thead>
+                        <thead><tr><th>振替年月</th><th>請求件数</th><th>請求金額</th><th>回収件数</th><th>回収金額</th><th>未納件数</th><th>未納金額</th></tr></thead>
                         <tbody>
                           {[...summary.byMonth].reverse().map((r) => (
                             <tr key={r.month}>
                               <td>{r.month}</td>
-                              <td>{r.unpaidCount.toLocaleString()}</td>
-                              <td className="up-red">{yen(r.unpaidAmount)}</td>
+                              <td>{r.billedCount.toLocaleString()}</td>
+                              <td className="up-blue">{yen(r.billedAmount)}</td>
                               <td>{r.collectedCount.toLocaleString()}</td>
                               <td className="up-green">{yen(r.collectedAmount)}</td>
-                              <td className="up-amber">{yen(r.writeoffAmount)}</td>
+                              <td>{r.unpaidCount.toLocaleString()}</td>
+                              <td className="up-red">{yen(r.unpaidAmount)}</td>
                             </tr>
                           ))}
-                          {summary.byMonth.length === 0 && <tr><td colSpan={6} className="up-muted">データがありません</td></tr>}
+                          {summary.byMonth.length === 0 && <tr><td colSpan={7} className="up-muted">データがありません</td></tr>}
                         </tbody>
                       </table>
                     </div>
@@ -436,12 +438,13 @@ function UnpaidManager() {
         .up-card.red .up-card-top, .up-card.red .up-card-val { color: #dc2626; }
         .up-card.green .up-card-top, .up-card.green .up-card-val { color: #059669; }
         .up-card.amber .up-card-top, .up-card.amber .up-card-val { color: #d97706; }
+        .up-card.blue .up-card-top, .up-card.blue .up-card-val { color: #2563eb; }
         .up-panel { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; }
         .up-panel-h { padding: 12px 18px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-weight: 800; }
         .up-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .up-table th { background: #f8fafc; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
         .up-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
-        .up-red { color: #dc2626; font-weight: 700; } .up-green { color: #059669; font-weight: 700; } .up-amber { color: #d97706; font-weight: 700; }
+        .up-red { color: #dc2626; font-weight: 700; } .up-green { color: #059669; font-weight: 700; } .up-amber { color: #d97706; font-weight: 700; } .up-blue { color: #2563eb; font-weight: 700; }
         .up-muted { color: #94a3b8; font-weight: 600; }
         .up-mail { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
         .up-bd { font-size: 11px; color: #475569; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }

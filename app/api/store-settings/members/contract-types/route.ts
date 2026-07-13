@@ -36,7 +36,7 @@ export async function GET(req: Request) {
         name: String(r.name ?? "").trim(),
         totalCount: Number(r.totalCount ?? 0),
         activeCount: Number(r.activeCount ?? 0),
-      })).filter((r) => r.name),
+      })).filter((r) => r.name && r.code !== "8"), // 会員区分8(タイム会員)は除外
     });
   } catch (e: any) {
     console.error("[contract-types] error", e?.message || e);

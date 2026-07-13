@@ -510,62 +510,59 @@ const UNPAID_PAID_SQL = `
   FETCH FIRST 20000 ROWS ONLY
 `;
 
-// ダッシュボード全体数値: クラブ(複数可)×振替年月 を 回収/未納/貸倒予定 に分類集計。
-// 回収 = 振替結果コード='0'(当月振替成功) / 未納 = ≠'0' / 貸倒予定 = 強制退会(退会理由=42)。
-// ※ 全体数値は参考SQLに準拠し会員入金歴の入金照合はしない(振替結果ベース)。
+// ダッシュボード全体数値: クラブ(複数可)×振替年月 を 請求/回収/未納 に集計。
+// 請求 = 全振替(結果コード≠NULL, 純額>1) / 回収 = 結果='0' / 未納 = 結果≠'0'。
+// 件数は「契約者SEQ 単位」= COUNT(DISTINCT 契約者SEQ)。
+//   GROUPING SETS で 月別((振替年月)) と 期間合計(()) を1クエリで取得。
+//   合計行は月をまたいだ重複を排した実人数(契約者SEQ)になる。
 function unpaidSummarySql(clubBindNames) {
   return `
   SELECT
     f.振替年月 AS YM,
-    CASE
-      WHEN TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason THEN 'writeoff'
-      WHEN TRIM(f.振替結果コード) = '0' THEN 'collected'
-      ELSE 'unpaid'
-    END AS BUCKET,
-    COUNT(*) AS CNT,
-    SUM(${UNPAID_NET_EXPR}) AS AMT
+    GROUPING(f.振替年月) AS IS_TOTAL,
+    COUNT(DISTINCT f.契約者SEQ) AS BILLED_CNT,
+    SUM(${UNPAID_NET_EXPR}) AS BILLED_AMT,
+    COUNT(DISTINCT CASE WHEN TRIM(f.振替結果コード) = '0' THEN f.契約者SEQ END) AS COLLECTED_CNT,
+    SUM(CASE WHEN TRIM(f.振替結果コード) = '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS COLLECTED_AMT,
+    COUNT(DISTINCT CASE WHEN TRIM(f.振替結果コード) <> '0' THEN f.契約者SEQ END) AS UNPAID_CNT,
+    SUM(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS UNPAID_AMT
   FROM FIT_ADMIN."振替契約別" f
-  LEFT JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ = f.契約SEQ
   WHERE f.クラブコード IN (${clubBindNames.join(",")})
     AND f.振替年月 BETWEEN :fromYm AND :toYm
     AND f.振替結果コード IS NOT NULL
     AND ABS(${UNPAID_NET_EXPR}) > 1
-  GROUP BY f.振替年月,
-    CASE
-      WHEN TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason THEN 'writeoff'
-      WHEN TRIM(f.振替結果コード) = '0' THEN 'collected'
-      ELSE 'unpaid'
-    END
+  GROUP BY GROUPING SETS ((f.振替年月), ())
   ORDER BY f.振替年月`;
 }
 
 function buildUnpaidSummary(rows) {
-  const monthMap = new Map(); // ym -> {collected,unpaid,writeoff}{cnt,amt}
-  const tot = {
-    unpaidCount: 0, unpaidAmount: 0, collectedCount: 0, collectedAmount: 0,
-    writeoffCount: 0, writeoffAmount: 0,
-  };
+  const byMonth = [];
+  let tot = null;
   for (const r of rows) {
-    const ym = r.YM != null ? String(r.YM) : "";
-    const month = ym.length === 6 ? `${ym.slice(0, 4)}-${ym.slice(4, 6)}` : ym;
-    const cnt = Number(r.CNT) || 0;
-    const amt = Number(r.AMT) || 0;
-    const bucket = r.BUCKET;
-    let m = monthMap.get(month);
-    if (!m) { m = { month, unpaidCount: 0, unpaidAmount: 0, collectedCount: 0, collectedAmount: 0, writeoffCount: 0, writeoffAmount: 0 }; monthMap.set(month, m); }
-    if (bucket === "collected") { m.collectedCount += cnt; m.collectedAmount += amt; tot.collectedCount += cnt; tot.collectedAmount += amt; }
-    else if (bucket === "writeoff") { m.writeoffCount += cnt; m.writeoffAmount += amt; tot.writeoffCount += cnt; tot.writeoffAmount += amt; }
-    else { m.unpaidCount += cnt; m.unpaidAmount += amt; tot.unpaidCount += cnt; tot.unpaidAmount += amt; }
+    const rec = {
+      billedCount: Number(r.BILLED_CNT) || 0,
+      billedAmount: Number(r.BILLED_AMT) || 0,
+      collectedCount: Number(r.COLLECTED_CNT) || 0,
+      collectedAmount: Number(r.COLLECTED_AMT) || 0,
+      unpaidCount: Number(r.UNPAID_CNT) || 0,
+      unpaidAmount: Number(r.UNPAID_AMT) || 0,
+    };
+    if (Number(r.IS_TOTAL) === 1) {
+      tot = rec; // 期間合計(契約者SEQ重複排除)
+    } else {
+      const ym = r.YM != null ? String(r.YM) : "";
+      const month = ym.length === 6 ? `${ym.slice(0, 4)}-${ym.slice(4, 6)}` : ym;
+      byMonth.push({ month, ...rec });
+    }
   }
-  const denom = tot.collectedAmount + tot.unpaidAmount;
+  const t = tot || { billedCount: 0, billedAmount: 0, collectedCount: 0, collectedAmount: 0, unpaidCount: 0, unpaidAmount: 0 };
+  const denom = t.collectedAmount + t.unpaidAmount;
   return {
-    // 貸倒予定を除いた全体数値
-    unpaidCount: tot.unpaidCount, unpaidAmount: tot.unpaidAmount,
-    collectedCount: tot.collectedCount, collectedAmount: tot.collectedAmount,
-    collectionRate: denom > 0 ? Math.round((tot.collectedAmount / denom) * 100) : 0,
-    // 貸倒予定(強制退会)
-    writeoffCount: tot.writeoffCount, writeoffAmount: tot.writeoffAmount,
-    byMonth: [...monthMap.values()].sort((a, b) => (a.month < b.month ? -1 : 1)),
+    billedCount: t.billedCount, billedAmount: t.billedAmount,
+    collectedCount: t.collectedCount, collectedAmount: t.collectedAmount,
+    unpaidCount: t.unpaidCount, unpaidAmount: t.unpaidAmount,
+    collectionRate: denom > 0 ? Math.round((t.collectedAmount / denom) * 100) : 0,
+    byMonth: byMonth.sort((a, b) => (a.month < b.month ? -1 : 1)),
   };
 }
 
@@ -835,10 +832,8 @@ export const handler = async (event) => {
     const ym = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}`;
     const now = new Date();
     const from = new Date(now); from.setMonth(from.getMonth() - 11); // 既定: 直近12ヶ月
-    const forcedReason = (params.forcedReason || "42").trim();
     const clubBindNames = clubs.map((_, i) => `:club${i}`);
     const binds = {
-      forcedReason,
       fromYm: Number(params.fromYm || ym(from)),
       toYm: Number(params.toYm || ym(now)),
     };
