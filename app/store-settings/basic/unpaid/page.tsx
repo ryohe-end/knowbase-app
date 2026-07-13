@@ -31,6 +31,19 @@ interface Schedule {
 }
 
 const yen = (n: number) => "¥" + (n || 0).toLocaleString();
+// カード用コンパクト表示 (億/万まで)。枠からのはみ出し防止。
+const yenC = (n: number) => {
+  const v = n || 0;
+  if (Math.abs(v) >= 1e8) return "¥" + (v / 1e8).toFixed(2).replace(/\.?0+$/, "") + "億";
+  if (Math.abs(v) >= 1e4) return "¥" + (v / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
+  return "¥" + v.toLocaleString();
+};
+// 年度(4月始まり)。ym(YYYYMM) の年度と、年度→期間(YYYYMM)。
+const currentFiscalYear = () => {
+  const d = new Date();
+  return d.getMonth() + 1 >= 4 ? d.getFullYear() : d.getFullYear() - 1;
+};
+const fyRange = (fy: number) => ({ fromYm: `${fy}04`, toYm: `${fy + 1}03` });
 
 function csvEscape(v: string | number): string {
   const s = String(v ?? "");
@@ -44,6 +57,7 @@ function UnpaidManager() {
   const [area, setArea] = useState("");        // エリア(課別人員表 セクション4)
   const [territory, setTerritory] = useState(""); // テリトリー(セクション5)
   const [brand, setBrand] = useState("");
+  const [fiscalYear, setFiscalYear] = useState<number>(currentFiscalYear()); // 年度(4月始まり)
   const [summary, setSummary] = useState<Summary | null>(null);
   const [clubCount, setClubCount] = useState(0);
   const [members, setMembers] = useState<Member[]>([]);
@@ -80,8 +94,10 @@ function UnpaidManager() {
     if (mode === "club" && clubCode) p.set("clubCode", clubCode);
     if (mode === "area" && areaClubCodes.length > 0) p.set("clubCodes", areaClubCodes.join(","));
     if (mode === "brand" && brand) p.set("brand", brand);
+    const { fromYm, toYm } = fyRange(fiscalYear);
+    p.set("fromYm", fromYm); p.set("toYm", toYm); // 年度(4月始まり)で期間指定
     return p;
-  }, [mode, clubCode, areaClubCodes, brand]);
+  }, [mode, clubCode, areaClubCodes, brand, fiscalYear]);
 
   const hasSelection = (mode === "club" && !!clubCode) || (mode === "area" && areaClubCodes.length > 0) || (mode === "brand" && !!brand);
 
@@ -229,6 +245,11 @@ function UnpaidManager() {
               {brands.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           )}
+          <select className="up-select" value={fiscalYear} onChange={(e) => setFiscalYear(Number(e.target.value))} title="年度(4月〜翌3月)">
+            {Array.from({ length: 5 }, (_, i) => currentFiscalYear() - i).map((fy) => (
+              <option key={fy} value={fy}>{fy}年度（{fy}/4〜{fy + 1}/3）</option>
+            ))}
+          </select>
           {clubCount > 1 && <span className="up-badge">{clubCount}店舗 合算</span>}
         </div>
 
@@ -252,15 +273,15 @@ function UnpaidManager() {
                   <>
                     <div className="up-cards">
                       <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="請求金額" value={yen(summary.billedAmount)} tone="blue" />
+                      <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmount)} tone="blue" sub={yen(summary.billedAmount)} />
                       <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="回収金額" value={yen(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
+                      <Card icon={<Wallet size={18} />} label="回収金額" value={yenC(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
                       <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="未納金額" value={yen(summary.unpaidAmount)} tone="red" />
+                      <Card icon={<Wallet size={18} />} label="未納金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
                     </div>
                     <div className="up-charts">
                       <div className="up-panel">
-                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />請求 / 回収 / 未納 推移と回収率（直近12ヶ月）</div>
+                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />請求 / 回収 / 未納 推移と回収率（{fiscalYear}年度）</div>
                         <div style={{ padding: "14px 10px 6px" }}>
                           <ResponsiveContainer width="100%" height={260}>
                             <ComposedChart data={summary.byMonth.map((m) => ({
@@ -305,7 +326,7 @@ function UnpaidManager() {
                       </div>
                     </div>
                     <div className="up-panel">
-                      <div className="up-panel-h">月次内訳（直近12ヶ月）</div>
+                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）</div>
                       <table className="up-table">
                         <thead><tr><th>振替年月</th><th>請求件数</th><th>請求金額</th><th>回収件数</th><th>回収金額</th><th>未納件数</th><th>未納金額</th></tr></thead>
                         <tbody>
