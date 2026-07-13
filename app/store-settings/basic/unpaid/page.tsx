@@ -303,14 +303,14 @@ function UnpaidManager() {
               <div className="up-dash">
                 {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
                   <>
-                    <div className="up-section-h">① 初回振替の結果<span>振替系テーブル（振替契約別）／件数は契約者SEQ単位</span></div>
+                    <div className="up-section-h">① 初回振替の結果<span>振替系テーブル（振替契約別）／件数は振替の総数</span></div>
                     <div className="up-cards">
-                      <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="契約者SEQ単位" />
+                      <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="振替総数" />
                       <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmount)} tone="blue" sub={yen(summary.billedAmount)} />
-                      <Card icon={<CheckCircle2 size={18} />} label="振替成功（回収）件数" value={summary.collectedCount.toLocaleString()} tone="green" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="振替成功（回収）金額" value={yenC(summary.collectedAmount)} tone="green" sub={`振替成功率 ${summary.collectionRate}%`} />
-                      <Card icon={<Users size={18} />} label="振替不成立（未納）件数" value={summary.unpaidCount.toLocaleString()} tone="red" sub="契約者SEQ単位" />
-                      <Card icon={<Wallet size={18} />} label="振替不成立（未納）金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
+                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCount.toLocaleString()} tone="green" />
+                      <Card icon={<Wallet size={18} />} label="回収金額" value={yenC(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
+                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" />
+                      <Card icon={<Wallet size={18} />} label="未納金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
                     </div>
 
                     {summary.followup && (() => {
@@ -396,7 +396,7 @@ function UnpaidManager() {
                     <div className="up-panel">
                       <div className="up-panel-h">月次内訳（{fiscalYear}年度）　<span style={{ fontWeight: 600, color: "#94a3b8", fontSize: 11 }}>行をクリックで未納者・回収者を表示</span></div>
                       <table className="up-table">
-                        <thead><tr><th>振替年月</th><th>請求金額</th><th>回収金額</th><th>未納（初回不成立）</th><th>うち後日回収</th><th>現未納</th><th></th></tr></thead>
+                        <thead><tr><th>振替年月</th><th>請求金額</th><th>回収金額</th><th>未納</th><th>うち後日回収</th><th>現未納</th><th></th></tr></thead>
                         <tbody>
                           {[...summary.byMonth].reverse().map((r) => (
                             <tr key={r.month} className="up-row-click" onClick={() => openMonthDetail(r.month)}>

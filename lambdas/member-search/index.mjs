@@ -515,19 +515,18 @@ const UNPAID_PAID_SQL = `
 
 // ダッシュボード全体数値: クラブ(複数可)×振替年月 を 請求/回収/未納 に集計。
 // 請求 = 全振替(結果コード≠NULL, 純額>1) / 回収 = 結果='0' / 未納 = 結果≠'0'。
-// 件数は「契約者SEQ 単位」= COUNT(DISTINCT 契約者SEQ)。
+// 件数は振替の総数(COUNT)。各振替は 回収 or 未納 のいずれかなので 請求=回収+未納 が一致する。
 //   GROUPING SETS で 月別((振替年月)) と 期間合計(()) を1クエリで取得。
-//   合計行は月をまたいだ重複を排した実人数(契約者SEQ)になる。
 function unpaidSummarySql(clubBindNames) {
   return `
   SELECT
     f.振替年月 AS YM,
     GROUPING(f.振替年月) AS IS_TOTAL,
-    COUNT(DISTINCT f.契約者SEQ) AS BILLED_CNT,
+    COUNT(*) AS BILLED_CNT,
     SUM(${UNPAID_NET_EXPR}) AS BILLED_AMT,
-    COUNT(DISTINCT CASE WHEN TRIM(f.振替結果コード) = '0' THEN f.契約者SEQ END) AS COLLECTED_CNT,
+    COUNT(CASE WHEN TRIM(f.振替結果コード) = '0' THEN 1 END) AS COLLECTED_CNT,
     SUM(CASE WHEN TRIM(f.振替結果コード) = '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS COLLECTED_AMT,
-    COUNT(DISTINCT CASE WHEN TRIM(f.振替結果コード) <> '0' THEN f.契約者SEQ END) AS UNPAID_CNT,
+    COUNT(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN 1 END) AS UNPAID_CNT,
     SUM(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS UNPAID_AMT
   FROM FIT_ADMIN."振替契約別" f
   WHERE f.クラブコード IN (${clubBindNames.join(",")})
@@ -542,16 +541,12 @@ function buildUnpaidSummary(rows) {
   const byMonth = [];
   let tot = null;
   for (const r of rows) {
-    const billedCount = Number(r.BILLED_CNT) || 0;
-    const unpaidCount = Number(r.UNPAID_CNT) || 0;
     const rec = {
-      billedCount,
+      billedCount: Number(r.BILLED_CNT) || 0,      // 請求件数 = 振替総数
       billedAmount: Number(r.BILLED_AMT) || 0,
-      // 回収件数 = 完納者 = 請求 - 未納。件数が 請求=回収+未納 で一致するようにする
-      // (一部回収+一部未納の会員は未納側に計上)。
-      collectedCount: Math.max(0, billedCount - unpaidCount),
+      collectedCount: Number(r.COLLECTED_CNT) || 0, // 回収 = 振替成功数
       collectedAmount: Number(r.COLLECTED_AMT) || 0,
-      unpaidCount,
+      unpaidCount: Number(r.UNPAID_CNT) || 0,        // 未納 = 振替失敗数
       unpaidAmount: Number(r.UNPAID_AMT) || 0,
     };
     if (Number(r.IS_TOTAL) === 1) {
