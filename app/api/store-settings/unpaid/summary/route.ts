@@ -17,12 +17,14 @@ export async function GET(req: NextRequest) {
   const clubCode = sp.get("clubCode");
   const group = sp.get("group");
   const brand = sp.get("brand");
+  const clubCodesParam = sp.get("clubCodes");
   const fromYm = sp.get("fromYm");
   const toYm = sp.get("toYm");
 
   try {
     const { clubCodes, clubs } = await resolveClubCodes({
       scope: user.clubCodes, clubCode, group, brand,
+      clubCodes: clubCodesParam ? clubCodesParam.split(",").map((s) => s.trim()).filter(Boolean) : null,
     });
     if (clubCodes.length === 0) {
       return NextResponse.json({ ok: true, empty: true, clubCount: 0, summary: null });

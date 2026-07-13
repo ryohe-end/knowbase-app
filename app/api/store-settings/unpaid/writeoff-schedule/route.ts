@@ -14,11 +14,13 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   try {
+    const clubCodesParam = sp.get("clubCodes");
     const { clubCodes } = await resolveClubCodes({
       scope: user.clubCodes,
       clubCode: sp.get("clubCode"),
       group: sp.get("group"),
       brand: sp.get("brand"),
+      clubCodes: clubCodesParam ? clubCodesParam.split(",").map((s) => s.trim()).filter(Boolean) : null,
     });
     if (clubCodes.length === 0) {
       return NextResponse.json({ ok: true, empty: true, schedule: null });

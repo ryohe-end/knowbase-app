@@ -60,14 +60,19 @@ export async function callMemberSearch(params: Record<string, string>): Promise<
 // ユーザースコープ + フィルタ から対象クラブコードを解決。
 // clubCodes(empty=全)。admin(clubCodes空) は全クラブ可。
 export async function resolveClubCodes(opts: {
-  scope: string[];            // user.clubCodes (空=全)
-  clubCode?: string | null;   // 単一クラブ指定
-  group?: string | null;      // エリア(companyGroup)
-  brand?: string | null;      // ブランド(businessType)
+  scope: string[];              // user.clubCodes (空=全)
+  clubCode?: string | null;     // 単一クラブ指定
+  group?: string | null;        // エリア(companyGroup)
+  brand?: string | null;        // ブランド(businessType)
+  clubCodes?: string[] | null;  // 明示的なクラブコード集合 (エリア/テリトリー等で解決済み)
 }): Promise<{ clubCodes: string[]; clubs: ClubDir[] }> {
   const all = await listClubs();
   const inScope = (code: string) => opts.scope.length === 0 || opts.scope.includes(code);
   let clubs = all.filter((c) => inScope(c.clubCode));
+  if (opts.clubCodes && opts.clubCodes.length > 0) {
+    const set = new Set(opts.clubCodes.map(String));
+    clubs = clubs.filter((c) => set.has(c.clubCode));
+  }
   if (opts.clubCode) clubs = clubs.filter((c) => c.clubCode === opts.clubCode);
   if (opts.group) clubs = clubs.filter((c) => c.companyGroup === opts.group);
   if (opts.brand) clubs = clubs.filter((c) => c.businessType === opts.brand);

@@ -6,6 +6,7 @@ import { ArrowLeft, Download, RefreshCw, AlertTriangle, Wallet, CheckCircle2, Us
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, PieChart, Pie,
 } from "recharts";
+import { UNPAID_AREAS } from "@/lib/unpaidAreaMap";
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
@@ -38,9 +39,10 @@ function csvEscape(v: string | number): string {
 
 function UnpaidManager() {
   const [clubs, setClubs] = useState<Club[]>([]);
-  const [mode, setMode] = useState<"club" | "group" | "brand">("club");
+  const [mode, setMode] = useState<"club" | "area" | "brand">("club");
   const [clubCode, setClubCode] = useState("");
-  const [group, setGroup] = useState("");
+  const [area, setArea] = useState("");        // エリア(課別人員表 セクション4)
+  const [territory, setTerritory] = useState(""); // テリトリー(セクション5)
   const [brand, setBrand] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [clubCount, setClubCount] = useState(0);
@@ -62,18 +64,26 @@ function UnpaidManager() {
       .catch(() => {});
   }, []);
 
-  const groups = useMemo(() => [...new Set(clubs.map((c) => c.companyGroup).filter(Boolean))].sort() as string[], [clubs]);
   const brands = useMemo(() => [...new Set(clubs.map((c) => c.businessType).filter(Boolean))].sort() as string[], [clubs]);
+
+  // 選択エリア/テリトリーから対象クラブコードを解決 (スコープはサーバ側で交差)
+  const selectedAreaDef = useMemo(() => UNPAID_AREAS.find((a) => a.area === area) ?? null, [area]);
+  const territoriesOfArea = selectedAreaDef?.territories ?? [];
+  const areaClubCodes = useMemo(() => {
+    if (!selectedAreaDef) return [];
+    if (territory) return selectedAreaDef.territories.find((t) => t.territory === territory)?.clubCodes ?? [];
+    return selectedAreaDef.clubCodes;
+  }, [selectedAreaDef, territory]);
 
   const filterQuery = useCallback(() => {
     const p = new URLSearchParams();
     if (mode === "club" && clubCode) p.set("clubCode", clubCode);
-    if (mode === "group" && group) p.set("group", group);
+    if (mode === "area" && areaClubCodes.length > 0) p.set("clubCodes", areaClubCodes.join(","));
     if (mode === "brand" && brand) p.set("brand", brand);
     return p;
-  }, [mode, clubCode, group, brand]);
+  }, [mode, clubCode, areaClubCodes, brand]);
 
-  const hasSelection = (mode === "club" && !!clubCode) || (mode === "group" && !!group) || (mode === "brand" && !!brand);
+  const hasSelection = (mode === "club" && !!clubCode) || (mode === "area" && areaClubCodes.length > 0) || (mode === "brand" && !!brand);
 
   // ダッシュボード数値
   const loadSummary = useCallback(async () => {
@@ -189,9 +199,9 @@ function UnpaidManager() {
         {/* フィルタ */}
         <div className="up-filter">
           <div className="up-modes">
-            {(["club", "group", "brand"] as const).map((mo) => (
+            {(["club", "area", "brand"] as const).map((mo) => (
               <button key={mo} className={`up-mode ${mode === mo ? "active" : ""}`} onClick={() => setMode(mo)}>
-                {mo === "club" ? "店舗" : mo === "group" ? "エリア" : "ブランド"}
+                {mo === "club" ? "店舗" : mo === "area" ? "エリア" : "ブランド"}
               </button>
             ))}
           </div>
@@ -201,11 +211,17 @@ function UnpaidManager() {
               {clubs.map((c) => <option key={c.clubCode} value={c.clubCode}>{c.clubCode} {c.clubName}</option>)}
             </select>
           )}
-          {mode === "group" && (
-            <select className="up-select" value={group} onChange={(e) => setGroup(e.target.value)}>
-              <option value="">エリアを選択…</option>
-              {groups.map((g) => <option key={g} value={g}>{g}</option>)}
-            </select>
+          {mode === "area" && (
+            <>
+              <select className="up-select" value={area} onChange={(e) => { setArea(e.target.value); setTerritory(""); }}>
+                <option value="">エリアを選択…</option>
+                {UNPAID_AREAS.map((a) => <option key={a.area} value={a.area}>{a.area}（{a.clubCodes.length}店）</option>)}
+              </select>
+              <select className="up-select" value={territory} onChange={(e) => setTerritory(e.target.value)} disabled={!selectedAreaDef}>
+                <option value="">テリトリー：すべて</option>
+                {territoriesOfArea.map((t) => <option key={t.territory} value={t.territory}>{t.territory}（{t.clubCodes.length}店）</option>)}
+              </select>
+            </>
           )}
           {mode === "brand" && (
             <select className="up-select" value={brand} onChange={(e) => setBrand(e.target.value)}>
