@@ -50,6 +50,13 @@ th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-ali
 th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
 .badge{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 8px}
 .badge.live{background:var(--ok-l);color:var(--ok)}.badge.soon{background:#f1f5f9;color:var(--muted)}
+.shot{margin:16px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,0.08);background:#fff}
+.shot .chrome{display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f1f5f9;border-bottom:1px solid var(--line)}
+.shot .chrome i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.shot .chrome i.r{background:#f87171}.shot .chrome i.y{background:#fbbf24}.shot .chrome i.g{background:#34d399}
+.shot .chrome span{margin-left:8px;font-size:11px;color:var(--muted);font-weight:600}
+.shot svg{display:block;width:100%;height:auto}
+.shot .cap{padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);background:#fafbff}
 @media(max-width:820px){.layout{grid-template-columns:1fr}.side{position:static;height:auto}main{padding:0 20px 60px}}
 @media print{.side{display:none}.layout{grid-template-columns:1fr}main{max-width:none}section{break-inside:avoid}}
 </style>
@@ -58,7 +65,7 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
 <div class="layout">
 <aside class="side">
   <h1>店舗設定 運用マニュアル</h1>
-  <div class="ver">Version 2.0 ／ 2026-07-13</div>
+  <div class="ver">Version 2.1 ／ 2026-07-13</div>
   <nav>
     <a href="#intro">1. はじめに（権限・クラブコード）</a>
     <a href="#map">全体の画面遷移マップ</a>
@@ -102,6 +109,35 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     <li><b>管理者（クラブコード未設定）</b> … 全店舗が対象。ブランド・直営/FC・エリアで絞り込めます。</li>
   </ul>
   <div class="note tip"><b>ポイント：</b>担当外店舗のデータはシステム側で遮断されます。店舗一覧・未納・返金・配信履歴・会員抽出はすべて担当店舗に自動で絞り込まれ、担当外コードを直接指定してもアクセスは拒否されます。</div>
+
+  <h3>ホーム画面からの入口（直営店舗のみ）</h3>
+  <p>ホーム画面の「外部リンク」の下に、<b>直営店舗の担当者のみ</b>「JOYFIT / FIT365 管理画面（店舗設定）」ボタンが表示されます。ここから店舗設定へ進めます（FC店舗には表示されません）。</p>
+  <div class="shot">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>ホーム画面</span></div>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="720" height="300" fill="#f8fafc"/>
+      <!-- 右サイド: 外部リンク + 管理画面ボタン -->
+      <rect x="470" y="20" width="230" height="260" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="486" y="44" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">外部リンク</text>
+      <rect x="486" y="54" width="198" height="34" rx="8" fill="#fff" stroke="#e2e8f0"/>
+      <text x="498" y="75" font-family="sans-serif" font-size="12" fill="#0f172a">店舗HP ↗</text>
+      <rect x="486" y="94" width="198" height="34" rx="8" fill="#fff" stroke="#e2e8f0"/>
+      <text x="498" y="115" font-family="sans-serif" font-size="12" fill="#0f172a">予約システム ↗</text>
+      <!-- 管理画面ボタン(直営のみ) -->
+      <rect x="486" y="146" width="198" height="40" rx="9" fill="#1F2C5C"/>
+      <text x="500" y="171" font-family="sans-serif" font-size="12.5" font-weight="800" fill="#fff">JOYFIT 管理画面（店舗設定）→</text>
+      <rect x="486" y="194" width="198" height="40" rx="9" fill="#E26E9D"/>
+      <text x="500" y="219" font-family="sans-serif" font-size="12.5" font-weight="800" fill="#fff">FIT365 管理画面（店舗設定）→</text>
+      <!-- 左: メイン -->
+      <rect x="20" y="20" width="430" height="120" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="40" y="52" font-family="sans-serif" font-size="16" font-weight="800" fill="#0f172a">ホーム</text>
+      <text x="40" y="76" font-family="sans-serif" font-size="12" fill="#64748b">お知らせ・マニュアル・AIアシスタント</text>
+      <rect x="20" y="152" width="430" height="128" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="40" y="182" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">マニュアル / チャット</text>
+      <rect x="486" y="146" width="198" height="88" rx="9" fill="none" stroke="#4f46e5" stroke-width="2" stroke-dasharray="4 3"/>
+    </svg>
+    <div class="cap">直営店舗の担当者には「外部リンク」の下に管理画面ボタンが表示され、店舗設定へ遷移します。</div>
+  </div>
 </section>
 
 <section id="map">
@@ -141,6 +177,44 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     <div class="node">④ スケジュール</div><span class="arrow">→</span>
     <div class="node">内容を確認</div><span class="arrow">→</span>
     <div class="node end">送信完了</div>
+  </div>
+  <div class="shot">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>Push通知 › 新規配信作成</span></div>
+    <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg">
+      <rect width="720" height="340" fill="#f8fafc"/>
+      <!-- 左: 設定 -->
+      <rect x="16" y="16" width="300" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <circle cx="36" cy="40" r="10" fill="#4f46e5"/><text x="30" y="45" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">1</text>
+      <text x="54" y="45" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">配信店舗（複数選択可）</text>
+      <rect x="30" y="56" width="272" height="30" rx="7" fill="#eef2ff" stroke="#c7d2fe"/><text x="42" y="76" font-family="sans-serif" font-size="11" fill="#4f46e5">ブランド / 直営・FC / エリアで絞込 + 検索</text>
+      <circle cx="36" cy="110" r="10" fill="#4f46e5"/><text x="30" y="115" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">2</text>
+      <text x="54" y="115" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">通知コンテンツ（AIで文章作成）</text>
+      <rect x="30" y="126" width="272" height="24" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+      <rect x="30" y="154" width="272" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+      <circle cx="36" cy="212" r="10" fill="#4f46e5"/><text x="30" y="217" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">3</text>
+      <text x="54" y="217" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">ターゲット抽出</text>
+      <rect x="30" y="228" width="130" height="20" rx="10" fill="#eef2ff"/><text x="42" y="242" font-family="sans-serif" font-size="10" fill="#4f46e5">性別 / 在籍状況</text>
+      <rect x="166" y="228" width="136" height="20" rx="10" fill="#eef2ff"/><text x="178" y="242" font-family="sans-serif" font-size="10" fill="#4f46e5">契約種別 / 形態 / OP</text>
+      <rect x="30" y="256" width="272" height="30" rx="7" fill="#0f172a"/><text x="120" y="276" font-family="sans-serif" font-size="11" font-weight="700" fill="#fff">条件で名簿を作成</text>
+      <!-- 中: 宛先リスト -->
+      <rect x="326" y="16" width="200" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="340" y="40" font-family="sans-serif" font-size="12" font-weight="700" fill="#0f172a">宛先リスト（配信可能のみ）</text>
+      <g font-family="sans-serif" font-size="10" fill="#334155">
+        <rect x="336" y="52" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="69">☑ 田中 太郎 · 在籍中</text>
+        <rect x="336" y="82" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="99">☑ 佐藤 花子 · 在籍中</text>
+        <rect x="336" y="112" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="129">☑ 鈴木 一郎 · 在籍中</text>
+      </g>
+      <!-- 右: プレビュー2種 -->
+      <rect x="536" y="16" width="168" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="548" y="38" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">プレビュー（2種）</text>
+      <rect x="556" y="48" width="128" height="120" rx="14" fill="#0f172a"/>
+      <text x="576" y="74" font-family="sans-serif" font-size="10" fill="#cbd5e1">ロック画面 10:41</text>
+      <rect x="566" y="84" width="108" height="46" rx="8" fill="#fff"/><text x="576" y="104" font-family="sans-serif" font-size="9" fill="#0f172a">JOYFITアプリ</text><text x="576" y="118" font-family="sans-serif" font-size="8" fill="#475569">通知タイトル/本文</text>
+      <rect x="556" y="180" width="128" height="130" rx="14" fill="#0f172a"/>
+      <rect x="566" y="190" width="108" height="18" rx="4" fill="#E26E9D"/><text x="574" y="203" font-family="sans-serif" font-size="9" fill="#fff">お知らせ</text>
+      <rect x="566" y="212" width="108" height="88" rx="6" fill="#fff"/><text x="576" y="230" font-family="sans-serif" font-size="8" fill="#0f172a">画像・本文</text>
+    </svg>
+    <div class="cap">左＝設定（店舗/内容/ターゲット）、中＝宛先リスト（配信可能な人のみ）、右＝プレビュー2種。</div>
   </div>
   <h3 id="push-store">① 複数店舗の選択</h3>
   <ul class="plain">
@@ -212,6 +286,40 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
       <div class="node">一覧・CSV<small>店舗/エリア/ブランド</small></div>
       <div class="node">貸倒償却予定</div>
     </div>
+  </div>
+  <div class="shot">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>基本設定 › 未納金管理</span></div>
+    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg">
+      <rect width="720" height="330" fill="#f8fafc"/>
+      <!-- フィルタ -->
+      <rect x="16" y="16" width="688" height="40" rx="8" fill="#fff" stroke="#e2e8f0"/>
+      <rect x="28" y="26" width="150" height="20" rx="6" fill="#eef2ff"/><text x="40" y="40" font-family="sans-serif" font-size="10" fill="#4f46e5">店舗/エリア/ブランド</text>
+      <rect x="188" y="26" width="120" height="20" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="200" y="40" font-family="sans-serif" font-size="10" fill="#475569">2025年度（4-3月）</text>
+      <!-- ① 初回振替 KPI -->
+      <text x="20" y="76" font-family="sans-serif" font-size="12" font-weight="800" fill="#0f172a">① 初回振替の結果</text>
+      <g font-family="sans-serif">
+        <rect x="16" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="28" y="104" font-size="10" fill="#2563eb">請求件数</text><text x="28" y="126" font-size="16" font-weight="800" fill="#2563eb">9,341</text>
+        <rect x="184" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="196" y="104" font-size="10" fill="#059669">回収件数</text><text x="196" y="126" font-size="16" font-weight="800" fill="#059669">8,794</text>
+        <rect x="352" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="364" y="104" font-size="10" fill="#dc2626">未納件数</text><text x="364" y="126" font-size="16" font-weight="800" fill="#dc2626">547</text>
+        <rect x="520" y="84" width="184" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="532" y="104" font-size="10" fill="#dc2626">未納金額</text><text x="532" y="126" font-size="16" font-weight="800" fill="#dc2626">¥1.38百万</text>
+      </g>
+      <!-- グラフ + ② -->
+      <rect x="16" y="152" width="420" height="162" rx="8" fill="#fff" stroke="#e2e8f0"/>
+      <text x="28" y="174" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">推移 / 比較（ブランド・店舗）</text>
+      <polyline points="30,300 90,280 150,288 210,270 270,292 330,276 400,284" fill="none" stroke="#f87171" stroke-width="2"/>
+      <polyline points="30,240 90,232 150,246 210,228 270,250 330,236 400,242" fill="none" stroke="#34d399" stroke-width="2"/>
+      <rect x="448" y="152" width="256" height="162" rx="8" fill="#fff" stroke="#e2e8f0"/>
+      <text x="460" y="174" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">② 未納になった人のその後</text>
+      <g font-family="sans-serif" font-size="10">
+        <rect x="460" y="184" width="70" height="18" rx="9" fill="#ecfdf5"/><text x="470" y="197" fill="#059669">支払済 288</text>
+        <rect x="536" y="184" width="66" height="18" rx="9" fill="#fef2f2"/><text x="546" y="197" fill="#dc2626">現未納 31</text>
+        <rect x="460" y="210" width="232" height="1" fill="#e2e8f0"/>
+        <text x="460" y="232" fill="#475569">月次内訳（行クリックで会員一覧）</text>
+        <rect x="460" y="240" width="232" height="20" rx="4" fill="#f8fafc"/><text x="468" y="254" fill="#334155">2026-02  未納40件 → 回収25 / 現未納4</text>
+        <rect x="460" y="264" width="232" height="20" rx="4" fill="#f8fafc"/><text x="468" y="278" fill="#334155">2026-01  未納38件 → 回収20 / 現未納5</text>
+      </g>
+    </svg>
+    <div class="cap">①初回振替のKPI、推移グラフ（ブランド/店舗比較）、②未納のその後、月次内訳（クリックでドリルダウン）。</div>
   </div>
   <h3>対象と年度の選択</h3>
   <ul class="plain">
@@ -296,7 +404,7 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   </ul>
 </section>
 
-<p style="color:var(--muted);font-size:12px;padding:24px 0">© システム管理部 ／ 店舗設定 運用マニュアル v2.0（2026-07-13）</p>
+<p style="color:var(--muted);font-size:12px;padding:24px 0">© システム管理部 ／ 店舗設定 運用マニュアル v2.1（2026-07-13, 画像付き）</p>
 </main>
 </div>
 </body>

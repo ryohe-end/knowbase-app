@@ -478,6 +478,8 @@ export default function HomePage() {
   const [me, setMe] = useState<Me | null>(null);
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
   const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
+  // 直営店舗のブランド (JOYFIT/FIT365)。直営店舗の担当者のみ 管理画面ボタンを出す。
+  const [directBrands, setDirectBrands] = useState<string[]>([]);
 
   // ✅ authチェック
   useEffect(() => {
@@ -501,6 +503,18 @@ export default function HomePage() {
         }
 
         setMe(data.user);
+        // 直営店舗のブランドを判定 (管理画面ボタンの出し分け用)
+        fetch("/api/store-settings/stores", { cache: "no-store" })
+          .then((r) => r.json())
+          .then((d) => {
+            if (cancelled || !d?.ok) return;
+            const brands = [...new Set((d.stores || [])
+              .filter((s: any) => s.ownership === "直営")
+              .map((s: any) => s.brandGroup)
+              .filter(Boolean))] as string[];
+            setDirectBrands(brands);
+          })
+          .catch(() => {});
       } catch {
         router.replace("/login");
       }
@@ -1487,6 +1501,30 @@ export default function HomePage() {
                 ))}
               {externalLinks.filter((l) => l.isActive).length === 0 && <span className="kb-subnote">登録されたリンクはありません。</span>}
             </div>
+
+            {/* 直営店舗のみ: JOYFIT/FIT365 管理画面(店舗設定)へのボタン */}
+            {directBrands.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
+                {["JOYFIT", "FIT365"].filter((b) => directBrands.includes(b)).map((b) => (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => router.push("/store-settings")}
+                    className="kb-admin-brand-btn"
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "12px 14px", borderRadius: "10px", cursor: "pointer",
+                      border: "none", color: "#fff", fontWeight: 800, fontSize: "13px",
+                      background: b === "JOYFIT" ? "linear-gradient(135deg,#1F2C5C,#3949ab)" : "linear-gradient(135deg,#E26E9D,#d6336c)",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                    }}
+                  >
+                    <span>{b} 管理画面（店舗設定）</span>
+                    <span style={{ fontSize: "14px" }}>→</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </aside>
 
