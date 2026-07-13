@@ -106,7 +106,10 @@ export default function StoreSettingsMenu() {
         <div className="kb-topbar-inner">
           <Link href="/" className="kb-back-link">← ホームへ戻る</Link>
           <div style={{ fontWeight: 700 }}>店舗アプリ設定</div>
-          <div style={{ width: 80 }} />
+          <a href="/manual/store-settings.html" target="_blank" rel="noopener noreferrer" className="kb-manual-link">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            運用マニュアル
+          </a>
         </div>
       </div>
 
@@ -153,6 +156,8 @@ export default function StoreSettingsMenu() {
         .kb-topbar { height: 60px; background: #fff; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; position: sticky; top: 0; z-index: 100; }
         .kb-topbar-inner { width: 100%; max-width: 1200px; margin: 0 auto; padding: 0 24px; display: flex; justify-content: space-between; align-items: center; }
         .kb-back-link { text-decoration: none; font-size: 13px; font-weight: 600; color: #64748b; }
+        .kb-manual-link { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 13px; font-weight: 700; color: #4f46e5; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 6px 12px; }
+        .kb-manual-link:hover { background: #e0e7ff; }
         .kb-main-container { max-width: 1140px; margin: 0 auto; padding: 40px 24px; }
         .kb-page-header { margin-bottom: 40px; }
         .kb-badge { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; color: #0f172a; background: #e2e8f0; padding: 4px 10px; border-radius: 4px; margin-bottom: 12px; }
