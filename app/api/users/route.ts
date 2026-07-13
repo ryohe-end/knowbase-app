@@ -11,7 +11,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import sgMail from "@sendgrid/mail";
 import { hashPassword, validateNewPassword } from "@/lib/password";
-import { verifySignedValue } from "@/lib/auth";
+import { verifySignedValue, isAdminRequest } from "@/lib/auth";
 
 export type KbUserRole = "admin" | "editor" | "viewer" | "store" | "finance";
 
@@ -185,7 +185,13 @@ async function sendAccountMail(opts: {
  * GET /api/users
  * 全ユーザー取得（passwordHashは除外）
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // 全ユーザー一覧(メール/権限/担当クラブ等)は管理者のみ。
+  // 一覧GETを呼ぶのは admin 画面(/admin/users, /admin/analytics)のみ。
+  // 一般ユーザー向けのパスワード再設定等は POST(mode別)で本人確認する。
+  if (!(await isAdminRequest(req))) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   try {
     const res = await docClient.send(
       new ScanCommand({
