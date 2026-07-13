@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import sgMail from "@sendgrid/mail";
 import { getSessionUser } from "@/lib/auth";
 import { writeAudit, clientIp } from "@/lib/auditLog";
+import { checkSendGuards } from "@/lib/sendGuards";
 import {
   createCampaign,
   updateCampaignSendResult,
@@ -150,6 +151,18 @@ export async function POST(req: Request) {
   const content = (body.body || "").trim();
   if (!subject || !content) {
     return NextResponse.json({ ok: false, error: "subject and body are required" }, { status: 400 });
+  }
+
+  // 送信ガード: NGワード / 配信時間帯 (8:00〜21:00 JST)。下書きは時間帯チェック免除。
+  const guard = checkSendGuards({
+    subject,
+    body: `${content}\n${body.bodyHtml || ""}`,
+    isDraft: !!body.isDraft,
+    isImmediate: !!body.isImmediate,
+    scheduledAt: body.scheduledAt,
+  });
+  if (!guard.ok) {
+    return NextResponse.json({ ok: false, error: guard.error }, { status: 400 });
   }
 
   // 宛先の正規化・重複排除・メール検証

@@ -560,6 +560,9 @@ export default function NewPushPage() {
                   <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} />
                 </div>
               )}
+              <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>
+                ※ 配信可能時間は 8:00〜21:00 です。NGワードを含む内容は送信できません。
+              </p>
             </div>
           </aside>
 

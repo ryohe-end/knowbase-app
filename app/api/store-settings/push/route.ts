@@ -16,6 +16,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { writeAudit, clientIp } from "@/lib/auditLog";
+import { checkSendGuards } from "@/lib/sendGuards";
 import { query } from "@/lib/memberDb";
 import { createInformation, type AppType } from "@/lib/information";
 import type { PushNotification, PushStatus } from "@/types/pushNotification";
@@ -187,6 +188,19 @@ export async function POST(req: Request) {
   if (!title || !content) {
     return NextResponse.json({ ok: false, error: "title and body are required" }, { status: 400 });
   }
+
+  // 送信ガード: NGワード / 配信時間帯 (8:00〜21:00 JST)。下書きは時間帯チェック免除。
+  const guard = checkSendGuards({
+    subject: title,
+    body: `${content}\n${body.contentHtml || ""}`,
+    isDraft: !!body.isDraft,
+    isImmediate: !!body.isImmediate,
+    scheduledAt: body.scheduledAt,
+  });
+  if (!guard.ok) {
+    return NextResponse.json({ ok: false, error: guard.error }, { status: 400 });
+  }
+
   const appType = brandToAppType(body.brand);
   const targetType = body.targetType === "ALL" ? "ALL" : "CONDITION";
 
