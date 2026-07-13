@@ -230,10 +230,12 @@ export default function NewPushPage() {
     }
   };
 
+  // 宛先リストは配信可能(有効)な人だけ表示する
+  const deliverableMembers = useMemo(() => extractedMembers.filter((m) => m.deliverable), [extractedMembers]);
   const paginatedMembers = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return extractedMembers.slice(start, start + itemsPerPage);
-  }, [extractedMembers, currentPage]);
+    return deliverableMembers.slice(start, start + itemsPerPage);
+  }, [deliverableMembers, currentPage]);
 
   const toggleSelectMember = (memberNo: string) => {
     const next = new Set(selectedMemberIds);
@@ -564,31 +566,26 @@ export default function NewPushPage() {
           {/* COLUMN 2: リスト */}
           <section className="push-col-list">
             <div className="push-panel-header-sticky">
-              宛先リスト精査 (配信可能 {targetAppUserIds.length} 名
-              {extractMeta ? ` / 抽出 ${extractMeta.totalCount} 名` : ""})
+              宛先リスト（配信可能 {deliverableMembers.length} 名／うち選択 {targetAppUserIds.length} 名）
+              {extractMeta ? <span style={{ fontWeight: 500, color: "#94a3b8" }}> ※抽出 {extractMeta.totalCount} 名中、通知許諾のある人のみ表示</span> : ""}
             </div>
             <div className="push-list-container">
-              {extractedMembers.length > 0 ? (
+              {deliverableMembers.length > 0 ? (
                 <table className="push-list-table">
                   <thead>
                     <tr>
                       <th style={{ width: 32 }}>
                         <input
                           type="checkbox"
-                          checked={
-                            selectedMemberIds.size > 0 &&
-                            selectedMemberIds.size === extractedMembers.filter((m) => m.deliverable).length
-                          }
+                          checked={selectedMemberIds.size > 0 && selectedMemberIds.size === deliverableMembers.length}
                           onChange={() => {
-                            const deliverable = extractedMembers.filter((m) => m.deliverable);
-                            if (selectedMemberIds.size === deliverable.length) setSelectedMemberIds(new Set());
-                            else setSelectedMemberIds(new Set(deliverable.map((m) => m.memberNo)));
+                            if (selectedMemberIds.size === deliverableMembers.length) setSelectedMemberIds(new Set());
+                            else setSelectedMemberIds(new Set(deliverableMembers.map((m) => m.memberNo)));
                           }}
                         />
                       </th>
                       <th>会員情報</th>
                       <th>区分/属性</th>
-                      <th style={{ width: 40 }}>配信</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -599,7 +596,6 @@ export default function NewPushPage() {
                           <td>
                             <input
                               type="checkbox"
-                              disabled={!m.deliverable}
                               checked={selectedMemberIds.has(m.memberNo)}
                               onChange={() => toggleSelectMember(m.memberNo)}
                             />
@@ -618,27 +614,22 @@ export default function NewPushPage() {
                               {m.gender && <span className="visit-count">{m.gender === "male" ? "男" : "女"}</span>}
                             </div>
                           </td>
-                          <td>
-                            {m.deliverable ? (
-                              <span className="status-badge stable" title="配信可能">可</span>
-                            ) : (
-                              <span className="unpaid-dot" title="通知トークン未登録/未許諾">×</span>
-                            )}
-                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              ) : extractedMembers.length > 0 ? (
+                <div className="push-empty-state">抽出されましたが、通知許諾のある配信可能な会員がいません。</div>
               ) : (
                 <div className="push-empty-state">STEP 3 で条件を指定して<br />「名簿を作成」してください</div>
               )}
             </div>
-            {extractedMembers.length > itemsPerPage && (
+            {deliverableMembers.length > itemsPerPage && (
               <div className="push-list-pager">
                 <button disabled={currentPage === 1} onClick={() => setCurrentPage((p) => p - 1)}>&lt;</button>
-                <span>{currentPage} / {Math.ceil(extractedMembers.length / itemsPerPage)}</span>
-                <button disabled={currentPage >= Math.ceil(extractedMembers.length / itemsPerPage)} onClick={() => setCurrentPage((p) => p + 1)}>&gt;</button>
+                <span>{currentPage} / {Math.ceil(deliverableMembers.length / itemsPerPage)}</span>
+                <button disabled={currentPage >= Math.ceil(deliverableMembers.length / itemsPerPage)} onClick={() => setCurrentPage((p) => p + 1)}>&gt;</button>
               </div>
             )}
           </section>

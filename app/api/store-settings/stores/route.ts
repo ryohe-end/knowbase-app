@@ -89,6 +89,7 @@ async function fetchStoresFromDB() {
       capacity__c AS "capacity"
     FROM club__c
     WHERE COALESCE(isdeleted, false) = false
+      AND COALESCE(is_private__c, false) = false   -- 閉店(is_private=true, 店名「×」等)は除外
       AND club_code__c IS NOT NULL
       AND club_code__c != ''
       AND brand__c IS NOT NULL

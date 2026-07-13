@@ -80,6 +80,22 @@ export default function StorePicker({
           <button type="button" onClick={() => onChange(selected.filter((c) => !filtered.some((s) => s.clubCode === c)))} disabled={!filtered.some((s) => selSet.has(s.clubCode))}>解除</button>
         </div>
       </div>
+      {selected.length > 0 && (
+        <div className="sp-chips">
+          {selected.length > 1 && (
+            <button type="button" className="sp-chip-clear" onClick={() => onChange([])}>すべて解除</button>
+          )}
+          {selected.map((code) => {
+            const s = stores.find((x) => x.clubCode === code);
+            return (
+              <span className="sp-chip" key={code}>
+                {s?.clubName || code}
+                <button type="button" onClick={() => onChange(selected.filter((c) => c !== code))} title="外す">×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
       <div className="sp-list">
         {filtered.length === 0 ? (
           <div className="sp-empty">該当する店舗がありません</div>

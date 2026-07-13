@@ -112,8 +112,8 @@ export default function ContractTypePicker({
               >
                 <span className="ctp-opt-check">{on ? "✓" : ""}</span>
                 <span className="ctp-opt-name">
-                  {o.group && <span className="ctp-opt-group">{o.group}</span>}
-                  {o.name}
+                  <span className="ctp-opt-nm">{o.name}</span>
+                  {o.group && <span className="ctp-opt-sub">{o.group}</span>}
                 </span>
                 {typeof o.activeCount === "number" && o.activeCount > 0 && (
                   <span className="ctp-opt-badge">在籍 {o.activeCount.toLocaleString()}</span>

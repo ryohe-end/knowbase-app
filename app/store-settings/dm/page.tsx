@@ -275,10 +275,12 @@ export default function DmSettingsPage() {
     reader.readAsText(file, "utf-8");
   };
 
+  // 宛先リストは配信可能(メール保有)な人だけ表示する
+  const deliverableMembers = useMemo(() => extractedMembers.filter((m) => m.deliverable), [extractedMembers]);
   const paginatedMembers = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
-    return extractedMembers.slice(start, start + itemsPerPage);
-  }, [extractedMembers, currentPage]);
+    return deliverableMembers.slice(start, start + itemsPerPage);
+  }, [deliverableMembers, currentPage]);
 
   const toggleSelectMember = (id: string) => {
     const next = new Set(selectedMemberIds);
@@ -671,28 +673,26 @@ export default function DmSettingsPage() {
               <section className="dm-col-list">
                 {viewMode === 'create' ? (
                   <>
-                    <div className="dm-panel-header-sticky">宛先リスト精査 (配信可能 {targetRecipients.length} / 全 {extractedMembers.length} 件)</div>
+                    <div className="dm-panel-header-sticky">宛先リスト（配信可能 {deliverableMembers.length} 名／うち選択 {targetRecipients.length} 名）<span style={{ fontWeight: 500, color: "#94a3b8", fontSize: 11 }}> ※メール保有者のみ表示</span></div>
                     <div className="dm-list-container">
-                      {extractedMembers.length > 0 ? (
+                      {deliverableMembers.length > 0 ? (
                         <table className="dm-list-table">
                           <thead>
                             <tr>
                               <th style={{ width: 32 }}><input type="checkbox"
-                                checked={selectedMemberIds.size > 0 && selectedMemberIds.size === extractedMembers.filter(m=>m.deliverable).length}
+                                checked={selectedMemberIds.size > 0 && selectedMemberIds.size === deliverableMembers.length}
                                 onChange={() => {
-                                  const del = extractedMembers.filter(m=>m.deliverable);
-                                  if(selectedMemberIds.size === del.length) setSelectedMemberIds(new Set());
-                                  else setSelectedMemberIds(new Set(del.map(m=>m.key)));
+                                  if(selectedMemberIds.size === deliverableMembers.length) setSelectedMemberIds(new Set());
+                                  else setSelectedMemberIds(new Set(deliverableMembers.map(m=>m.key)));
                                 }} /></th>
                               <th>会員/宛先</th>
                               <th>区分</th>
-                              <th style={{ width: 40 }}>配信</th>
                             </tr>
                           </thead>
                           <tbody>
                             {paginatedMembers.map(m => (
                               <tr key={m.key} className={selectedMemberIds.has(m.key) ? "" : "excluded"}>
-                                <td><input type="checkbox" disabled={!m.deliverable} checked={selectedMemberIds.has(m.key)} onChange={()=>toggleSelectMember(m.key)} /></td>
+                                <td><input type="checkbox" checked={selectedMemberIds.has(m.key)} onChange={()=>toggleSelectMember(m.key)} /></td>
                                 <td>
                                   <div className="dm-u-info">
                                     <strong>{m.name}</strong>
@@ -706,20 +706,21 @@ export default function DmSettingsPage() {
                                     {m.source === "csv" && <span className="dm-contract-chip">CSV</span>}
                                   </div>
                                 </td>
-                                <td>{m.deliverable ? <span className="status-badge stable">可</span> : <span className="unpaid-dot" title="メールなし">×</span>}</td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
+                      ) : extractedMembers.length > 0 ? (
+                        <div className="dm-empty-state">抽出されましたが、メールを保有する配信可能な宛先がいません。</div>
                       ) : (
                         <div className="dm-empty-state">STEP 2 で条件抽出、または CSV で<br/>宛先を追加してください</div>
                       )}
                     </div>
-                    {extractedMembers.length > itemsPerPage && (
+                    {deliverableMembers.length > itemsPerPage && (
                       <div className="dm-list-pager">
                         <button disabled={currentPage===1} onClick={()=>setCurrentPage(p=>p-1)}>&lt;</button>
-                        <span>{currentPage} / {Math.ceil(extractedMembers.length/itemsPerPage)}</span>
-                        <button disabled={currentPage >= Math.ceil(extractedMembers.length/itemsPerPage)} onClick={()=>setCurrentPage(p=>p+1)}>&gt;</button>
+                        <span>{currentPage} / {Math.ceil(deliverableMembers.length/itemsPerPage)}</span>
+                        <button disabled={currentPage >= Math.ceil(deliverableMembers.length/itemsPerPage)} onClick={()=>setCurrentPage(p=>p+1)}>&gt;</button>
                       </div>
                     )}
                   </>
