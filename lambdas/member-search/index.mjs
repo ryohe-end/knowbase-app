@@ -466,6 +466,7 @@ const UNPAID_CURRENT_BASE = `
   LEFT  JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ   = f.契約SEQ
   LEFT  JOIN FIT_ADMIN."会員区分" k ON k.会員区分コード = c.会員区分コード
   WHERE f.クラブコード = :clubCode
+    AND f.振替年月 >= :fromYm
     AND TRIM(f.振替結果コード) <> '0'
     AND ABS(${UNPAID_NET_EXPR}) > 1
     AND NOT EXISTS (
@@ -864,9 +865,12 @@ export const handler = async (event) => {
     const binds = { clubCode: Number(clubCode) };
     // 強制退会(=貸倒予定)の退会理由コード。暫定 '42' (実データ上の唯一の非NULL値)。要確認。
     const forcedReason = (params.forcedReason || "42").trim();
+    // 未納一覧の対象範囲: 既定 2025年度(202504)以降。古い年度の未納(年管理費の複数年計上等)を除外。
+    const fromYm = Number(params.fromYm || 202504);
     let sql;
     if (type === "unpaid_current") {
       binds.forcedReason = forcedReason; // 貸倒予定(強制退会)を除外
+      binds.fromYm = fromYm;
       sql = UNPAID_CURRENT_SQL;
     } else if (type === "unpaid_paid") {
       const from = new Date(now); from.setMonth(from.getMonth() - 12);
@@ -874,6 +878,7 @@ export const handler = async (event) => {
       sql = UNPAID_PAID_SQL;
     } else {
       binds.forcedReason = forcedReason; // 貸倒予定(強制退会)のみ
+      binds.fromYm = fromYm;
       sql = UNPAID_WRITEOFF_SQL;
     }
     let conn;

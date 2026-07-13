@@ -246,7 +246,7 @@ function UnpaidManager() {
             </select>
           )}
           <select className="up-select" value={fiscalYear} onChange={(e) => setFiscalYear(Number(e.target.value))} title="年度(4月〜翌3月)">
-            {Array.from({ length: 5 }, (_, i) => currentFiscalYear() - i).map((fy) => (
+            {Array.from({ length: currentFiscalYear() - 2025 + 1 }, (_, i) => currentFiscalYear() - i).map((fy) => (
               <option key={fy} value={fy}>{fy}年度（{fy}/4〜{fy + 1}/3）</option>
             ))}
           </select>
