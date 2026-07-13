@@ -12,7 +12,8 @@ import GuideTour from "@/components/GuideTour";
 
 // ---- 型 ----
 interface Club { clubCode: string; clubName: string; companyGroup?: string; businessType?: string }
-interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number; recoveredAmount?: number; stillUnpaidAmount?: number }
+interface MonthRow { month: string; billedCount: number; billedAmount: number; unpaidCount: number; unpaidAmount: number; collectedCount: number; collectedAmount: number; recoveredAmount?: number; stillUnpaidAmount?: number;
+  billedCountX?: number; billedAmountX?: number; collectedCountX?: number; collectedAmountX?: number; unpaidCountX?: number; unpaidAmountX?: number }
 interface MonthDetailMember { memberNo: string; name: string; phone: string; email: string; unpaidAmount: number; recoveredAmount: number }
 interface FollowupBucket { kubun: number; label: string; count: number; billedAmount: number; paidAmount: number; amount: number }
 interface Followup {
@@ -23,6 +24,10 @@ interface Summary {
   billedCount: number; billedAmount: number;
   unpaidCount: number; unpaidAmount: number;
   collectedCount: number; collectedAmount: number; collectionRate: number;
+  // 強制退会(貸倒予定)を除く
+  billedCountX: number; billedAmountX: number;
+  unpaidCountX: number; unpaidAmountX: number;
+  collectedCountX: number; collectedAmountX: number; collectionRateX: number;
   byMonth: MonthRow[];
   followup?: Followup; // ②未納(初回振替失敗)のその後
 }
@@ -80,6 +85,10 @@ function UnpaidManager() {
   const [err, setErr] = useState("");
   const [monthDetail, setMonthDetail] = useState<{ ym: string; unpaid: MonthDetailMember[]; recovered: MonthDetailMember[] } | null>(null);
   const [monthLoading, setMonthLoading] = useState(false);
+  // 推移グラフの比較 (なし / ブランド別 / 店舗別)
+  const [compareMode, setCompareMode] = useState<"none" | "brand" | "store">("none");
+  const [compareSeries, setCompareSeries] = useState<{ key: string; label: string; byMonth: Record<string, number> }[]>([]);
+  const [compareLoading, setCompareLoading] = useState(false);
   const searchParams = useSearchParams();
 
   // 基本設定で選択したクラブを引き継ぐ (URL ?clubCode=)。再選択不要にする。
@@ -181,6 +190,42 @@ function UnpaidManager() {
   }, [filterQuery, hasSelection]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
+
+  // 推移比較: ブランド別 or 店舗別に未納金額の推移を取得
+  const brandOf = useCallback((code: string) => {
+    const c = clubs.find((x) => x.clubCode === code);
+    return (c?.businessType || "").toUpperCase() === "FIT365" ? "FIT365" : "JOYFIT";
+  }, [clubs]);
+  const listKey = listClubCodes.join(",");
+  useEffect(() => {
+    if (compareMode === "none" || listClubCodes.length === 0) { setCompareSeries([]); return; }
+    let cancelled = false;
+    (async () => {
+      setCompareLoading(true);
+      let groups: { key: string; label: string; codes: string[] }[] = [];
+      if (compareMode === "brand") {
+        const m = new Map<string, string[]>();
+        listClubCodes.forEach((c) => { const b = brandOf(c); m.set(b, [...(m.get(b) || []), c]); });
+        groups = [...m.entries()].map(([b, cs]) => ({ key: b, label: b, codes: cs }));
+      } else {
+        groups = listClubCodes.slice(0, 12).map((c) => ({ key: c, label: clubs.find((x) => x.clubCode === c)?.clubName || c, codes: [c] }));
+      }
+      const { fromYm, toYm } = fyRange(fiscalYear);
+      try {
+        const series = await Promise.all(groups.map(async (g) => {
+          const p = new URLSearchParams({ clubCodes: g.codes.join(","), fromYm, toYm });
+          const res = await fetch(`/api/store-settings/unpaid/summary?${p}`, { cache: "no-store" });
+          const d = await res.json();
+          const bm: Record<string, number> = {};
+          (d.summary?.byMonth || []).forEach((mm: any) => { bm[mm.month] = mm.unpaidAmount; });
+          return { key: g.key, label: g.label, byMonth: bm };
+        }));
+        if (!cancelled) setCompareSeries(series);
+      } catch { if (!cancelled) setCompareSeries([]); }
+      finally { if (!cancelled) setCompareLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [compareMode, listKey, fiscalYear, brandOf]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (tab === "list" || tab === "csv") loadList(); }, [tab, loadList]);
   useEffect(() => { if (tab === "schedule") loadSchedule(); }, [tab, loadSchedule]);
 
@@ -315,7 +360,7 @@ function UnpaidManager() {
               <div className="up-dash">
                 {loadingSum ? <div className="up-empty">読み込み中…</div> : summary ? (
                   <>
-                    <div className="up-section-h">① 初回振替の結果</div>
+                    <div className="up-section-h">① 初回振替の結果<span style={{ fontWeight: 600, color: "#94a3b8", fontSize: 11 }}>全体</span></div>
                     <div className="up-cards">
                       <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCount.toLocaleString()} tone="blue" sub="振替総数" />
                       <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmount)} tone="blue" sub={yen(summary.billedAmount)} />
@@ -323,6 +368,15 @@ function UnpaidManager() {
                       <Card icon={<Wallet size={18} />} label="回収金額" value={yenC(summary.collectedAmount)} tone="green" sub={`回収率 ${summary.collectionRate}%`} />
                       <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCount.toLocaleString()} tone="red" />
                       <Card icon={<Wallet size={18} />} label="未納金額" value={yenC(summary.unpaidAmount)} tone="red" sub={yen(summary.unpaidAmount)} />
+                    </div>
+                    <div className="up-section-h" style={{ marginTop: 14 }}>① 初回振替の結果<span style={{ fontWeight: 700, color: "#d97706", fontSize: 11 }}>強制退会（貸倒予定）を除く</span></div>
+                    <div className="up-cards">
+                      <Card icon={<Users size={18} />} label="請求件数" value={summary.billedCountX.toLocaleString()} tone="blue" sub="振替総数" />
+                      <Card icon={<Wallet size={18} />} label="請求金額" value={yenC(summary.billedAmountX)} tone="blue" sub={yen(summary.billedAmountX)} />
+                      <Card icon={<CheckCircle2 size={18} />} label="回収件数" value={summary.collectedCountX.toLocaleString()} tone="green" />
+                      <Card icon={<Wallet size={18} />} label="回収金額" value={yenC(summary.collectedAmountX)} tone="green" sub={`回収率 ${summary.collectionRateX}%`} />
+                      <Card icon={<Users size={18} />} label="未納件数" value={summary.unpaidCountX.toLocaleString()} tone="red" />
+                      <Card icon={<Wallet size={18} />} label="未納金額" value={yenC(summary.unpaidAmountX)} tone="red" sub={yen(summary.unpaidAmountX)} />
                     </div>
 
                     {summary.followup && (() => {
@@ -361,9 +415,38 @@ function UnpaidManager() {
                     <div className="up-section-h" style={{ marginTop: 22 }}>推移・内訳</div>
                     <div className="up-charts">
                       <div className="up-panel">
-                        <div className="up-panel-h"><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />請求 / 回収 / 未納 推移と回収率（{fiscalYear}年度）</div>
+                        <div className="up-panel-h" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                          <span><TrendingUp size={14} style={{ verticalAlign: "-2px", marginRight: 6 }} />
+                            {compareMode === "none" ? `請求 / 回収 / 未納 推移と回収率（${fiscalYear}年度）` : `未納金額の推移 比較（${fiscalYear}年度）`}</span>
+                          <span style={{ display: "inline-flex", gap: 4, fontSize: 11 }}>
+                            {compareLoading && <span style={{ color: "#94a3b8", alignSelf: "center" }}>集計中…</span>}
+                            <span style={{ color: "#94a3b8", fontWeight: 700, alignSelf: "center" }}>比較:</span>
+                            {(["none", "brand", "store"] as const).map((m) => (
+                              <button key={m} onClick={() => setCompareMode(m)}
+                                style={{ border: "1px solid " + (compareMode === m ? "#4f46e5" : "#cbd5e1"), background: compareMode === m ? "#4f46e5" : "#fff", color: compareMode === m ? "#fff" : "#475569", borderRadius: 7, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                                {m === "none" ? "なし" : m === "brand" ? "ブランド" : "店舗"}
+                              </button>
+                            ))}
+                          </span>
+                        </div>
                         <div style={{ padding: "14px 10px 6px" }}>
                           <ResponsiveContainer width="100%" height={260}>
+                            {compareMode !== "none" ? (
+                              <ComposedChart data={summary.byMonth.map((m) => {
+                                const row: any = { month: m.month.slice(2) };
+                                compareSeries.forEach((s) => { row[s.label] = s.byMonth[m.month] ?? 0; });
+                                return row;
+                              })}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                                <XAxis dataKey="month" fontSize={11} />
+                                <YAxis fontSize={10} tickFormatter={(v) => `${Math.round(v / 10000)}万`} />
+                                <Tooltip formatter={(v: any) => `¥${Number(v).toLocaleString()}`} />
+                                <Legend wrapperStyle={{ fontSize: 11 }} />
+                                {compareSeries.map((s, i) => (
+                                  <Line key={s.key} dataKey={s.label} stroke={["#4f46e5", "#e26e9d", "#0097a7", "#d97706", "#16a34a", "#dc2626", "#7c3aed", "#0ea5e9", "#65a30d", "#db2777", "#0891b2", "#ca8a04"][i % 12]} strokeWidth={2} dot={{ r: 2 }} />
+                                ))}
+                              </ComposedChart>
+                            ) : (
                             <ComposedChart data={summary.byMonth.map((m) => ({
                               month: m.month.slice(2),
                               請求: m.billedAmount, 回収: m.collectedAmount, 未納: m.unpaidAmount,
@@ -380,6 +463,7 @@ function UnpaidManager() {
                               <Bar yAxisId="l" dataKey="未納" fill="#f87171" radius={[3, 3, 0, 0]} />
                               <Line yAxisId="r" dataKey="回収率" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 2 }} />
                             </ComposedChart>
+                            )}
                           </ResponsiveContainer>
                         </div>
                       </div>
@@ -406,22 +490,39 @@ function UnpaidManager() {
                       </div>
                     </div>
                     <div className="up-panel">
-                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）　<span style={{ fontWeight: 600, color: "#94a3b8", fontSize: 11 }}>行をクリックで未納者・回収者を表示</span></div>
+                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）<span style={{ fontWeight: 600, color: "#94a3b8", fontSize: 11 }}> 全体 ／ 行クリックで未納者・回収者を表示</span></div>
                       <table className="up-table">
-                        <thead><tr><th>振替年月</th><th>請求金額</th><th>回収金額</th><th>未納</th><th>うち後日回収</th><th>現未納</th><th></th></tr></thead>
+                        <thead><tr><th>振替年月</th><th>請求（件/¥）</th><th>回収（件/¥）</th><th>未納（件/¥）</th><th>うち後日回収</th><th>現未納</th><th></th></tr></thead>
                         <tbody>
                           {[...summary.byMonth].reverse().map((r) => (
                             <tr key={r.month} className="up-row-click" onClick={() => openMonthDetail(r.month)}>
                               <td>{r.month}</td>
-                              <td className="up-blue">{yen(r.billedAmount)}</td>
-                              <td className="up-green">{yen(r.collectedAmount)}</td>
-                              <td className="up-red">{yen(r.unpaidAmount)}</td>
+                              <td className="up-blue">{r.billedCount.toLocaleString()}件 / {yen(r.billedAmount)}</td>
+                              <td className="up-green">{r.collectedCount.toLocaleString()}件 / {yen(r.collectedAmount)}</td>
+                              <td className="up-red">{r.unpaidCount.toLocaleString()}件 / {yen(r.unpaidAmount)}</td>
                               <td className="up-green">{yen(r.recoveredAmount || 0)}</td>
                               <td className="up-red">{yen(r.stillUnpaidAmount || 0)}</td>
                               <td style={{ color: "#94a3b8" }}>›</td>
                             </tr>
                           ))}
                           {summary.byMonth.length === 0 && <tr><td colSpan={7} className="up-muted">データがありません</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="up-panel" style={{ marginTop: 16 }}>
+                      <div className="up-panel-h">月次内訳（{fiscalYear}年度）<span style={{ fontWeight: 700, color: "#d97706", fontSize: 11 }}> 強制退会（貸倒予定）を除く</span></div>
+                      <table className="up-table">
+                        <thead><tr><th>振替年月</th><th>請求（件/¥）</th><th>回収（件/¥）</th><th>未納（件/¥）</th></tr></thead>
+                        <tbody>
+                          {[...summary.byMonth].reverse().map((r) => (
+                            <tr key={r.month}>
+                              <td>{r.month}</td>
+                              <td className="up-blue">{(r.billedCountX ?? 0).toLocaleString()}件 / {yen(r.billedAmountX ?? 0)}</td>
+                              <td className="up-green">{(r.collectedCountX ?? 0).toLocaleString()}件 / {yen(r.collectedAmountX ?? 0)}</td>
+                              <td className="up-red">{(r.unpaidCountX ?? 0).toLocaleString()}件 / {yen(r.unpaidAmountX ?? 0)}</td>
+                            </tr>
+                          ))}
+                          {summary.byMonth.length === 0 && <tr><td colSpan={4} className="up-muted">データがありません</td></tr>}
                         </tbody>
                       </table>
                     </div>

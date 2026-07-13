@@ -518,6 +518,8 @@ const UNPAID_PAID_SQL = `
 // 件数は振替の総数(COUNT)。各振替は 回収 or 未納 のいずれかなので 請求=回収+未納 が一致する。
 //   GROUPING SETS で 月別((振替年月)) と 期間合計(()) を1クエリで取得。
 function unpaidSummarySql(clubBindNames) {
+  // 強制退会(退会理由コード1=:forcedReason=貸倒予定)を除いた集計(_X)も同時に返す。
+  const NOT_FORCED = `(c.退会理由コード1 IS NULL OR TRIM(TO_CHAR(c.退会理由コード1)) <> :forcedReason)`;
   return `
   SELECT
     f.振替年月 AS YM,
@@ -527,8 +529,15 @@ function unpaidSummarySql(clubBindNames) {
     COUNT(CASE WHEN TRIM(f.振替結果コード) = '0' THEN 1 END) AS COLLECTED_CNT,
     SUM(CASE WHEN TRIM(f.振替結果コード) = '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS COLLECTED_AMT,
     COUNT(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN 1 END) AS UNPAID_CNT,
-    SUM(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS UNPAID_AMT
+    SUM(CASE WHEN TRIM(f.振替結果コード) <> '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS UNPAID_AMT,
+    COUNT(CASE WHEN ${NOT_FORCED} THEN 1 END) AS BILLED_CNT_X,
+    SUM(CASE WHEN ${NOT_FORCED} THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS BILLED_AMT_X,
+    COUNT(CASE WHEN ${NOT_FORCED} AND TRIM(f.振替結果コード) = '0' THEN 1 END) AS COLLECTED_CNT_X,
+    SUM(CASE WHEN ${NOT_FORCED} AND TRIM(f.振替結果コード) = '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS COLLECTED_AMT_X,
+    COUNT(CASE WHEN ${NOT_FORCED} AND TRIM(f.振替結果コード) <> '0' THEN 1 END) AS UNPAID_CNT_X,
+    SUM(CASE WHEN ${NOT_FORCED} AND TRIM(f.振替結果コード) <> '0' THEN ${UNPAID_NET_EXPR} ELSE 0 END) AS UNPAID_AMT_X
   FROM FIT_ADMIN."振替契約別" f
+  LEFT JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ = f.契約SEQ
   WHERE f.クラブコード IN (${clubBindNames.join(",")})
     AND f.振替年月 BETWEEN :fromYm AND :toYm
     AND f.振替結果コード IS NOT NULL
@@ -540,30 +549,32 @@ function unpaidSummarySql(clubBindNames) {
 function buildUnpaidSummary(rows) {
   const byMonth = [];
   let tot = null;
+  const N = (v) => Number(v) || 0;
   for (const r of rows) {
     const rec = {
-      billedCount: Number(r.BILLED_CNT) || 0,      // 請求件数 = 振替総数
-      billedAmount: Number(r.BILLED_AMT) || 0,
-      collectedCount: Number(r.COLLECTED_CNT) || 0, // 回収 = 振替成功数
-      collectedAmount: Number(r.COLLECTED_AMT) || 0,
-      unpaidCount: Number(r.UNPAID_CNT) || 0,        // 未納 = 振替失敗数
-      unpaidAmount: Number(r.UNPAID_AMT) || 0,
+      billedCount: N(r.BILLED_CNT), billedAmount: N(r.BILLED_AMT),
+      collectedCount: N(r.COLLECTED_CNT), collectedAmount: N(r.COLLECTED_AMT),
+      unpaidCount: N(r.UNPAID_CNT), unpaidAmount: N(r.UNPAID_AMT),
+      // 強制退会(貸倒予定)を除く
+      billedCountX: N(r.BILLED_CNT_X), billedAmountX: N(r.BILLED_AMT_X),
+      collectedCountX: N(r.COLLECTED_CNT_X), collectedAmountX: N(r.COLLECTED_AMT_X),
+      unpaidCountX: N(r.UNPAID_CNT_X), unpaidAmountX: N(r.UNPAID_AMT_X),
     };
     if (Number(r.IS_TOTAL) === 1) {
-      tot = rec; // 期間合計(契約者SEQ重複排除)
+      tot = rec;
     } else {
       const ym = r.YM != null ? String(r.YM) : "";
       const month = ym.length === 6 ? `${ym.slice(0, 4)}-${ym.slice(4, 6)}` : ym;
       byMonth.push({ month, ...rec });
     }
   }
-  const t = tot || { billedCount: 0, billedAmount: 0, collectedCount: 0, collectedAmount: 0, unpaidCount: 0, unpaidAmount: 0 };
-  const denom = t.collectedAmount + t.unpaidAmount;
+  const z = { billedCount: 0, billedAmount: 0, collectedCount: 0, collectedAmount: 0, unpaidCount: 0, unpaidAmount: 0, billedCountX: 0, billedAmountX: 0, collectedCountX: 0, collectedAmountX: 0, unpaidCountX: 0, unpaidAmountX: 0 };
+  const t = tot || z;
+  const rate = (col, un) => (col + un > 0 ? Math.round((col / (col + un)) * 100) : 0);
   return {
-    billedCount: t.billedCount, billedAmount: t.billedAmount,
-    collectedCount: t.collectedCount, collectedAmount: t.collectedAmount,
-    unpaidCount: t.unpaidCount, unpaidAmount: t.unpaidAmount,
-    collectionRate: denom > 0 ? Math.round((t.collectedAmount / denom) * 100) : 0,
+    ...t,
+    collectionRate: rate(t.collectedAmount, t.unpaidAmount),
+    collectionRateX: rate(t.collectedAmountX, t.unpaidAmountX),
     byMonth: byMonth.sort((a, b) => (a.month < b.month ? -1 : 1)),
   };
 }
@@ -939,11 +950,13 @@ export const handler = async (event) => {
       toYm: Number(params.toYm || ym(now)),
     };
     clubs.forEach((c, i) => { binds[`club${i}`] = c; });
+    // summarySql は :forcedReason を使う(強制退会除きの集計)。followupSql は使わないため別 binds。
+    const summaryBinds = { ...binds, forcedReason: (params.forcedReason || "42").trim() };
     let conn;
     try {
       const pool = await getPool();
       conn = await pool.getConnection();
-      const r = await conn.execute(unpaidSummarySql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const r = await conn.execute(unpaidSummarySql(clubBindNames), summaryBinds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       const fu = await conn.execute(unpaidFollowupSql(clubBindNames), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       const out = buildUnpaidSummary(r.rows || []);
       const followup = buildUnpaidFollowup(fu.rows || []); // ②未納その後(会員入金歴 入金区分)
