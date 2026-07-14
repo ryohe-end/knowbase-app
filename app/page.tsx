@@ -738,7 +738,7 @@ export default function HomePage() {
     }, 3000);
 
     try {
-      const res = await fetch("/api/amazonq", {
+      const res = await fetch("/api/kb-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: ac.signal,
