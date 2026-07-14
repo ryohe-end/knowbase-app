@@ -636,6 +636,7 @@ export default function HomePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sources, setSources] = useState<SourceAttribution[]>([]);
   const [showSources, setShowSources] = useState(false);
+  const [launching, setLaunching] = useState(false); // 送信時のノウビー打ち上げ演出
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const manualListRef = useRef<HTMLDivElement | null>(null);
 
@@ -769,6 +770,12 @@ export default function HomePage() {
     const userPrompt = base;
     setKeyword(userPrompt);
     recordSearchLog(userPrompt); // ✅ チャット入力時に検索ログ送信
+
+    // 初回送信は「ノウビーが地球から飛び出す」打ち上げ演出を挟む
+    if (messages.length === 0) {
+      setLaunching(true);
+      window.setTimeout(() => setLaunching(false), 1300);
+    }
     
     setPrompt("");
     setSources([]);
@@ -1616,9 +1623,16 @@ export default function HomePage() {
 
             <div className="kb-chat-box">
               <div className="kb-chat-body">
+                {launching && (
+                  <div className="kb-launch" aria-hidden>
+                    <div className="kb-launch-stars" />
+                    <img className="kb-launch-bie" src="/logos/Knowble_icon.png" alt="" />
+                    <div className="kb-launch-earth"><span className="kb-launch-earth-mark" /></div>
+                  </div>
+                )}
                 {messages.length === 0 && (
                   <div className="kb-chat-empty">
-                    <div className="kb-chat-empty-avatar">
+                    <div className="kb-chat-empty-avatar kb-blink">
                       <img src="/logos/Knowble_icon.png" alt="Knowbie" />
                     </div>
                     <div className="kb-chat-empty-title">何でも聞いてください</div>
