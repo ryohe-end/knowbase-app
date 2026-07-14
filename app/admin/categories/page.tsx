@@ -21,7 +21,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { ManualCategory } from "@/types/manualCategory";
+import type { ManualCategory, SeriesLink } from "@/types/manualCategory";
 
 const genId = () => `S-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -53,6 +53,7 @@ export default function SeriesAdminPage() {
   const [seriesBizId, setSeriesBizId] = useState<string>("");
   const [seriesPublishedAt, setSeriesPublishedAt] = useState<string>("");
   const [seriesThumbnailUrl, setSeriesThumbnailUrl] = useState<string>("");
+  const [seriesLinks, setSeriesLinks] = useState<SeriesLink[]>([]);
 
   // マニュアル割当の作業中状態
   const [assignedIds, setAssignedIds] = useState<string[]>([]);
@@ -62,7 +63,7 @@ export default function SeriesAdminPage() {
   const [initialAssigned, setInitialAssigned] = useState<string>("[]");
   const [initialMeta, setInitialMeta] = useState<string>("");
 
-  const currentMetaSerialized = `${seriesName.trim()}|${seriesSortOrder}|${seriesDescription}|${seriesBizId}|${seriesPublishedAt}|${seriesThumbnailUrl}`;
+  const currentMetaSerialized = `${seriesName.trim()}|${seriesSortOrder}|${seriesDescription}|${seriesBizId}|${seriesPublishedAt}|${seriesThumbnailUrl}|${JSON.stringify(seriesLinks)}`;
   const dirty = useMemo(() => {
     if (selectedSeriesId === null) return false;
     if (JSON.stringify(assignedIds) !== initialAssigned) return true;
@@ -111,10 +112,12 @@ export default function SeriesAdminPage() {
     const bid = s.bizId ?? "";
     const pub = s.publishedAt ?? "";
     const thumb = s.thumbnailUrl ?? "";
+    const lks = Array.isArray(s.links) ? s.links.map((l) => ({ label: l.label ?? "", url: l.url ?? "" })) : [];
     setSeriesDescription(desc);
     setSeriesBizId(bid);
     setSeriesPublishedAt(pub);
     setSeriesThumbnailUrl(thumb);
+    setSeriesLinks(lks);
 
     const assigned = manuals
       .filter((m) => m.categoryId === s.categoryId)
@@ -123,7 +126,7 @@ export default function SeriesAdminPage() {
 
     setAssignedIds(assigned);
     setInitialAssigned(JSON.stringify(assigned));
-    setInitialMeta(`${s.name.trim()}|${String(s.sortOrder ?? 0)}|${desc}|${bid}|${pub}|${thumb}`);
+    setInitialMeta(`${s.name.trim()}|${String(s.sortOrder ?? 0)}|${desc}|${bid}|${pub}|${thumb}|${JSON.stringify(lks)}`);
     setUnassignedSearch("");
   }, [dirty, manuals]);
 
@@ -157,9 +160,10 @@ export default function SeriesAdminPage() {
       setSeriesBizId("");
       setSeriesPublishedAt("");
       setSeriesThumbnailUrl("");
+      setSeriesLinks([]);
       setAssignedIds([]);
       setInitialAssigned("[]");
-      setInitialMeta(`${name.trim()}|${maxOrder + 1}|||||`);
+      setInitialMeta(`${name.trim()}|${maxOrder + 1}|||||[]`);
     } catch (e: any) {
       alert(`作成エラー: ${e?.message || ""}`);
     } finally {
@@ -219,6 +223,9 @@ export default function SeriesAdminPage() {
           biz: bizName,
           publishedAt: seriesPublishedAt || null,
           thumbnailUrl: seriesThumbnailUrl.trim() || null,
+          links: seriesLinks
+            .map((l) => ({ label: l.label.trim(), url: l.url.trim() }))
+            .filter((l) => l.url),
         }),
       });
       const metaData = await metaRes.json().catch(() => ({}));
@@ -468,6 +475,50 @@ export default function SeriesAdminPage() {
                       明示指定したい場合のみ画像 URL を貼り付けてください (S3 / 公開 CDN 推奨)。
                     </p>
                   </div>
+
+                  <div className="ser-field">
+                    <label className="ser-label">外部リンク <span style={{ fontWeight: 600, color: "#94a3b8" }}>（省略可・複数登録可）</span></label>
+                    {seriesLinks.map((lk, i) => (
+                      <div key={i} className="ser-link-row">
+                        <input
+                          type="text"
+                          className="ser-input"
+                          value={lk.label}
+                          onChange={(e) => setSeriesLinks((prev) => prev.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                          disabled={saving}
+                          placeholder="表示名（例: 公式サイト）"
+                          style={{ flex: "0 0 200px" }}
+                        />
+                        <input
+                          type="url"
+                          className="ser-input"
+                          value={lk.url}
+                          onChange={(e) => setSeriesLinks((prev) => prev.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+                          disabled={saving}
+                          placeholder="https://..."
+                          style={{ flex: 1 }}
+                        />
+                        <button
+                          type="button"
+                          className="ser-link-del"
+                          onClick={() => setSeriesLinks((prev) => prev.filter((_, j) => j !== i))}
+                          disabled={saving}
+                          aria-label="削除"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="ser-link-add"
+                      onClick={() => setSeriesLinks((prev) => [...prev, { label: "", url: "" }])}
+                      disabled={saving}
+                    >
+                      ＋ リンクを追加
+                    </button>
+                    <p className="ser-hint">このシリーズに紐づく外部リンク（公式サイト・関連ページ等）を登録できます。URL は https:// で始まる必要があります。</p>
+                  </div>
                 </div>
 
                 <div className="ser-panel-body">
@@ -605,6 +656,12 @@ export default function SeriesAdminPage() {
         .ser-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 10px; }
         .ser-col-head h3 { margin: 0; font-size: 13px; font-weight: 800; color: #1e293b; }
         .ser-hint { font-size: 11px; color: #94a3b8; font-weight: 600; }
+        .ser-link-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+        .ser-link-del { flex: 0 0 auto; width: 32px; height: 32px; border: 1.5px solid #fecaca; background: #fef2f2; color: #dc2626; border-radius: 8px; font-size: 16px; font-weight: 800; cursor: pointer; line-height: 1; }
+        .ser-link-del:hover:not(:disabled) { background: #fee2e2; }
+        .ser-link-add { margin: 2px 0 6px; padding: 8px 14px; border: 1.5px dashed #c7d2fe; background: #eef2ff; color: #4338ca; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .ser-link-add:hover:not(:disabled) { background: #e0e7ff; }
+        .ser-link-add:disabled, .ser-link-del:disabled { opacity: 0.5; cursor: default; }
         .ser-empty-inner { padding: 30px 12px; text-align: center; color: #cbd5e1; font-size: 12px; font-weight: 600; border: 2px dashed #e2e8f0; border-radius: 10px; }
 
         .ser-assigned-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }

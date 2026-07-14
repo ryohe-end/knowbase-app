@@ -1,5 +1,11 @@
 // types/manualCategory.ts
 
+/** シリーズに紐づく外部リンク */
+export type SeriesLink = {
+  label: string;
+  url: string;
+};
+
 /**
  * マニュアルカテゴリ (大/中の 2 階層を想定)
  * - parentId が null/undefined → 大カテゴリ (ジャンル)
@@ -20,6 +26,8 @@ export type ManualCategory = {
   publishedAt?: string | null;
   /** サムネイル画像 URL */
   thumbnailUrl?: string | null;
+  /** シリーズに紐づく外部リンク (管理コンソールで登録) */
+  links?: SeriesLink[];
   createdAt?: string;
   updatedAt?: string;
 };

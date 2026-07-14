@@ -37,9 +37,23 @@ function mapItem(item: any): ManualCategory {
     biz: item.biz ? String(item.biz) : null,
     publishedAt: normalizeYmd(item.publishedAt),
     thumbnailUrl: item.thumbnailUrl ? String(item.thumbnailUrl) : null,
+    links: sanitizeLinks(item.links),
     createdAt: item.createdAt ? String(item.createdAt) : undefined,
     updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
   };
+}
+
+// 外部リンク配列を { label, url } の妥当なものだけに整形する
+function sanitizeLinks(raw: any): { label: string; url: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((l: any) => ({
+      label: String(l?.label ?? "").trim(),
+      url: String(l?.url ?? "").trim(),
+    }))
+    .filter((l) => l.url && /^https?:\/\//i.test(l.url))
+    .map((l) => ({ label: l.label || l.url, url: l.url }))
+    .slice(0, 20);
 }
 
 function buildDbItem(input: any, existingCreatedAt?: string): any {
@@ -59,6 +73,7 @@ function buildDbItem(input: any, existingCreatedAt?: string): any {
   const biz = input.biz ? String(input.biz).trim() : null;
   const publishedAt = normalizeYmd(input.publishedAt);
   const thumbnailUrl = input.thumbnailUrl ? String(input.thumbnailUrl).trim() : null;
+  const links = sanitizeLinks(input.links);
 
   const now = new Date().toISOString();
   return {
@@ -71,6 +86,7 @@ function buildDbItem(input: any, existingCreatedAt?: string): any {
     biz,
     publishedAt,
     thumbnailUrl,
+    links,
     createdAt: existingCreatedAt ?? now,
     updatedAt: now,
   };
