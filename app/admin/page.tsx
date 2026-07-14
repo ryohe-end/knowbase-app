@@ -119,6 +119,13 @@ export default function AdminHome() {
       color: "#0ea5e9",
     },
     {
+      href: "/admin/kb-digest",
+      label: "7-C. KB通信",
+      title: "KB通信（メルマガ）",
+      desc: "KnowBaseの魅力を全社に届ける定期メール。空ならAIが動向から自動作成・配信",
+      color: "#8b5cf6",
+    },
+    {
       href: "/admin/mail-test",
       label: "8. MAIL TEST",
       title: "メール送信テスト",
