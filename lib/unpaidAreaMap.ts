@@ -631,3 +631,21 @@ export const UNPAID_AREAS: AreaDef[] = [
     ]
   }
 ];
+
+// clubCode → { area, block, territory } の逆引きを構築する。
+// 店舗一覧などで「エリア / テリトリー」列を出すために使う。
+export function buildClubAreaLookup(): Record<string, { area: string; block: string; territory: string }> {
+  const map: Record<string, { area: string; block: string; territory: string }> = {};
+  for (const a of UNPAID_AREAS) {
+    for (const code of a.clubCodes) {
+      const k = String(code);
+      if (!map[k]) map[k] = { area: a.area, block: a.block, territory: "" };
+    }
+    for (const t of a.territories) {
+      for (const code of t.clubCodes) {
+        map[String(code)] = { area: a.area, block: a.block, territory: t.territory };
+      }
+    }
+  }
+  return map;
+}

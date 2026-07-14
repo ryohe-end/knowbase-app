@@ -120,17 +120,25 @@ export async function GET() {
   try {
     const allStores = await fetchStoresFromDB();
 
-    // knowbie-clubs で エリア(companyGroup)/FC・直営(companyGroup先頭FC or 運営会社)/ブランド を付与
-    let dir: Record<string, { area: string; ownership: string; brandGroup: string }> = {};
+    // knowbie-clubs で 運営区分(companyGroup)/カンパニー(companyName)/FC・直営/ブランド を、
+    // 課別人員表(unpaidAreaMap)で エリア・テリトリー を付与する。
+    let dir: Record<string, { area: string; ownership: string; brandGroup: string; companyGroup: string; company: string; areaName: string; territory: string }> = {};
     try {
       const { listClubs } = await import("@/lib/unpaid");
+      const { buildClubAreaLookup } = await import("@/lib/unpaidAreaMap");
+      const areaLookup = buildClubAreaLookup();
       const clubs = await listClubs();
       for (const c of clubs) {
         const cg = c.companyGroup || "";
+        const al = areaLookup[String(c.clubCode)] || { area: "", block: "", territory: "" };
         dir[String(c.clubCode)] = {
-          area: cg,
+          area: cg, // 後方互換: 既存の area は companyGroup を指す
           ownership: cg.startsWith("FC") ? "FC" : "直営",
           brandGroup: (c.businessType || "").toUpperCase() === "FIT365" ? "FIT365" : "JOYFIT",
+          companyGroup: cg,
+          company: c.companyName || "",
+          areaName: al.area,      // エリア (関東 第1エリア 等)
+          territory: al.territory, // テリトリー (テリトリー1 等)
         };
       }
     } catch (e) {
@@ -139,7 +147,16 @@ export async function GET() {
     const enrich = (s: any) => {
       const d = dir[String(s.clubCode)];
       const brandGroup = (s.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : (s.brand || "").toUpperCase() === "FIT365" ? "FIT365" : (d?.brandGroup || "");
-      return { ...s, area: d?.area || "", ownership: d?.ownership || "", brandGroup };
+      return {
+        ...s,
+        area: d?.area || "",
+        ownership: d?.ownership || "",
+        brandGroup,
+        companyGroup: d?.companyGroup || "",
+        company: d?.company || "",
+        areaName: d?.areaName || "",
+        territory: d?.territory || "",
+      };
     };
 
     // 表示範囲: admin かつ clubCodes 未指定 = 全件 / それ以外は user.clubCodes で whitelist
@@ -149,7 +166,10 @@ export async function GET() {
       isAdmin && userClubCodes.size === 0
         ? allStores
         : allStores.filter((s: any) => userClubCodes.has(String(s.clubCode)))
-    ).map(enrich);
+    )
+      .map(enrich)
+      // WFAP(海外クラブ)は店舗一覧から除外
+      .filter((s: any) => (s.companyGroup || "").toUpperCase() !== "WFAP" && (s.company || "").toUpperCase() !== "WFAP");
 
     return NextResponse.json({
       ok: true,

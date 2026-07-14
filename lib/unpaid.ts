@@ -13,7 +13,8 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: CLUBS_REGIO
 export interface ClubDir {
   clubCode: string;
   clubName: string;
-  companyGroup: string; // エリア (EAST/WEST/NORTH/SOUTH/FC(EAST)...)
+  companyGroup: string; // 運営区分 (EAST/WEST/NORTH/SOUTH/FC(EAST)/WFAP...)
+  companyName: string;  // カンパニー (ヤマウチ/トレシスサンク/WFAP...)
   businessType: string; // ブランド (FIT365/赤/青...)
 }
 
@@ -26,7 +27,7 @@ export async function listClubs(): Promise<ClubDir[]> {
   do {
     const res: any = await ddb.send(new ScanCommand({
       TableName: CLUBS_TABLE,
-      ProjectionExpression: "clubCode, clubName, companyGroup, businessType",
+      ProjectionExpression: "clubCode, clubName, companyGroup, companyName, businessType",
       ExclusiveStartKey,
     }));
     for (const it of res.Items ?? []) {
@@ -35,6 +36,7 @@ export async function listClubs(): Promise<ClubDir[]> {
         clubCode: String(it.clubCode),
         clubName: it.clubName || it.clubCode,
         companyGroup: it.companyGroup || "",
+        companyName: it.companyName || "",
         businessType: it.businessType || "",
       });
     }

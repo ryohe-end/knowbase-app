@@ -148,6 +148,9 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
   const [newMachine, setNewMachine] = useState<{ name: string; maker: string; bodyRegion: string; imageUrl: string }>({
     name: "", maker: "", bodyRegion: "", imageUrl: ""
   });
+  // マシン画像アップロード状態
+  const [machineImgUploading, setMachineImgUploading] = useState(false);
+  const [machineImgError, setMachineImgError] = useState("");
 
   // バリデーション
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -397,7 +400,34 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
       bodyRegion: activeRegion || "",
       imageUrl: "",
     });
+    setMachineImgError("");
     setIsMachineModalOpen(true);
+  };
+
+  // マシン画像を S3 へアップロードして公開URLを imageUrl にセット
+  const handleMachineImageUpload = async (file: File | null) => {
+    if (!file) return;
+    setMachineImgError("");
+    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+    if (!allowed.includes(file.type)) { setMachineImgError("PNG / JPEG / WebP / GIF のみアップロードできます。"); return; }
+    if (file.size > 10 * 1024 * 1024) { setMachineImgError("ファイルサイズは 10MB 以内にしてください。"); return; }
+    setMachineImgUploading(true);
+    try {
+      const initRes = await fetch("/api/store-settings/media/upload-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+      });
+      const init = await initRes.json();
+      if (!initRes.ok || !init.ok) throw new Error(init?.error || "アップロード準備に失敗しました");
+      const putRes = await fetch(init.presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+      if (!putRes.ok) throw new Error("S3 へのアップロードに失敗しました");
+      setNewMachine((prev) => ({ ...prev, imageUrl: init.publicUrl }));
+    } catch (e: any) {
+      setMachineImgError(e?.message || "アップロードに失敗しました");
+    } finally {
+      setMachineImgUploading(false);
+    }
   };
   const handleAddMachine = async () => {
     const name = newMachine.name.trim();
@@ -965,8 +995,32 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                 </div>
               </div>
               <div className="kbs-field">
-                <label className="kbs-label">画像 URL (任意)</label>
-                <input type="text" className="kbs-input" value={newMachine.imageUrl} onChange={e => setNewMachine({ ...newMachine, imageUrl: e.target.value })} placeholder="https://..." />
+                <label className="kbs-label">マシン画像 (任意)</label>
+                {newMachine.imageUrl ? (
+                  <div className="kbs-mimg-uploaded">
+                    <img src={newMachine.imageUrl} alt="" className="kbs-mimg-thumb" />
+                    <div className="kbs-mimg-actions">
+                      <span className="kbs-mimg-ok">✓ アップロード済み</span>
+                      <button type="button" className="kbs-mimg-remove" onClick={() => setNewMachine({ ...newMachine, imageUrl: "" })}>削除</button>
+                    </div>
+                  </div>
+                ) : (
+                  <label className={`kbs-mimg-drop${machineImgUploading ? " uploading" : ""}`}>
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" style={{ display: "none" }}
+                      disabled={machineImgUploading}
+                      onChange={(e) => { handleMachineImageUpload(e.target.files?.[0] || null); e.target.value = ""; }} />
+                    {machineImgUploading ? (
+                      <span>アップロード中...</span>
+                    ) : (
+                      <>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        <span>クリックして画像を選択</span>
+                        <small>PNG / JPEG / WebP / GIF（10MBまで・S3保管）</small>
+                      </>
+                    )}
+                  </label>
+                )}
+                {machineImgError && <p className="kbs-mimg-err">{machineImgError}</p>}
                 <p className="kbs-modal-hint">空欄の場合はマシン名の先頭 2 文字が表示されます。</p>
               </div>
             </div>
@@ -1443,6 +1497,16 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
         }
         .kbs-m-add-btn:hover { border-color: #3b82f6; color: #3b82f6; background: #eff6ff; }
         .kbs-modal-hint { font-size: 11px; color: #94a3b8; margin: 6px 0 0; }
+        .kbs-mimg-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 20px 12px; border: 1.5px dashed #cbd5e1; border-radius: 10px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; cursor: pointer; transition: border-color 0.15s, background 0.15s; text-align: center; }
+        .kbs-mimg-drop:hover { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
+        .kbs-mimg-drop.uploading { cursor: default; opacity: 0.8; }
+        .kbs-mimg-drop small { font-size: 10px; font-weight: 600; color: #94a3b8; }
+        .kbs-mimg-uploaded { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; background: #fff; }
+        .kbs-mimg-thumb { width: 100%; max-height: 180px; object-fit: contain; display: block; background: #f1f5f9; }
+        .kbs-mimg-actions { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; }
+        .kbs-mimg-ok { font-size: 11px; font-weight: 700; color: #0f766e; }
+        .kbs-mimg-remove { border: none; background: none; color: #dc2626; font-size: 11px; font-weight: 800; cursor: pointer; }
+        .kbs-mimg-err { font-size: 11px; color: #dc2626; margin: 6px 0 0; font-weight: 600; }
         .kbs-m-img-wrap { width: 100%; aspect-ratio: 4/3; position: relative; background: #f8fafc; overflow: hidden; }
         .kbs-m-img-wrap img { width: 100%; height: 100%; object-fit: cover; transition: 0.3s; }
         .kbs-m-card:hover .kbs-m-img-wrap img { transform: scale(1.05); }

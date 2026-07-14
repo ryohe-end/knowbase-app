@@ -12,6 +12,9 @@ type StoreEntry = {
   address: string;
   isActive: boolean;
   capacity?: number;
+  company?: string;    // カンパニー (ヤマウチ 等)
+  areaName?: string;   // エリア (関東 第1エリア 等)
+  territory?: string;  // テリトリー (テリトリー1 等)
 };
 
 type UserInfo = {
@@ -46,6 +49,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
   const [search, setSearch] = useState("");
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [prefectureFilter, setPrefectureFilter] = useState<string>("all");
+  const [areaFilter, setAreaFilter] = useState<string>("all");
   const [hideInactive, setHideInactive] = useState(true);
 
   useEffect(() => {
@@ -75,6 +79,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
 
   const brands = useMemo(() => [...new Set(stores.map((s) => s.brand))].sort(), [stores]);
   const prefectures = useMemo(() => [...new Set(stores.map((s) => s.prefecture))].sort(), [stores]);
+  const areas = useMemo(() => [...new Set(stores.map((s) => s.areaName).filter(Boolean) as string[])].sort(), [stores]);
 
   const filtered = useMemo(() => {
     return stores.filter((s) => {
@@ -84,15 +89,19 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
           s.clubName.toLowerCase().includes(q) ||
           s.clubCode.toLowerCase().includes(q) ||
           s.prefecture.includes(q) ||
-          s.address.includes(q);
+          s.address.includes(q) ||
+          (s.company || "").toLowerCase().includes(q) ||
+          (s.areaName || "").includes(q) ||
+          (s.territory || "").includes(q);
         if (!match) return false;
       }
       if (brandFilter !== "all" && s.brand !== brandFilter) return false;
       if (prefectureFilter !== "all" && s.prefecture !== prefectureFilter) return false;
+      if (areaFilter !== "all" && s.areaName !== areaFilter) return false;
       if (hideInactive && !s.isActive) return false;
       return true;
     });
-  }, [stores, search, brandFilter, prefectureFilter, hideInactive]);
+  }, [stores, search, brandFilter, prefectureFilter, areaFilter, hideInactive]);
 
   const activeCount = stores.filter((s) => s.isActive).length;
 
@@ -157,6 +166,12 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
             <option value="all">全都道府県</option>
             {prefectures.map((p) => <option key={p} value={p}>{p}</option>)}
           </select>
+          {areas.length > 0 && (
+            <select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)} className="sl-filter-select">
+              <option value="all">全エリア</option>
+              {areas.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          )}
           <label className="sl-checkbox-label">
             <input type="checkbox" checked={hideInactive} onChange={(e) => setHideInactive(e.target.checked)} className="sl-checkbox" />
             停止中を除外
@@ -175,7 +190,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
         ) : filtered.length === 0 ? (
           <div className="sl-empty">
             <div className="sl-empty-text">条件に一致する店舗がありません</div>
-            <button className="sl-empty-btn" onClick={() => { setSearch(""); setBrandFilter("all"); setPrefectureFilter("all"); setHideInactive(false); }}>
+            <button className="sl-empty-btn" onClick={() => { setSearch(""); setBrandFilter("all"); setPrefectureFilter("all"); setAreaFilter("all"); setHideInactive(false); }}>
               フィルターをリセット
             </button>
           </div>
@@ -188,6 +203,9 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
                   <th>店舗名</th>
                   <th>ブランド</th>
                   <th>業態</th>
+                  <th>エリア</th>
+                  <th>テリトリー</th>
+                  <th>カンパニー</th>
                   <th>都道府県</th>
                   <th>ステータス</th>
                   <th></th>
@@ -204,6 +222,9 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
                       </span>
                     </td>
                     <td><span className="sl-biz-type">{store.businessType}</span></td>
+                    <td>{store.areaName ? <span className="sl-area">{store.areaName}</span> : <span className="sl-dash">—</span>}</td>
+                    <td>{store.territory ? <span className="sl-territory">{store.territory}</span> : <span className="sl-dash">—</span>}</td>
+                    <td>{store.company ? <span className="sl-company">{store.company}</span> : <span className="sl-dash">—</span>}</td>
                     <td>{store.prefecture}</td>
                     <td>
                       {store.isActive
@@ -276,6 +297,10 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
         .sl-td-name { font-weight: 700; color: #1e293b; }
         .sl-brand-badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; border: 1.5px solid; background: #fff; }
         .sl-biz-type { font-size: 12px; color: #64748b; }
+        .sl-area { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: #eef2ff; color: #4338ca; white-space: nowrap; }
+        .sl-territory { font-size: 12px; color: #475569; white-space: nowrap; }
+        .sl-company { font-size: 12px; color: #334155; white-space: nowrap; }
+        .sl-dash { color: #cbd5e1; }
         .sl-status-badge { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
         .sl-status-badge.active { background: #ecfdf5; color: #059669; }
         .sl-status-badge.inactive { background: #fef2f2; color: #dc2626; }
