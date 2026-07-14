@@ -6,161 +6,170 @@
 <title>店舗設定 運用マニュアル</title>
 <style>
 :root{
-  --indigo:#4f46e5;--indigo-d:#4338ca;--indigo-l:#eef2ff;
-  --emerald:#059669;--emerald-l:#ecfdf5;
-  --amber:#d97706;--amber-l:#fffbeb;
-  --rose:#e11d48;--rose-l:#fff1f2;
-  --sky:#0284c7;--sky-l:#f0f9ff;
-  --violet:#7c3aed;--violet-l:#f5f3ff;
-  --cyan:#0891b2;--cyan-l:#ecfeff;
-  --teal:#0d9488;--teal-l:#f0fdfa;
-  --ink:#0f172a;--body:#334155;--muted:#64748b;--line:#e2e8f0;--bg:#f1f5f9;
-  --warn:#b45309;--warn-l:#fffbeb;--ok:#0f766e;--ok-l:#ecfdf5;
-  --shadow:0 10px 30px -12px rgba(15,23,42,.18);
-  --shadow-sm:0 2px 8px rgba(15,23,42,.06);
+  --bg:#ffffff;--panel:#ffffff;--soft:#f7f8fa;--soft2:#f1f3f6;
+  --ink:#15181e;--body:#3d434e;--muted:#6b7280;--faint:#9aa1ac;
+  --line:#e7e9ee;--line2:#eef0f4;
+  --accent:#4f46e5;--accent-d:#3f37c9;--accent-l:#eef0ff;
+  --green:#0f9d6b;--green-l:#e9f9f1;--red:#e0455a;--red-l:#fdeef0;--amber:#c47d10;--amber-l:#fdf6e7;
+  --sky:#0d83c7;--sky-l:#eaf6fd;--violet:#7c3aed;
+  --r:14px;--r-lg:18px;
+  --sh-sm:0 1px 2px rgba(16,24,40,.05);
+  --sh:0 6px 22px -10px rgba(16,24,40,.16);
+  --sh-lg:0 20px 48px -20px rgba(16,24,40,.28);
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;color:var(--body);background:var(--bg);line-height:1.8;font-size:15px;-webkit-font-smoothing:antialiased}
-a{color:var(--indigo);text-decoration:none}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;color:var(--body);background:var(--bg);line-height:1.85;font-size:15px;-webkit-font-smoothing:antialiased;letter-spacing:.005em}
+a{color:var(--accent);text-decoration:none}
+b,strong{color:var(--ink);font-weight:700}
 
-/* ===== スクロール進捗バー ===== */
-#progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:100;background:linear-gradient(90deg,#6366f1,#0ea5e9,#10b981);transition:width .1s}
+#progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:100;background:linear-gradient(90deg,var(--accent),#8b5cf6);transition:width .1s}
 
-/* ===== レイアウト ===== */
-.layout{display:grid;grid-template-columns:274px 1fr;min-height:100vh}
-.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;background:linear-gradient(180deg,#0b1220 0%,#111a2e 100%);color:#cbd5e1;padding:24px 16px}
-.side .brand{display:flex;align-items:center;gap:10px;margin:2px 6px 4px}
-.side .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6366f1,#0ea5e9);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 4px 12px rgba(99,102,241,.4)}
-.side .brand h1{font-size:15px;color:#fff;margin:0;line-height:1.35;font-weight:800}
-.side .ver{font-size:11px;color:#64748b;margin:0 6px 16px;padding-left:44px}
-.side nav a{display:flex;align-items:center;gap:10px;color:#cbd5e1;font-size:13px;padding:8px 11px;border-radius:9px;margin-bottom:2px;transition:.15s;border:1px solid transparent}
-.side nav a .ic{width:16px;height:16px;flex:0 0 auto;opacity:.85}
-.side nav a:hover{background:#1e293b;color:#fff}
-.side nav a.active{background:rgba(99,102,241,.16);color:#fff;border-color:rgba(99,102,241,.4)}
-.side nav a.sub{padding-left:38px;font-size:12px;color:#94a3b8;gap:6px}
-.side nav a.sub::before{content:"";width:5px;height:5px;border-radius:50%;background:#475569;flex:0 0 auto}
-.side nav a.sub.active::before{background:#818cf8}
-.side .tag{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#c7d2fe;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:999px;padding:5px 11px;margin:18px 6px 0}
+.layout{display:grid;grid-template-columns:290px 1fr;min-height:100vh}
 
-main{padding:0 52px 90px;max-width:1020px}
+/* ===== サイドバー（ライト・編集的） ===== */
+.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;background:var(--soft);border-right:1px solid var(--line);padding:26px 20px}
+.side .brand{display:flex;align-items:center;gap:12px;margin:2px 4px 2px}
+.side .brand .logo{width:38px;height:38px;border-radius:11px;background:linear-gradient(140deg,#6366f1,#4338ca);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 6px 16px -6px rgba(79,70,229,.6)}
+.side .brand .t{font-size:15px;color:var(--ink);font-weight:800;line-height:1.3;letter-spacing:.01em}
+.side .ver{font-size:11px;color:var(--faint);margin:6px 4px 20px;padding-left:50px;font-weight:600;letter-spacing:.04em}
+.side .lbl{font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--faint);text-transform:uppercase;margin:18px 10px 8px}
+.side nav a{display:flex;align-items:center;gap:11px;color:var(--body);font-size:13.5px;font-weight:600;padding:8px 12px;border-radius:10px;margin-bottom:1px;transition:.14s;position:relative}
+.side nav a .ic{width:17px;height:17px;flex:0 0 auto;color:var(--faint);transition:.14s}
+.side nav a:hover{background:#fff;color:var(--ink);box-shadow:var(--sh-sm)}
+.side nav a:hover .ic{color:var(--accent)}
+.side nav a.active{background:#fff;color:var(--accent-d);box-shadow:var(--sh-sm)}
+.side nav a.active .ic{color:var(--accent)}
+.side nav a.active::before{content:"";position:absolute;left:-20px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.side nav a.sub{padding:6px 12px 6px 40px;font-size:12.5px;color:var(--muted);font-weight:600}
+.side nav a.sub::after{content:"";position:absolute;left:22px;width:5px;height:5px;border-radius:50%;background:#cfd4dc}
+.side nav a.sub.active{color:var(--accent-d)}
+.side nav a.sub.active::after{background:var(--accent)}
+.side nav a.sub.active::before{display:none}
 
-/* ===== ヒーロー ===== */
-header.hero{position:relative;margin:0 -52px 8px;padding:60px 52px 40px;color:#fff;overflow:hidden;background:linear-gradient(135deg,#4338ca 0%,#4f46e5 45%,#0ea5e9 100%)}
-header.hero::after{content:"";position:absolute;inset:0;background:radial-gradient(700px 300px at 85% -20%,rgba(255,255,255,.22),transparent 60%);pointer-events:none}
-header.hero .kicker{display:inline-flex;align-items:center;gap:8px;color:#e0e7ff;font-weight:800;font-size:12px;letter-spacing:.18em;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);padding:5px 13px;border-radius:999px}
-header.hero h1{font-size:38px;margin:16px 0 10px;letter-spacing:-.01em;line-height:1.2}
-header.hero p{color:#dbeafe;margin:0;max-width:620px;font-size:15px}
-.hero-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
-.hero-badges span{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:6px 11px;color:#fff}
+main{padding:0 60px 100px;max-width:1000px}
+
+/* ===== ヒーロー（編集的・落ち着き） ===== */
+header.hero{padding:64px 0 30px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.eyebrow{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:800;letter-spacing:.16em;color:var(--accent);text-transform:uppercase}
+.eyebrow::before{content:"";width:22px;height:2px;border-radius:2px;background:var(--accent)}
+header.hero h1{font-size:42px;line-height:1.15;letter-spacing:-.02em;margin:18px 0 12px;color:var(--ink);font-weight:800}
+header.hero p.sub{color:var(--muted);margin:0;max-width:640px;font-size:16px}
+.hero-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.hero-meta span{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--body);background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 12px;box-shadow:var(--sh-sm)}
+.hero-meta span i{width:7px;height:7px;border-radius:50%;background:var(--green)}
 
 /* ===== セクション ===== */
-section{padding:44px 0 40px;border-bottom:1px solid var(--line);scroll-margin-top:12px}
-section h2{font-size:25px;margin:0 0 6px;display:flex;align-items:center;gap:14px;color:var(--ink);letter-spacing:-.01em}
-section h2 .ic{width:46px;height:46px;border-radius:13px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:#fff;box-shadow:var(--shadow-sm)}
-section .lead{color:var(--muted);margin:2px 0 22px;font-size:15px;padding-left:60px}
-/* セクション別アクセント */
-.acc-indigo .ic{background:linear-gradient(135deg,#6366f1,#4338ca)} .acc-indigo h3{border-color:var(--indigo)}
-.acc-slate  .ic{background:linear-gradient(135deg,#64748b,#334155)} .acc-slate h3{border-color:#64748b}
-.acc-emerald .ic{background:linear-gradient(135deg,#10b981,#059669)} .acc-emerald h3{border-color:var(--emerald)}
-.acc-amber  .ic{background:linear-gradient(135deg,#f59e0b,#d97706)} .acc-amber h3{border-color:var(--amber)}
-.acc-rose   .ic{background:linear-gradient(135deg,#fb7185,#e11d48)} .acc-rose h3{border-color:var(--rose)}
-.acc-sky    .ic{background:linear-gradient(135deg,#38bdf8,#0284c7)} .acc-sky h3{border-color:var(--sky)}
-.acc-violet .ic{background:linear-gradient(135deg,#a78bfa,#7c3aed)} .acc-violet h3{border-color:var(--violet)}
-.acc-cyan   .ic{background:linear-gradient(135deg,#22d3ee,#0891b2)} .acc-cyan h3{border-color:var(--cyan)}
-.acc-teal   .ic{background:linear-gradient(135deg,#2dd4bf,#0d9488)} .acc-teal h3{border-color:var(--teal)}
+section{padding:52px 0 46px;border-bottom:1px solid var(--line);scroll-margin-top:14px}
+.s-head{display:flex;align-items:center;gap:16px;margin-bottom:6px}
+.s-num{flex:0 0 auto;width:44px;height:44px;border-radius:12px;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--accent);box-shadow:var(--sh-sm)}
+.s-num svg{width:22px;height:22px}
+section h2{font-size:27px;margin:0;color:var(--ink);letter-spacing:-.015em;font-weight:800;line-height:1.25}
+section .kick{font-size:11.5px;font-weight:800;letter-spacing:.1em;color:var(--accent);text-transform:uppercase;margin-bottom:3px}
+section .lead{color:var(--muted);margin:14px 0 24px;font-size:15.5px;padding-left:60px}
+@media(max-width:860px){section .lead{padding-left:0}}
 
-h3{font-size:17px;margin:30px 0 12px;color:var(--ink);border-left:4px solid var(--teal);padding-left:12px;font-weight:800}
+h3{font-size:18px;margin:34px 0 14px;color:var(--ink);font-weight:800;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+h3::before{content:"";width:16px;height:16px;border-radius:5px;background:var(--accent-l);border:1px solid #dcdcff;flex:0 0 auto}
 
-/* ===== ステップ番号リスト ===== */
-ol.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
-ol.steps>li{position:relative;padding:12px 0 12px 48px;border-bottom:1px dashed var(--line)}
-ol.steps>li:last-child{border-bottom:0}
-ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:10px;width:30px;height:30px;background:linear-gradient(135deg,#6366f1,#4338ca);color:#fff;font-weight:800;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 3px 8px rgba(79,70,229,.35)}
-ol.steps b{color:var(--indigo-d)}
-ul.plain{margin:10px 0;padding-left:22px}ul.plain li{margin:5px 0}
-ul.plain li b{color:var(--ink)}
+/* ===== 詳細操作ステップ（縦コネクタ付き） ===== */
+.ops{list-style:none;margin:18px 0;padding:0;position:relative}
+.ops>li{position:relative;padding:2px 0 24px 56px}
+.ops>li:not(:last-child)::before{content:"";position:absolute;left:18px;top:38px;bottom:2px;width:2px;background:linear-gradient(180deg,#e2e5ec,#eef0f4)}
+.ops>li>.n{position:absolute;left:0;top:0;width:37px;height:37px;border-radius:12px;background:#fff;border:1px solid var(--line);color:var(--accent-d);font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;box-shadow:var(--sh-sm);z-index:1}
+.ops>li.done>.n{background:var(--green);border-color:var(--green);color:#fff}
+.ops>li>.c{padding-top:4px}
+.ops>li>.c .t{font-weight:800;color:var(--ink);font-size:15px;margin-bottom:2px}
+.ops>li>.c p{margin:2px 0 0;font-size:14px;color:var(--body)}
+.ops>li>.c .hint{font-size:12.5px;color:var(--muted);margin-top:4px}
 
-/* ===== フロー（ステッパー） ===== */
-.flow{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:18px 0;padding:22px 20px;background:linear-gradient(180deg,#fff,#fbfcff);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm)}
-.flow .node{position:relative;background:#fff;border:1.5px solid #c7d2fe;color:var(--indigo-d);font-weight:800;font-size:13px;padding:11px 15px;border-radius:12px;text-align:center;min-width:100px;transition:.18s;box-shadow:0 1px 2px rgba(15,23,42,.05)}
-.flow .node:hover{transform:translateY(-2px);box-shadow:0 8px 18px -8px rgba(79,70,229,.5)}
-.flow .node.start{background:linear-gradient(135deg,#1e293b,#0f172a);border-color:#0f172a;color:#fff}
-.flow .node.end{background:linear-gradient(135deg,#10b981,#059669);border-color:#059669;color:#fff}
-.flow .node small{display:block;font-weight:600;font-size:10px;color:var(--muted);margin-top:3px}
-.flow .node.start small,.flow .node.end small{color:rgba(255,255,255,.8)}
-.flow .arrow{color:#cbd5e1;font-size:18px;font-weight:800}
-.flow .branch{display:flex;flex-direction:column;gap:7px}.flow .branch .node{min-width:130px}
+/* UI要素チップ（ボタン/ラベル名） */
+.ui{display:inline-flex;align-items:center;gap:4px;background:#f3f4f8;border:1px solid #e2e5ee;border-bottom-width:2px;border-radius:7px;padding:1px 8px;font-size:12.5px;font-weight:700;color:#3a3f4b;line-height:1.6;white-space:nowrap;margin:0 1px}
+.ui.pri{background:var(--accent);border-color:var(--accent-d);color:#fff}
+.ui.go{background:var(--green-l);border-color:#b6ecd4;color:var(--green)}
+.path{font-size:12.5px;font-weight:700;color:var(--muted);white-space:nowrap}
+.path .sep{color:#cbd0d8;margin:0 4px}
+
+/* ===== フロー（軽量ステッパー） ===== */
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0;padding:20px;background:var(--soft);border:1px solid var(--line);border-radius:var(--r-lg)}
+.flow .node{background:#fff;border:1px solid var(--line);color:var(--ink);font-weight:700;font-size:13px;padding:9px 14px;border-radius:11px;text-align:center;min-width:96px;box-shadow:var(--sh-sm)}
+.flow .node.start{background:var(--ink);border-color:var(--ink);color:#fff}
+.flow .node.end{background:var(--green);border-color:var(--green);color:#fff}
+.flow .node small{display:block;font-weight:600;font-size:10px;color:var(--muted);margin-top:2px}
+.flow .node.start small,.flow .node.end small{color:rgba(255,255,255,.82)}
+.flow .arrow{color:#c3c8d2;font-size:15px}
+.flow .branch{display:flex;flex-direction:column;gap:6px}.flow .branch .node{min-width:132px}
 
 /* ===== ノート ===== */
-.note{position:relative;border-radius:13px;padding:14px 16px 14px 48px;margin:16px 0;font-size:14px;line-height:1.75}
-.note::before{position:absolute;left:15px;top:14px;font-size:18px;line-height:1}
-.note.tip{background:var(--ok-l);border:1px solid #99f6e4}.note.tip b{color:var(--ok)}.note.tip::before{content:"💡"}
-.note.warn{background:var(--warn-l);border:1px solid #fde68a}.note.warn b{color:var(--warn)}.note.warn::before{content:"⚠️"}
+.note{position:relative;border-radius:var(--r);padding:14px 16px 14px 50px;margin:16px 0;font-size:14px;line-height:1.8;border:1px solid}
+.note .h{font-weight:800;margin-right:4px}
+.note svg{position:absolute;left:16px;top:15px;width:20px;height:20px}
+.note.tip{background:var(--green-l);border-color:#c3edda;color:#1a5c43}.note.tip .h,.note.tip svg{color:var(--green)}
+.note.warn{background:var(--amber-l);border-color:#f3e0b0;color:#7a5411}.note.warn .h,.note.warn svg{color:var(--amber)}
+.note.info{background:var(--sky-l);border-color:#c3e6f8;color:#0c5a86}.note.info .h,.note.info svg{color:var(--sky)}
 
-/* ===== 機能カードグリッド ===== */
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;margin:18px 0}
-.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow-sm);transition:.18s}
-.card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+/* ===== 機能カード ===== */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px;margin:20px 0}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--sh-sm);transition:.18s}
+.card:hover{transform:translateY(-2px);box-shadow:var(--sh);border-color:#dfe2ea}
 .card .top{display:flex;align-items:center;gap:11px;margin-bottom:9px}
-.card .ci{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;flex:0 0 auto}
-.card h4{margin:0;font-size:15px;color:var(--ink)}
-.card p{margin:0;font-size:13px;color:var(--muted);line-height:1.65}
-.card .badge{margin-top:10px}
+.card .ci{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--accent);background:var(--accent-l);border:1px solid #e0e0ff;flex:0 0 auto}
+.card h4{margin:0;font-size:14.5px;color:var(--ink);font-weight:800}
+.card p{margin:0;font-size:13px;color:var(--muted);line-height:1.7}
+.card .badge{margin-top:11px}
 
 /* ===== ミニ画面カード ===== */
-.screens{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
-.screen{flex:1;min-width:220px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-sm)}
-.screen .bar{background:linear-gradient(135deg,#4f46e5,#4338ca);color:#fff;font-size:12px;font-weight:800;padding:9px 14px}
-.screen .body{padding:14px;font-size:12.5px;color:var(--muted)}
-.screen .body .chip{display:inline-block;background:var(--indigo-l);color:var(--indigo-d);font-size:11px;font-weight:700;border-radius:999px;padding:3px 10px;margin:3px 3px 3px 0;border:1px solid #e0e7ff}
+.screens{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+@media(max-width:640px){.screens{grid-template-columns:1fr}}
+.screen{background:#fff;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh-sm)}
+.screen .bar{background:var(--soft2);color:var(--ink);font-size:12.5px;font-weight:800;padding:10px 14px;border-bottom:1px solid var(--line)}
+.screen .body{padding:14px;font-size:13px;color:var(--muted)}
+.chip{display:inline-block;background:var(--accent-l);color:var(--accent-d);font-size:11.5px;font-weight:700;border-radius:999px;padding:3px 11px;margin:3px 3px 3px 0;border:1px solid #e0e0ff}
 
 /* ===== テーブル ===== */
-table{width:100%;border-collapse:separate;border-spacing:0;margin:16px 0;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow-sm)}
-th,td{padding:11px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:separate;border-spacing:0;margin:16px 0;font-size:13.5px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh-sm)}
+th,td{padding:12px 15px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line2)}
 tr:last-child td{border-bottom:0}
-th{background:var(--indigo-l);color:var(--indigo-d);font-weight:800}
-tbody tr:hover td{background:#fafbff}
+th{background:var(--soft);color:var(--ink);font-weight:800;font-size:12.5px;letter-spacing:.02em}
+tbody tr:hover td{background:#fcfcfe}
 
-.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;border-radius:7px;padding:3px 9px}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;border-radius:8px;padding:4px 10px;letter-spacing:.02em}
 .badge::before{content:"";width:6px;height:6px;border-radius:50%}
-.badge.live{background:var(--ok-l);color:var(--ok)}.badge.live::before{background:var(--ok)}
-.badge.soon{background:#f1f5f9;color:var(--muted)}.badge.soon::before{background:#94a3b8}
+.badge.live{background:var(--green-l);color:var(--green)}.badge.live::before{background:var(--green)}
+.badge.soon{background:var(--soft2);color:var(--muted)}.badge.soon::before{background:#9aa1ac}
 
 /* ===== スクリーンショット（デバイス枠） ===== */
-.shot{margin:20px 0;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#fff}
-.shot .chrome{display:flex;align-items:center;gap:7px;padding:11px 14px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid var(--line)}
+.shot{margin:22px 0;border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--sh);background:#fff}
+.shot .chrome{display:flex;align-items:center;gap:7px;padding:11px 15px;background:var(--soft);border-bottom:1px solid var(--line)}
 .shot .chrome i{width:11px;height:11px;border-radius:50%;display:inline-block}
-.shot .chrome i.r{background:#f87171}.shot .chrome i.y{background:#fbbf24}.shot .chrome i.g{background:#34d399}
-.shot .chrome span{margin-left:10px;font-size:11.5px;color:var(--muted);font-weight:700;letter-spacing:.02em}
-.shot .chrome .url{margin-left:auto;font-size:10px;color:#94a3b8;background:#fff;border:1px solid var(--line);padding:3px 10px;border-radius:999px}
-.shot svg{display:block;width:100%;height:auto;background:#f8fafc}
-.shot .cap{padding:11px 15px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);background:#fafbff;display:flex;gap:8px;align-items:flex-start}
-.shot .cap::before{content:"📸";flex:0 0 auto}
+.shot .chrome i.r{background:#f4726b}.shot .chrome i.y{background:#f5bb3f}.shot .chrome i.g{background:#41c579}
+.shot .chrome .ttl{margin-left:10px;font-size:12px;color:var(--body);font-weight:700}
+.shot .chrome .url{margin-left:auto;font-size:10.5px;color:var(--faint);background:#fff;border:1px solid var(--line);padding:4px 11px;border-radius:999px;font-weight:600}
+.shot svg{display:block;width:100%;height:auto;background:#fafbfc}
+.shot .cap{padding:12px 16px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);background:var(--soft);display:flex;gap:9px;align-items:flex-start;line-height:1.7}
+.shot .cap b{color:var(--body)}
 
-/* ===== 凡例 ===== */
-.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 0;padding-left:60px}
-.legend span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-weight:700}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:10px 0 0;padding-left:60px}
+@media(max-width:860px){.legend{padding-left:0}}
+.legend span{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);font-weight:700}
 .legend .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
 
-footer.foot{color:var(--muted);font-size:12px;padding:28px 0 0;display:flex;align-items:center;gap:10px}
-footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#6366f1,#0ea5e9);flex:0 0 auto}
+footer.foot{color:var(--faint);font-size:12px;padding:30px 0 0;display:flex;align-items:center;gap:11px;font-weight:600}
+footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(140deg,#6366f1,#4338ca);flex:0 0 auto}
 
 @media(max-width:860px){
   .layout{grid-template-columns:1fr}
-  .side{position:static;height:auto}
+  .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
   main{padding:0 20px 60px}
-  header.hero{margin:0 -20px 8px;padding:44px 20px 30px}
-  header.hero h1{font-size:28px}
-  section .lead,.legend{padding-left:0}
+  header.hero h1{font-size:30px}
 }
 @media print{
   #progress,.side{display:none}
   .layout{grid-template-columns:1fr}
   main{max-width:none;padding:0}
-  header.hero{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   section{break-inside:avoid}
-  .card:hover,.flow .node:hover{transform:none;box-shadow:var(--shadow-sm)}
+  .card:hover,.flow .node:hover{transform:none}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 </style>
 </head>
@@ -169,44 +178,54 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
 <div class="layout">
 <aside class="side">
   <div class="brand">
-    <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
-    <h1>店舗設定<br>運用マニュアル</h1>
+    <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
+    <div class="t">店舗設定<br>運用マニュアル</div>
   </div>
-  <div class="ver">Version 3.0 ／ 2026-07-14</div>
+  <div class="ver">VERSION 4.0 ／ 2026-07-14</div>
   <nav id="toc">
-    <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. はじめに</a>
+    <div class="lbl">はじめに</div>
+    <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. 権限・クラブコード</a>
     <a href="#map"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>画面遷移マップ</a>
+    <div class="lbl">配信</div>
     <a href="#push"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>2. Push・お知らせ</a>
-    <a href="#push-store" class="sub">複数店舗の選択</a>
+    <a href="#push-ops" class="sub">詳しい操作手順</a>
     <a href="#push-target" class="sub">ターゲット抽出</a>
-    <a href="#push-preview" class="sub">2種プレビュー</a>
     <a href="#dm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>3. DM（メール）</a>
+    <a href="#dm-ops" class="sub">詳しい操作手順</a>
+    <div class="lbl">経理・データ</div>
     <a href="#unpaid"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>4. 未納金管理</a>
+    <a href="#unpaid-ops" class="sub">詳しい操作手順</a>
     <a href="#refund"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>5. 返金・入金</a>
+    <a href="#refund-ops" class="sub">詳しい操作手順</a>
+    <div class="lbl">管理</div>
     <a href="#terms"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>6. 規約管理</a>
     <a href="#users"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>7. ユーザー管理</a>
-    <a href="#tour"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>8. 使い方ツアー</a>
+    <a href="#audit"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12.75 11.25 15 15 9.75M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.4 0 2.73.32 3.9.9"/></svg>8. 操作監査ログ</a>
+    <a href="#tour"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>9. 使い方ツアー</a>
   </nav>
-  <span class="tag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>管理画面 › 店舗設定</span>
 </aside>
 <main>
 <header class="hero">
-  <div class="kicker"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>OPERATION MANUAL</div>
+  <div class="eyebrow">Operation Manual</div>
   <h1>店舗設定 運用マニュアル</h1>
-  <p>管理画面「店舗設定」の操作手順と画面遷移をまとめた運用マニュアルです。店舗スタッフ・エリア担当者・管理者向け。</p>
-  <div class="hero-badges">
-    <span>🔔 Push・お知らせ</span>
-    <span>✉️ DM配信</span>
-    <span>📊 未納金管理</span>
-    <span>💳 返金・入金</span>
-    <span>📄 規約管理</span>
+  <p class="sub">管理画面「店舗設定」の操作手順と画面遷移をまとめた運用マニュアルです。各機能の<b>クリック単位の手順</b>まで掲載しています。店舗スタッフ・エリア担当者・管理者向け。</p>
+  <div class="hero-meta">
+    <span><i></i>Push・お知らせ</span>
+    <span><i></i>DM配信</span>
+    <span><i></i>未納金管理</span>
+    <span><i></i>返金・入金</span>
+    <span><i></i>規約・ユーザー</span>
   </div>
 </header>
 
-<section id="intro" class="acc-indigo">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>はじめに（権限・クラブコード）</h2>
-  <p class="lead">各アカウントには「担当クラブコード」または「担当エリア」が付与され、見える範囲が決まります。</p>
-  <h3>ログインから各機能まで（画面遷移）</h3>
+<section id="intro">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+    <div><div class="kick">Section 1</div><h2>はじめに（権限・クラブコード）</h2></div>
+  </div>
+  <p class="lead">各アカウントには「担当クラブコード」または「担当エリア」が付与され、見える範囲が決まります。まずは自分の担当範囲と、店舗設定への入り方を押さえましょう。</p>
+
+  <h3>ログインから各機能まで</h3>
   <div class="flow">
     <div class="node start">ログイン<small>メール＋パスワード</small></div><span class="arrow">→</span>
     <div class="node">ホーム</div><span class="arrow">→</span>
@@ -216,138 +235,125 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
       <div class="node">返金・入金</div><div class="node">規約管理</div>
     </div>
   </div>
+
   <h3>担当範囲の考え方</h3>
-  <ul class="plain">
-    <li><b>担当クラブコード</b> … その店舗のデータのみ閲覧・操作できます。</li>
-    <li><b>担当エリア</b> … エリア内の店舗が自動的に担当範囲へ展開されます。</li>
-    <li><b>管理者（クラブコード未設定）</b> … 全店舗が対象。ブランド・直営/FC・エリアで絞り込めます。</li>
-  </ul>
-  <div class="note tip"><b>ポイント：</b>担当外店舗のデータはシステム側で遮断されます。店舗一覧・未納・返金・配信履歴・会員抽出はすべて担当店舗に自動で絞り込まれ、担当外コードを直接指定してもアクセスは拒否されます。</div>
+  <table>
+    <tr><th style="width:180px">権限</th><th>見える範囲</th></tr>
+    <tr><td><b>担当クラブコード</b></td><td>付与された店舗のデータのみ閲覧・操作できます。</td></tr>
+    <tr><td><b>担当エリア</b></td><td>エリア内の店舗が自動的に担当範囲へ展開されます。</td></tr>
+    <tr><td><b>管理者</b><br><span style="color:var(--muted);font-size:12px">クラブコード未設定</span></td><td>全店舗が対象。ブランド・直営/FC・エリアで絞り込めます。</td></tr>
+  </table>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">ポイント：</span>担当外店舗のデータはシステム側で遮断されます。店舗一覧・未納・返金・配信履歴・会員抽出はすべて担当店舗に自動で絞り込まれ、担当外コードを直接指定してもアクセスは拒否されます。</div>
 
   <h3>ホーム画面からの入口（直営店舗のみ）</h3>
-  <p>ホーム画面の「外部リンク」の下に、<b>直営店舗の担当者のみ</b>「JOYFIT / FIT365 管理画面（店舗設定）」ボタンが表示されます。ここから店舗設定へ進めます（FC店舗には表示されません）。</p>
+  <p>ホーム画面の<span class="ui">外部リンク</span>の下に、<b>直営店舗の担当者のみ</b><span class="ui">JOYFIT 管理画面</span><span class="ui">FIT365 管理画面</span>ボタンが表示されます。ここから店舗設定へ進めます（FC店舗には表示されません）。</p>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>ホーム画面</span><span class="url">app › home</span></div>
-    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span class="ttl">ホーム画面</span><span class="url">app › home</span></div>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,sans-serif">
       <defs>
         <linearGradient id="jf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a3a72"/><stop offset="1" stop-color="#1F2C5C"/></linearGradient>
         <linearGradient id="ft" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ec8ab4"/><stop offset="1" stop-color="#E26E9D"/></linearGradient>
       </defs>
-      <rect width="720" height="300" fill="#f1f5f9"/>
-      <!-- 左: メイン -->
-      <rect x="20" y="20" width="430" height="120" rx="12" fill="#fff" stroke="#e2e8f0"/>
-      <text x="42" y="54" font-size="17" font-weight="800" fill="#0f172a">ホーム</text>
-      <text x="42" y="80" font-size="12" fill="#64748b">お知らせ・マニュアル・AIアシスタント</text>
-      <rect x="42" y="98" width="120" height="26" rx="7" fill="#eef2ff"/><text x="58" y="115" font-size="11" font-weight="700" fill="#4338ca">お知らせ 3件</text>
-      <rect x="20" y="152" width="430" height="128" rx="12" fill="#fff" stroke="#e2e8f0"/>
-      <text x="42" y="184" font-size="13" font-weight="800" fill="#0f172a">マニュアル / チャット</text>
-      <rect x="42" y="200" width="180" height="60" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
-      <rect x="234" y="200" width="180" height="60" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
-      <!-- 右サイド -->
-      <rect x="470" y="20" width="230" height="260" rx="12" fill="#fff" stroke="#e2e8f0"/>
-      <text x="488" y="46" font-size="13" font-weight="800" fill="#0f172a">外部リンク</text>
-      <rect x="488" y="56" width="194" height="34" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="502" y="78" font-size="12" fill="#334155">店舗HP ↗</text>
-      <rect x="488" y="96" width="194" height="34" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="502" y="118" font-size="12" fill="#334155">予約システム ↗</text>
-      <!-- 管理画面ボタン(直営のみ) -->
+      <rect width="720" height="300" fill="#fafbfc"/>
+      <rect x="20" y="20" width="430" height="120" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="42" y="54" font-size="17" font-weight="800" fill="#15181e">ホーム</text>
+      <text x="42" y="80" font-size="12" fill="#6b7280">お知らせ・マニュアル・AIアシスタント</text>
+      <rect x="42" y="98" width="120" height="26" rx="7" fill="#eef0ff"/><text x="102" y="115" font-size="11" font-weight="700" fill="#3f37c9" text-anchor="middle">お知らせ 3件</text>
+      <rect x="20" y="152" width="430" height="128" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="42" y="184" font-size="13" font-weight="800" fill="#15181e">マニュアル / チャット</text>
+      <rect x="42" y="200" width="180" height="60" rx="9" fill="#f7f8fa" stroke="#e7e9ee"/>
+      <rect x="234" y="200" width="180" height="60" rx="9" fill="#f7f8fa" stroke="#e7e9ee"/>
+      <rect x="470" y="20" width="230" height="260" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="488" y="46" font-size="13" font-weight="800" fill="#15181e">外部リンク</text>
+      <rect x="488" y="56" width="194" height="34" rx="9" fill="#f7f8fa" stroke="#e7e9ee"/><text x="502" y="78" font-size="12" fill="#3d434e">店舗HP ↗</text>
+      <rect x="488" y="96" width="194" height="34" rx="9" fill="#f7f8fa" stroke="#e7e9ee"/><text x="502" y="118" font-size="12" fill="#3d434e">予約システム ↗</text>
       <rect x="482" y="140" width="206" height="98" rx="11" fill="none" stroke="#4f46e5" stroke-width="2" stroke-dasharray="5 4"/>
-      <rect x="488" y="148" width="194" height="40" rx="10" fill="url(#jf)"/>
-      <text x="502" y="173" font-size="12.5" font-weight="800" fill="#fff">JOYFIT 管理画面 →</text>
-      <rect x="488" y="192" width="194" height="40" rx="10" fill="url(#ft)"/>
-      <text x="502" y="217" font-size="12.5" font-weight="800" fill="#fff">FIT365 管理画面 →</text>
+      <rect x="488" y="148" width="194" height="40" rx="10" fill="url(#jf)"/><text x="502" y="173" font-size="12.5" font-weight="800" fill="#fff">JOYFIT 管理画面 →</text>
+      <rect x="488" y="192" width="194" height="40" rx="10" fill="url(#ft)"/><text x="502" y="217" font-size="12.5" font-weight="800" fill="#fff">FIT365 管理画面 →</text>
       <circle cx="686" cy="140" r="13" fill="#4f46e5"/><text x="686" y="145" font-size="13" font-weight="800" fill="#fff" text-anchor="middle">!</text>
     </svg>
-    <div class="cap">直営店舗の担当者には「外部リンク」の下に管理画面ボタン（点線枠）が表示され、店舗設定へ遷移します。</div>
+    <div class="cap"><b>直営店舗の担当者</b>には「外部リンク」の下に管理画面ボタン（点線枠）が表示され、店舗設定へ遷移します。</div>
   </div>
 </section>
 
-<section id="map" class="acc-slate">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>全体の画面遷移マップ</h2>
-  <p class="lead">「店舗設定」メニューから各機能への遷移の全体像です。</p>
-  <div class="flow">
-    <div class="node start">店舗設定 TOP</div><span class="arrow">→</span>
-    <div class="branch">
-      <div class="node">Push通知 <small>一覧 → 新規作成 → 確認 → 送信</small></div>
-      <div class="node">DM <small>一覧 → 作成 → 確認 → 送信</small></div>
-      <div class="node">基本設定 <small>店舗情報 / マシン / 未納金管理</small></div>
-      <div class="node">返金・入金 <small>申請 → 承認 → 経理</small></div>
-      <div class="node">規約管理 <small>一覧 → 版編集 → PDF</small></div>
-    </div>
+<section id="map">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+    <div><div class="kick">Overview</div><h2>全体の画面遷移マップ</h2></div>
   </div>
+  <p class="lead">「店舗設定」メニューから各機能への遷移の全体像です。各カードをクリックすると設定画面が開きます。</p>
   <div class="cards">
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#10b981,#059669)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div><h4>Push通知・お知らせ</h4></div><p>アプリへのプッシュ通知とお知らせ配信</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></div><h4>DM（メール配信）</h4></div><p>会員へのHTMLメール配信・開封率計測</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#fb7185,#e11d48)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div><h4>未納金管理</h4></div><p>初回振替の結果と、未納者のその後の追跡</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#38bdf8,#0284c7)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div><h4>返金・入金管理</h4></div><p>返金申請〜承認〜経理処理</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#a78bfa,#7c3aed)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><h4>規約管理</h4></div><p>規約のバージョン管理・PDF出力</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#94a3b8,#64748b)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h4>1day / ポイント / 都度利用</h4></div><p>今後提供予定</p><div class="badge soon">準備中</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div><h4>Push通知・お知らせ</h4></div><p>アプリへのプッシュ通知とお知らせ配信。一覧 → 新規作成 → 確認 → 送信。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></div><h4>DM（メール配信）</h4></div><p>会員へのHTMLメール配信・開封率/クリック率の計測。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div><h4>未納金管理</h4></div><p>初回振替の結果と、未納者のその後の追跡・CSV出力。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div><h4>返金・入金管理</h4></div><p>返金申請〜承認〜経理処理を役割ごとに進行。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><h4>規約管理</h4></div><p>規約のバージョン管理・本文編集・PDF出力。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h4>1day / ポイント / 都度利用</h4></div><p>今後提供予定の機能です。</p><div class="badge soon">準備中</div></div>
   </div>
 </section>
 
-<section id="push" class="acc-emerald">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>Push通知・お知らせ</h2>
-  <p class="lead">アプリのロック画面に出るPUSH通知と、アプリ内「お知らせ」欄への掲載を同時に作成します。</p>
-  <h3>配信の流れ（画面遷移）</h3>
+<section id="push">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div>
+    <div><div class="kick">Section 2</div><h2>Push通知・お知らせ</h2></div>
+  </div>
+  <p class="lead">アプリのロック画面に出るPUSH通知と、アプリ内「お知らせ」欄への掲載を<b>同時に</b>作成します。ロック画面はテキストのみ、お知らせは画像・本文の詳細まで表示されます。</p>
   <div class="flow">
-    <div class="node start">Push通知 一覧</div><span class="arrow">→</span>
-    <div class="node">新規配信作成</div><span class="arrow">→</span>
-    <div class="node">① 店舗選択</div><span class="arrow">→</span>
-    <div class="node">② コンテンツ<small>タイトル/本文/画像/AI</small></div><span class="arrow">→</span>
-    <div class="node">③ ターゲット抽出</div><span class="arrow">→</span>
-    <div class="node">④ スケジュール</div><span class="arrow">→</span>
-    <div class="node">内容を確認</div><span class="arrow">→</span>
-    <div class="node end">送信完了</div>
+    <div class="node start">Push一覧</div><span class="arrow">→</span>
+    <div class="node">新規作成</div><span class="arrow">→</span>
+    <div class="node">① 店舗</div><span class="arrow">→</span>
+    <div class="node">② 内容</div><span class="arrow">→</span>
+    <div class="node">③ ターゲット</div><span class="arrow">→</span>
+    <div class="node">④ 日時</div><span class="arrow">→</span>
+    <div class="node">確認</div><span class="arrow">→</span>
+    <div class="node end">送信</div>
   </div>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>Push通知 › 新規配信作成</span><span class="url">store-settings › push › new</span></div>
-    <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
-      <rect width="720" height="340" fill="#f1f5f9"/>
-      <!-- 左: 設定 -->
-      <rect x="16" y="16" width="300" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span class="ttl">Push通知 › 新規配信作成</span><span class="url">store-settings › push › new</span></div>
+    <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,sans-serif">
+      <rect width="720" height="340" fill="#fafbfc"/>
+      <rect x="16" y="16" width="300" height="308" rx="12" fill="#fff" stroke="#e7e9ee"/>
       <circle cx="36" cy="40" r="11" fill="#4f46e5"/><text x="36" y="45" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">1</text>
-      <text x="56" y="45" font-size="13" font-weight="800" fill="#0f172a">配信店舗（複数選択可）</text>
-      <rect x="30" y="56" width="272" height="30" rx="8" fill="#eef2ff" stroke="#c7d2fe"/><text x="44" y="76" font-size="11" fill="#4338ca">ブランド / 直営・FC / エリアで絞込 + 検索</text>
+      <text x="56" y="45" font-size="13" font-weight="800" fill="#15181e">配信店舗（複数選択可）</text>
+      <rect x="30" y="56" width="272" height="30" rx="8" fill="#eef0ff" stroke="#d5d8ff"/><text x="44" y="76" font-size="11" fill="#3f37c9">ブランド / 直営・FC / エリアで絞込 + 検索</text>
       <circle cx="36" cy="110" r="11" fill="#4f46e5"/><text x="36" y="115" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">2</text>
-      <text x="56" y="115" font-size="13" font-weight="800" fill="#0f172a">通知コンテンツ（AIで文章作成）</text>
-      <rect x="30" y="126" width="272" height="24" rx="7" fill="#f8fafc" stroke="#e2e8f0"/><text x="42" y="142" font-size="10" fill="#94a3b8">タイトル</text>
-      <rect x="30" y="154" width="272" height="34" rx="7" fill="#f8fafc" stroke="#e2e8f0"/><text x="42" y="170" font-size="10" fill="#94a3b8">本文</text>
-      <rect x="222" y="126" width="80" height="24" rx="7" fill="#ecfdf5" stroke="#a7f3d0"/><text x="262" y="142" font-size="10" font-weight="700" fill="#059669" text-anchor="middle">✦ AI生成</text>
+      <text x="56" y="115" font-size="13" font-weight="800" fill="#15181e">通知コンテンツ（AIで文章作成）</text>
+      <rect x="30" y="126" width="272" height="24" rx="7" fill="#f7f8fa" stroke="#e7e9ee"/><text x="42" y="142" font-size="10" fill="#9aa1ac">タイトル</text>
+      <rect x="30" y="154" width="272" height="34" rx="7" fill="#f7f8fa" stroke="#e7e9ee"/><text x="42" y="170" font-size="10" fill="#9aa1ac">本文</text>
+      <rect x="224" y="126" width="78" height="24" rx="7" fill="#e9f9f1" stroke="#b6ecd4"/><text x="263" y="142" font-size="10" font-weight="700" fill="#0f9d6b" text-anchor="middle">✦ AI生成</text>
       <circle cx="36" cy="212" r="11" fill="#4f46e5"/><text x="36" y="217" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">3</text>
-      <text x="56" y="217" font-size="13" font-weight="800" fill="#0f172a">ターゲット抽出</text>
-      <rect x="30" y="228" width="130" height="22" rx="11" fill="#eef2ff"/><text x="95" y="243" font-size="10" fill="#4338ca" text-anchor="middle">性別 / 在籍状況</text>
-      <rect x="166" y="228" width="136" height="22" rx="11" fill="#eef2ff"/><text x="234" y="243" font-size="10" fill="#4338ca" text-anchor="middle">契約種別 / 形態 / OP</text>
-      <rect x="30" y="258" width="272" height="32" rx="9" fill="#0f172a"/><text x="166" y="279" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">条件で名簿を作成</text>
-      <!-- 中: 宛先リスト -->
-      <rect x="326" y="16" width="200" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
-      <text x="340" y="40" font-size="12" font-weight="800" fill="#0f172a">宛先リスト（配信可能のみ）</text>
-      <rect x="336" y="50" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="67" font-size="10" fill="#334155">☑ 田中 太郎 · 在籍中</text>
-      <rect x="336" y="80" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="97" font-size="10" fill="#334155">☑ 佐藤 花子 · 在籍中</text>
-      <rect x="336" y="110" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="127" font-size="10" fill="#334155">☑ 鈴木 一郎 · 在籍中</text>
-      <rect x="336" y="150" width="180" height="20" rx="6" fill="#f8fafc"/><text x="346" y="164" font-size="9" fill="#94a3b8">配信可 3 名 / 抽出 5 名</text>
-      <!-- 右: プレビュー2種 -->
-      <rect x="536" y="16" width="168" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
-      <text x="548" y="38" font-size="11" font-weight="800" fill="#0f172a">プレビュー（2種）</text>
-      <rect x="556" y="48" width="128" height="120" rx="16" fill="#0f172a"/>
-      <text x="620" y="72" font-size="10" fill="#cbd5e1" text-anchor="middle">ロック画面 10:41</text>
-      <rect x="566" y="82" width="108" height="46" rx="9" fill="#fff"/><text x="576" y="102" font-size="9" font-weight="700" fill="#0f172a">JOYFITアプリ</text><text x="576" y="116" font-size="8" fill="#475569">通知タイトル/本文</text>
-      <rect x="556" y="180" width="128" height="130" rx="16" fill="#0f172a"/>
-      <rect x="566" y="190" width="108" height="18" rx="5" fill="#E26E9D"/><text x="620" y="203" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">お知らせ</text>
-      <rect x="566" y="212" width="108" height="88" rx="7" fill="#fff"/><rect x="574" y="220" width="92" height="40" rx="5" fill="#eef2ff"/><text x="576" y="278" font-size="8" fill="#0f172a">画像・本文</text>
+      <text x="56" y="217" font-size="13" font-weight="800" fill="#15181e">ターゲット抽出</text>
+      <rect x="30" y="228" width="130" height="22" rx="11" fill="#eef0ff"/><text x="95" y="243" font-size="10" fill="#3f37c9" text-anchor="middle">性別 / 在籍状況</text>
+      <rect x="166" y="228" width="136" height="22" rx="11" fill="#eef0ff"/><text x="234" y="243" font-size="10" fill="#3f37c9" text-anchor="middle">契約種別 / 形態 / OP</text>
+      <rect x="30" y="258" width="272" height="32" rx="9" fill="#15181e"/><text x="166" y="279" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">条件で名簿を作成</text>
+      <rect x="326" y="16" width="200" height="308" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="340" y="40" font-size="12" font-weight="800" fill="#15181e">宛先リスト（配信可能のみ）</text>
+      <rect x="336" y="50" width="180" height="26" rx="6" fill="#e9f9f1" stroke="#b6ecd4"/><text x="346" y="67" font-size="10" fill="#3d434e">☑ 田中 太郎 · 在籍中</text>
+      <rect x="336" y="80" width="180" height="26" rx="6" fill="#e9f9f1" stroke="#b6ecd4"/><text x="346" y="97" font-size="10" fill="#3d434e">☑ 佐藤 花子 · 在籍中</text>
+      <rect x="336" y="110" width="180" height="26" rx="6" fill="#e9f9f1" stroke="#b6ecd4"/><text x="346" y="127" font-size="10" fill="#3d434e">☑ 鈴木 一郎 · 在籍中</text>
+      <rect x="336" y="150" width="180" height="20" rx="6" fill="#f7f8fa"/><text x="346" y="164" font-size="9" fill="#9aa1ac">配信可 3 名 / 抽出 5 名</text>
+      <rect x="536" y="16" width="168" height="308" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="548" y="38" font-size="11" font-weight="800" fill="#15181e">プレビュー（2種）</text>
+      <rect x="556" y="48" width="128" height="120" rx="16" fill="#15181e"/><text x="620" y="72" font-size="10" fill="#c3c8d2" text-anchor="middle">ロック画面 10:41</text>
+      <rect x="566" y="82" width="108" height="46" rx="9" fill="#fff"/><text x="576" y="102" font-size="9" font-weight="700" fill="#15181e">JOYFITアプリ</text><text x="576" y="116" font-size="8" fill="#6b7280">通知タイトル/本文</text>
+      <rect x="556" y="180" width="128" height="130" rx="16" fill="#15181e"/><rect x="566" y="190" width="108" height="18" rx="5" fill="#E26E9D"/><text x="620" y="203" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">お知らせ</text>
+      <rect x="566" y="212" width="108" height="88" rx="7" fill="#fff"/><rect x="574" y="220" width="92" height="40" rx="5" fill="#eef0ff"/><text x="576" y="278" font-size="8" fill="#15181e">画像・本文</text>
     </svg>
-    <div class="cap">左＝設定（店舗/内容/ターゲット）、中＝宛先リスト（配信可能な人のみ）、右＝プレビュー2種。</div>
+    <div class="cap"><b>左</b>＝設定（店舗/内容/ターゲット）、<b>中</b>＝宛先リスト（配信可能な人のみ）、<b>右</b>＝プレビュー2種。</div>
   </div>
-  <h3 id="push-store">① 複数店舗の選択</h3>
-  <ul class="plain">
-    <li>複数店舗の担当者は、配信先店舗を<b>複数選択</b>できます。</li>
-    <li><b>管理者</b>は店舗数が多い場合、<b>ブランド（JOYFIT/FIT365）・運営（直営/FC）・エリア</b>で絞り込み、検索、「表示中を全選択」で一括選択できます。</li>
-    <li>プレビュー・AI生成は代表店舗（先頭）を基準に表示されます。</li>
-  </ul>
-  <h3>② コンテンツ入力</h3>
-  <ol class="steps">
-    <li><b>タイトル・本文</b>を入力。お知らせ画像は「クリックして画像を選択」でアップロードします（S3保管）。</li>
-    <li><b>「AIで文章作成」</b>に指示を入れると、タイトル・本文が自動生成され各欄へ反映されます。</li>
+
+  <h3 id="push-ops">詳しい操作手順</h3>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">新規配信作成を開く</div><p><span class="path">店舗設定<span class="sep">›</span>PUSH通知設定</span> を開き、右上の <span class="ui pri">新規配信作成</span> を押します。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">① 配信店舗を選ぶ</div><p>店舗選択パネルで配信先を選びます（複数可）。<b>管理者</b>は <span class="ui">ブランド</span> <span class="ui">直営 / FC</span> <span class="ui">エリア</span> で絞り込み、検索窓で店名検索、<span class="ui">表示中を全選択</span> で一括選択できます。</p><p class="hint">選んだ店舗はチップで表示されます。プレビュー・AI生成は先頭店舗を基準に表示。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">② タイトル・本文を入力</div><p><span class="ui">タイトル</span> と <span class="ui">本文</span> を入力。お知らせ画像は <span class="ui">クリックして画像を選択</span> でアップロードします（S3保管）。</p><p class="hint"><span class="ui go">✦ AIで文章作成</span> に指示を入れると、タイトル・本文が自動生成され各欄へ反映されます。</p></div></li>
+    <li><div class="n">4</div><div class="c"><div class="t">③ ターゲットを抽出する</div><p>条件グループで対象を指定し <span class="ui pri">条件で名簿を作成</span> を押します。<b>在籍状況は既定で「在籍中」のみ</b>チェックされています。詳細は下の「ターゲット抽出」を参照。</p></div></li>
+    <li><div class="n">5</div><div class="c"><div class="t">宛先リストを確認する</div><p>中央の宛先リストには<b>配信可能な人だけ</b>が並びます（通知トークン・許諾のない会員は自動で対象外）。チェックのオン/オフで最終的な送信対象を調整できます。</p></div></li>
+    <li><div class="n">6</div><div class="c"><div class="t">④ 配信日時を決める</div><p><span class="ui">即時送信</span> または <span class="ui">予約配信</span>（日付・時刻を指定）を選びます。</p><p class="hint">配信可能時間は <b>8:00〜21:00</b>。21時以降・早朝は送信できません。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">確認して送信</div><p><span class="ui">内容を確認する</span> でロック画面PUSHとお知らせの2種プレビューを確認し、<span class="ui pri">今すぐ送信する</span>（または <span class="ui pri">予約配信を確定する</span>）で確定します。</p><p class="hint">NGワードを含む・時間外の場合はエラーが表示され送信されません。<span class="ui">下書き保存</span> も可能です。</p></div></li>
   </ol>
-  <div class="note warn"><b>送信ルール：</b>配信可能時間は <b>8:00〜21:00</b> です（21時以降は送信不可）。件名・本文に<b>NGワード</b>が含まれると送信できません。予約配信も同じ時間帯の範囲で指定してください。</div>
-  <h3 id="push-target">③ ターゲット抽出</h3>
+
+  <h3 id="push-target">ターゲット抽出</h3>
   <div class="screens">
     <div class="screen"><div class="bar">条件グループ</div><div class="body">
       入会日・退会日／来館期間・来館回数<br>
@@ -359,152 +365,148 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
       抽出結果を一覧表示。配信可否（通知トークン・許諾）を自動判定し、配信できない会員は自動的に対象外になります。
     </div></div>
   </div>
-  <ul class="plain">
-    <li><b>契約種別（会員区分）</b>…フィットネス等。スタッフ・タイム会員は除外。</li>
-    <li><b>オプション</b>…水素水・パーソナル等のオプション契約を別枠で選択。</li>
-    <li>複数店舗選択時は、選択店舗すべての契約種別・契約形態がマージ表示されます。</li>
+  <ul class="plain" style="list-style:none;padding:0;margin:12px 0">
+    <li style="padding:6px 0;border-bottom:1px solid var(--line2)"><b>契約種別（会員区分）</b> … フィットネス等。スタッフ・タイム会員は除外されます。</li>
+    <li style="padding:6px 0;border-bottom:1px solid var(--line2)"><b>オプション</b> … 水素水・パーソナル等のオプション契約を別枠で選択。</li>
+    <li style="padding:6px 0"><b>複数店舗選択時</b> … 選択店舗すべての契約種別・契約形態がマージ表示されます。</li>
   </ul>
-  <h3 id="push-preview">プレビュー（2種類）</h3>
-  <div class="flow">
-    <div class="node">入力</div><span class="arrow">→</span>
-    <div class="branch">
-      <div class="node">① ロック画面PUSH<small>通知バナー（テキスト）</small></div>
-      <div class="node">② アプリ内お知らせ<small>画像・本文の詳細</small></div>
-    </div>
-  </div>
-  <div class="note tip"><b>ポイント：</b>PUSHはロック画面・通知センターに（テキストのみ）、お知らせはアプリを開いた「お知らせ」画面に表示されます。入力に応じて2つのプレビューが同時に更新されます。</div>
+  <div class="note info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="h">プレビューは2種：</span>PUSHはロック画面・通知センターに（テキストのみ）、お知らせはアプリの「お知らせ」画面に表示。入力に応じて2つのプレビューが同時に更新されます。</div>
 </section>
 
-<section id="dm" class="acc-amber">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>DM（メール配信）</h2>
-  <p class="lead">会員へHTMLメールを配信し、開封率・クリック率を計測します。</p>
+<section id="dm">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></div>
+    <div><div class="kick">Section 3</div><h2>DM（メール配信）</h2></div>
+  </div>
+  <p class="lead">会員へHTMLメールを配信し、開封率・クリック率を計測します。ターゲット抽出の考え方はPush通知と共通です。</p>
   <div class="flow">
-    <div class="node start">DM 一覧</div><span class="arrow">→</span>
-    <div class="node">新規作成<small>件名/本文/画像/AI</small></div><span class="arrow">→</span>
-    <div class="node">店舗選択（複数可）</div><span class="arrow">→</span>
-    <div class="node">ターゲット抽出</div><span class="arrow">→</span>
+    <div class="node start">DM一覧</div><span class="arrow">→</span>
+    <div class="node">新規作成</div><span class="arrow">→</span>
+    <div class="node">店舗選択</div><span class="arrow">→</span>
+    <div class="node">ターゲット</div><span class="arrow">→</span>
     <div class="node">確認</div><span class="arrow">→</span>
     <div class="node end">送信</div><span class="arrow">→</span>
     <div class="node">開封率・クリック率</div>
   </div>
-  <ol class="steps">
-    <li><b>件名・本文</b>を入力。ヘッダー画像をアップロードでき、メール内に自動で埋め込まれます。</li>
-    <li><b>「AIでHTMLメールを作成」</b>でおしゃれなHTMLメールを生成できます。</li>
-    <li><b>配信店舗</b>は複数選択可。<b>ターゲット抽出</b>はPush通知と同じ条件で指定します。</li>
-    <li>送信後、履歴で<b>開封率・クリック率</b>を確認します（担当店舗の履歴のみ表示）。</li>
+
+  <h3 id="dm-ops">詳しい操作手順</h3>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">DMを新規作成</div><p><span class="path">店舗設定<span class="sep">›</span>DM送信</span> を開き <span class="ui pri">新規作成</span>。<span class="ui">件名</span> と <span class="ui">本文</span> を入力します。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">画像・AIでリッチに（任意）</div><p>ヘッダー画像をアップロードすると、メール内に自動で埋め込まれます。<span class="ui go">✦ AIでHTMLメールを作成</span> でおしゃれなHTMLメールを生成できます。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">配信店舗とターゲットを指定</div><p><b>配信店舗</b>は複数選択可。<b>ターゲット抽出</b>はPush通知と同じ条件で指定します。宛先リストには<b>有効なメールを持つ人だけ</b>が並びます。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">確認して送信・効果測定</div><p>内容を確認して <span class="ui pri">配信する</span>（または <span class="ui pri">予約配信する</span>）。送信後、履歴一覧で <b>開封率・クリック率</b> を確認できます（担当店舗の履歴のみ表示）。</p><p class="hint">配信可能時間 8:00〜21:00 / NGワード制限はPushと共通です。</p></div></li>
   </ol>
-  <div class="note warn"><b>送信ルール：</b>Push同様、配信可能時間は <b>8:00〜21:00</b>、<b>NGワード</b>を含むメールは送信できません。</div>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">下書き：</span><span class="ui">下書き保存</span> を使うと、送信せずに内容だけ保存できます（時間帯チェックは免除、NGワードは常に確認）。</div>
 </section>
 
-<section id="unpaid" class="acc-rose">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>未納金管理</h2>
-  <p class="lead">「初回振替がどうだったか」と「未納になった人がその後どうなったか」を2軸で管理します。</p>
-  <div class="flow">
-    <div class="node start">基本設定</div><span class="arrow">→</span>
-    <div class="node">未納金管理</div><span class="arrow">→</span>
-    <div class="branch">
-      <div class="node">ダッシュボード<small>①初回振替 / ②その後 / 月次</small></div>
-      <div class="node">一覧・CSV<small>店舗/エリア/ブランド</small></div>
-      <div class="node">貸倒償却予定</div>
-    </div>
+<section id="unpaid">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+    <div><div class="kick">Section 4</div><h2>未納金管理</h2></div>
   </div>
+  <p class="lead">「初回振替がどうだったか」と「未納になった人がその後どうなったか」を<b>2軸</b>で管理します。年度（4月〜翌3月）単位で集計します。</p>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>基本設定 › 未納金管理</span><span class="url">store-settings › basic › unpaid</span></div>
-    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
-      <rect width="720" height="330" fill="#f1f5f9"/>
-      <!-- フィルタ -->
-      <rect x="16" y="16" width="688" height="40" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <rect x="28" y="26" width="150" height="20" rx="6" fill="#eef2ff"/><text x="103" y="40" font-size="10" fill="#4338ca" text-anchor="middle">店舗/エリア/ブランド</text>
-      <rect x="188" y="26" width="130" height="20" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="253" y="40" font-size="10" fill="#475569" text-anchor="middle">2025年度（4-3月）</text>
-      <!-- ① 初回振替 KPI -->
-      <text x="20" y="78" font-size="12" font-weight="800" fill="#0f172a">① 初回振替の結果</text>
-      <rect x="16" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#dbeafe"/><rect x="16" y="86" width="4" height="58" rx="2" fill="#2563eb"/><text x="30" y="106" font-size="10" fill="#2563eb">請求件数</text><text x="30" y="130" font-size="17" font-weight="800" fill="#2563eb">9,341</text>
-      <rect x="184" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#a7f3d0"/><rect x="184" y="86" width="4" height="58" rx="2" fill="#059669"/><text x="198" y="106" font-size="10" fill="#059669">回収件数</text><text x="198" y="130" font-size="17" font-weight="800" fill="#059669">8,794</text>
-      <rect x="352" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#fecaca"/><rect x="352" y="86" width="4" height="58" rx="2" fill="#dc2626"/><text x="366" y="106" font-size="10" fill="#dc2626">未納件数</text><text x="366" y="130" font-size="17" font-weight="800" fill="#dc2626">547</text>
-      <rect x="520" y="86" width="184" height="58" rx="10" fill="#fff" stroke="#fecaca"/><rect x="520" y="86" width="4" height="58" rx="2" fill="#dc2626"/><text x="534" y="106" font-size="10" fill="#dc2626">未納金額</text><text x="534" y="130" font-size="17" font-weight="800" fill="#dc2626">¥1.38百万</text>
-      <!-- グラフ + ② -->
-      <rect x="16" y="156" width="420" height="158" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="28" y="178" font-size="11" font-weight="800" fill="#0f172a">推移 / 比較（ブランド・店舗）</text>
-      <line x1="30" y1="300" x2="410" y2="300" stroke="#e2e8f0"/><line x1="30" y1="200" x2="410" y2="200" stroke="#f1f5f9"/>
-      <polyline points="30,300 90,282 150,288 210,272 270,292 330,278 400,284" fill="none" stroke="#f87171" stroke-width="2.5"/>
-      <polyline points="30,244 90,234 150,248 210,228 270,252 330,236 400,242" fill="none" stroke="#34d399" stroke-width="2.5"/>
-      <circle cx="400" cy="284" r="3" fill="#f87171"/><circle cx="400" cy="242" r="3" fill="#34d399"/>
-      <rect x="448" y="156" width="256" height="158" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="460" y="178" font-size="11" font-weight="800" fill="#0f172a">② 未納になった人のその後</text>
-      <rect x="460" y="186" width="80" height="20" rx="10" fill="#ecfdf5"/><text x="500" y="200" font-size="10" fill="#059669" text-anchor="middle">支払済 288</text>
-      <rect x="546" y="186" width="72" height="20" rx="10" fill="#fef2f2"/><text x="582" y="200" font-size="10" fill="#dc2626" text-anchor="middle">現未納 31</text>
-      <line x1="460" y1="216" x2="692" y2="216" stroke="#e2e8f0"/>
-      <text x="460" y="236" font-size="10" fill="#475569">月次内訳（行クリックで会員一覧）</text>
-      <rect x="460" y="244" width="232" height="22" rx="5" fill="#f8fafc" stroke="#eef2f7"/><text x="468" y="259" font-size="10" fill="#334155">2026-02  未納40件 → 回収25 / 現未納4</text>
-      <rect x="460" y="270" width="232" height="22" rx="5" fill="#f8fafc" stroke="#eef2f7"/><text x="468" y="285" font-size="10" fill="#334155">2026-01  未納38件 → 回収20 / 現未納5</text>
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span class="ttl">基本設定 › 未納金管理</span><span class="url">store-settings › basic › unpaid</span></div>
+    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,sans-serif">
+      <rect width="720" height="330" fill="#fafbfc"/>
+      <rect x="16" y="16" width="688" height="40" rx="10" fill="#fff" stroke="#e7e9ee"/>
+      <rect x="28" y="26" width="150" height="20" rx="6" fill="#eef0ff"/><text x="103" y="40" font-size="10" fill="#3f37c9" text-anchor="middle">店舗/エリア/ブランド</text>
+      <rect x="188" y="26" width="130" height="20" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="253" y="40" font-size="10" fill="#3d434e" text-anchor="middle">2025年度（4-3月）</text>
+      <text x="20" y="78" font-size="12" font-weight="800" fill="#15181e">① 初回振替の結果</text>
+      <rect x="16" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#dbe6fb"/><rect x="16" y="86" width="4" height="58" rx="2" fill="#2563eb"/><text x="30" y="106" font-size="10" fill="#2563eb">請求件数</text><text x="30" y="130" font-size="17" font-weight="800" fill="#2563eb">9,341</text>
+      <rect x="184" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#b6ecd4"/><rect x="184" y="86" width="4" height="58" rx="2" fill="#0f9d6b"/><text x="198" y="106" font-size="10" fill="#0f9d6b">回収件数</text><text x="198" y="130" font-size="17" font-weight="800" fill="#0f9d6b">8,794</text>
+      <rect x="352" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#f6cdd3"/><rect x="352" y="86" width="4" height="58" rx="2" fill="#e0455a"/><text x="366" y="106" font-size="10" fill="#e0455a">未納件数</text><text x="366" y="130" font-size="17" font-weight="800" fill="#e0455a">547</text>
+      <rect x="520" y="86" width="184" height="58" rx="10" fill="#fff" stroke="#f6cdd3"/><rect x="520" y="86" width="4" height="58" rx="2" fill="#e0455a"/><text x="534" y="106" font-size="10" fill="#e0455a">未納金額</text><text x="534" y="130" font-size="17" font-weight="800" fill="#e0455a">¥1.38百万</text>
+      <rect x="16" y="156" width="420" height="158" rx="10" fill="#fff" stroke="#e7e9ee"/>
+      <text x="28" y="178" font-size="11" font-weight="800" fill="#15181e">推移 / 比較（ブランド・店舗）</text>
+      <line x1="30" y1="300" x2="410" y2="300" stroke="#eef0f4"/><line x1="30" y1="200" x2="410" y2="200" stroke="#f4f5f8"/>
+      <polyline points="30,300 90,282 150,288 210,272 270,292 330,278 400,284" fill="none" stroke="#e0455a" stroke-width="2.5"/>
+      <polyline points="30,244 90,234 150,248 210,228 270,252 330,236 400,242" fill="none" stroke="#0f9d6b" stroke-width="2.5"/>
+      <circle cx="400" cy="284" r="3" fill="#e0455a"/><circle cx="400" cy="242" r="3" fill="#0f9d6b"/>
+      <rect x="448" y="156" width="256" height="158" rx="10" fill="#fff" stroke="#e7e9ee"/>
+      <text x="460" y="178" font-size="11" font-weight="800" fill="#15181e">② 未納になった人のその後</text>
+      <rect x="460" y="186" width="80" height="20" rx="10" fill="#e9f9f1"/><text x="500" y="200" font-size="10" fill="#0f9d6b" text-anchor="middle">支払済 288</text>
+      <rect x="546" y="186" width="72" height="20" rx="10" fill="#fdeef0"/><text x="582" y="200" font-size="10" fill="#e0455a" text-anchor="middle">現未納 31</text>
+      <line x1="460" y1="216" x2="692" y2="216" stroke="#eef0f4"/>
+      <text x="460" y="236" font-size="10" fill="#3d434e">月次内訳（行クリックで会員一覧）</text>
+      <rect x="460" y="244" width="232" height="22" rx="5" fill="#f7f8fa" stroke="#eef0f4"/><text x="468" y="259" font-size="10" fill="#3d434e">2026-02  未納40件 → 回収25 / 現未納4</text>
+      <rect x="460" y="270" width="232" height="22" rx="5" fill="#f7f8fa" stroke="#eef0f4"/><text x="468" y="285" font-size="10" fill="#3d434e">2026-01  未納38件 → 回収20 / 現未納5</text>
     </svg>
-    <div class="cap">①初回振替のKPI、推移グラフ（ブランド/店舗比較）、②未納のその後、月次内訳（クリックでドリルダウン）。</div>
+    <div class="cap"><b>①</b> 初回振替のKPI、推移グラフ（ブランド/店舗比較）、<b>②</b> 未納のその後、月次内訳（クリックでドリルダウン）。</div>
   </div>
   <div class="legend">
     <span><i class="dot" style="background:#2563eb"></i>請求</span>
-    <span><i class="dot" style="background:#059669"></i>回収（振替成功）</span>
-    <span><i class="dot" style="background:#dc2626"></i>未納</span>
+    <span><i class="dot" style="background:#0f9d6b"></i>回収（振替成功）</span>
+    <span><i class="dot" style="background:#e0455a"></i>未納</span>
   </div>
-  <h3>対象と年度の選択</h3>
-  <ul class="plain">
-    <li>対象を <b>店舗 / エリア / ブランド</b> で選択。<b>年度（4月〜翌3月）</b>を切り替えて集計します。</li>
-    <li>基本設定で選んだ店舗は未納画面へ自動で引き継がれます。</li>
-  </ul>
-  <h3>① 初回振替の結果</h3>
-  <p>その年度の請求（振替）を、<b>請求 / 回収（振替成功）/ 未納（振替不成立）</b>で表示。件数は振替の総数で、請求＝回収＋未納で一致します。</p>
-  <h3>② 未納になった人のその後</h3>
-  <div class="flow">
-    <div class="node start">初回振替 不成立</div><span class="arrow">→</span>
-    <div class="branch">
-      <div class="node end">支払済（後日回収）</div>
-      <div class="node">現未納</div>
-      <div class="node">貸倒れ / 売上取消</div>
-    </div>
-  </div>
-  <p>会員入金歴の入金区分コード（3=支払済 / 4=未納 等）で追跡します。</p>
-  <h3>月次内訳とドリルダウン</h3>
-  <div class="note tip"><b>ポイント：</b>月次内訳の各行に「未納 → うち後日回収 / 現未納」を表示。<b>行をクリック</b>すると、その月の「現未納者」と「後日回収できた人」を氏名・電話・メール付きで確認できます。</div>
-  <h3>CSV出力</h3>
-  <p>店舗・エリア・ブランド単位で未納者CSVを出力できます。列順：<b>会員番号／名前／未納金額／電話番号／メールアドレス</b>／会員区分／ステータス／セキュリティ費。</p>
+
+  <h3 id="unpaid-ops">詳しい操作手順</h3>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">未納金管理を開く</div><p><span class="path">店舗設定<span class="sep">›</span>基本設定<span class="sep">›</span>未納金管理</span>。基本設定で選んだ店舗は未納画面へ自動で引き継がれます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">対象と年度を選ぶ</div><p>上部フィルタで <span class="ui">店舗</span> / <span class="ui">エリア</span> / <span class="ui">ブランド</span> と <span class="ui">年度（4月〜翌3月）</span> を切り替えます。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">① 初回振替の結果を読む</div><p>その年度の請求（振替）を <b>請求 / 回収（振替成功）/ 未納</b> で表示。件数は振替の総数で、<b>請求 ＝ 回収 ＋ 未納</b> で一致します。推移グラフはブランド・店舗で比較できます。</p></div></li>
+    <li><div class="n">4</div><div class="c"><div class="t">② 未納者のその後を追う</div><p>未納になった人が「支払済（後日回収）／現未納／貸倒れ・売上取消」のどれになったかを、会員入金歴の<b>入金区分コード</b>（3=支払済 / 4=未納 等）で追跡します。</p></div></li>
+    <li><div class="n">5</div><div class="c"><div class="t">月次内訳をドリルダウン</div><p>月次内訳の各行は「未納 → うち後日回収 / 現未納」を表示。<b>行をクリック</b>すると、その月の<b>現未納者</b>と<b>後日回収できた人</b>を氏名・電話・メール付きで確認できます。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">CSVを出力する</div><p>店舗・エリア・ブランド単位で未納者CSVを出力。列順：<b>会員番号／名前／未納金額／電話番号／メールアドレス</b>／会員区分／ステータス／セキュリティ費。</p></div></li>
+  </ol>
+  <div class="note info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="h">強制退会を除く：</span>初回振替・月次内訳には<b>強制退会者を除いた行/カード</b>も併記され、件数も確認できます。貸倒償却予定は振替年月からちょうど1年で判定します。</div>
 </section>
 
-<section id="refund" class="acc-sky">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span>返金・入金管理</h2>
-  <p class="lead">返金申請から承認・経理処理までを役割ごとに進めます。</p>
+<section id="refund">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div>
+    <div><div class="kick">Section 5</div><h2>返金・入金管理</h2></div>
+  </div>
+  <p class="lead">返金申請から承認・経理処理までを役割ごとに進めます。担当店舗以外の申請は表示されません。</p>
   <div class="flow">
     <div class="node start">申請（店舗）<small>会員検索・口座入力</small></div><span class="arrow">→</span>
-    <div class="node">承認（管理者/承認者）<small>承認 or 差戻し</small></div><span class="arrow">→</span>
+    <div class="node">承認<small>承認 or 差戻し</small></div><span class="arrow">→</span>
     <div class="node">経理<small>振込手配・完了</small></div><span class="arrow">→</span>
     <div class="node end">完了</div>
   </div>
   <table>
-    <tr><th>役割</th><th>できること</th></tr>
-    <tr><td>店舗</td><td>会員検索、返金対象・振込先口座を入力して申請</td></tr>
-    <tr><td>管理者／承認者</td><td>内容確認のうえ承認、または差戻し</td></tr>
-    <tr><td>経理</td><td>承認済み案件の振込手配・完了処理</td></tr>
+    <tr><th style="width:170px">役割</th><th>できること</th></tr>
+    <tr><td><b>店舗</b></td><td>会員検索、返金対象・振込先口座を入力して申請</td></tr>
+    <tr><td><b>管理者／承認者</b></td><td>内容確認のうえ承認、または差戻し</td></tr>
+    <tr><td><b>経理</b></td><td>承認済み案件の振込手配・完了処理（入金は消込）</td></tr>
   </table>
-  <div class="note warn"><b>注意：</b>担当店舗以外の申請は表示されず、ID直接指定でもアクセスは拒否されます。</div>
+
+  <h3 id="refund-ops">詳しい操作手順</h3>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">会員を検索する</div><p><span class="path">店舗設定<span class="sep">›</span>返金・入金申請</span> を開き、<b>会員番号（10桁）</b>または氏名で会員を検索。会員の入金歴・振込先口座が表示されます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">申請を作成する（店舗）</div><p>返金対象の項目と<b>振込先口座</b>を入力して <span class="ui pri">申請</span>。差戻された場合は内容を直して再申請します。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">承認する（管理者/承認者）</div><p>申請内容を確認し <span class="ui pri">承認</span>、問題があれば <span class="ui">差戻し</span>。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">経理処理・完了</div><p>経理担当が承認済み案件の振込を手配し <span class="ui go">完了</span> にします。入金フローでは受付中の案件を <span class="ui go">消込完了</span> にします。</p></div></li>
+  </ol>
+  <div class="note warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span class="h">注意：</span>担当店舗以外の申請は表示されず、ID直接指定でもアクセスは拒否されます。</div>
 </section>
 
-<section id="terms" class="acc-violet">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>規約管理</h2>
+<section id="terms">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div>
+    <div><div class="kick">Section 6</div><h2>規約管理</h2></div>
+  </div>
   <p class="lead">ブランド×カテゴリ×規約を、バージョン管理しながら編集・PDF出力します。</p>
   <div class="flow">
-    <div class="node start">規約管理 一覧</div><span class="arrow">→</span>
+    <div class="node start">規約一覧</div><span class="arrow">→</span>
     <div class="node">規約を選択</div><span class="arrow">→</span>
     <div class="node">版を作成/切替<small>v1, v2 …</small></div><span class="arrow">→</span>
     <div class="node">本文編集</div><span class="arrow">→</span>
     <div class="node end">PDF出力</div>
   </div>
-  <ul class="plain">
-    <li><b>バージョン管理</b>…規約ごとに版を作成し現行版を切り替え。バリアント（契約別・カラー別等）ごとに本文を保持。</li>
-    <li><b>編集・PDF出力</b>…本文を編集し、PDFとして出力・共有。</li>
-  </ul>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">規約を選ぶ</div><p><span class="path">店舗設定<span class="sep">›</span>規約管理</span> の一覧から対象の規約を開きます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">版を管理する</div><p>規約ごとに<b>版（v1, v2 …）</b>を作成し、現行版を切り替えられます。バリアント（契約別・カラー別等）ごとに本文を保持します。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">編集して出力</div><p>本文を編集し、<span class="ui pri">PDF出力</span> で書き出して共有します。</p></div></li>
+  </ol>
 </section>
 
-<section id="users" class="acc-cyan">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>ユーザー・クラブコード管理</h2>
-  <p class="lead">利用者に担当クラブコード・エリアを付与します（管理者のみ）。</p>
+<section id="users">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></div>
+    <div><div class="kick">Section 7</div><h2>ユーザー・クラブコード管理</h2></div>
+  </div>
+  <p class="lead">利用者に担当クラブコード・エリアを付与します（管理者のみ）。付与した担当範囲が全機能の表示・操作範囲へそのまま反映されます。</p>
   <div class="flow">
     <div class="node start">管理 › ユーザー管理</div><span class="arrow">→</span>
     <div class="node">利用者を作成/編集</div><span class="arrow">→</span>
@@ -515,28 +517,43 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     </div>
     <span class="arrow">→</span><div class="node end">全機能に反映</div>
   </div>
-  <div class="note tip"><b>ポイント：</b>付与した担当範囲が、全機能の表示・操作範囲にそのまま反映されます。</div>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">ポイント：</span>担当エリアを付与すると、その中の店舗が自動展開されます。個別クラブコードと合わせた実効範囲が適用されます。</div>
 </section>
 
-<section id="tour" class="acc-teal">
-  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>使い方ツアー（アプリ内ガイド）</h2>
-  <p class="lead">各画面の右下にある「使い方」ボタンから、操作ガイドをいつでも表示できます。</p>
-  <ul class="plain">
-    <li>初回アクセス時は自動でガイドが起動します（一度見ると次回以降は自動起動しません）。</li>
-    <li>ガイドは対象の項目をハイライトしながら、手順を順に案内します。</li>
-    <li>店舗設定トップ・Push新規配信・未納金管理などにガイドを用意しています。</li>
+<section id="audit">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12.75 11.25 15 15 9.75M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.4 0 2.73.32 3.9.9"/></svg></div>
+    <div><div class="kick">Section 8</div><h2>操作監査ログ（管理者）</h2></div>
+  </div>
+  <p class="lead">Push/DM送信・会員抽出・未納CSV出力・返金/入金の申請と承認など、重要操作の実行履歴を確認できます。<b>管理者のみ</b>表示されます。</p>
+  <ul style="list-style:none;padding:0;margin:12px 0">
+    <li style="padding:7px 0;border-bottom:1px solid var(--line2)"><span class="path">店舗設定<span class="sep">›</span>操作監査ログ</span> を開くと、<b>誰が・いつ・何を</b>したかが新しい順で一覧されます。</li>
+    <li style="padding:7px 0;border-bottom:1px solid var(--line2)"><span class="ui">操作</span> <span class="ui">店舗コード</span> <span class="ui">実行者</span> <span class="ui">期間</span> で絞り込めます。</li>
+    <li style="padding:7px 0"><span class="ui pri">CSV出力</span> で監査ログを書き出せます。各行に実行者・店舗・件数・対象・IP・成否を記録。</li>
+  </ul>
+</section>
+
+<section id="tour">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+    <div><div class="kick">Section 9</div><h2>使い方ツアー（アプリ内ガイド）</h2></div>
+  </div>
+  <p class="lead">各画面の右下にある <span class="ui">使い方</span> ボタンから、操作ガイドをいつでも表示できます。</p>
+  <ul style="list-style:none;padding:0;margin:12px 0">
+    <li style="padding:7px 0;border-bottom:1px solid var(--line2)">初回アクセス時は自動でガイドが起動します（一度見ると次回以降は自動起動しません）。</li>
+    <li style="padding:7px 0;border-bottom:1px solid var(--line2)">ガイドは対象の項目をハイライトしながら、手順を順に案内します。</li>
+    <li style="padding:7px 0">店舗設定トップ・Push新規配信・未納金管理などにガイドを用意しています。</li>
   </ul>
 </section>
 
 <footer class="foot">
   <span class="logo"></span>
-  © システム管理部 ／ 店舗設定 運用マニュアル v3.0（2026-07-14）
+  © システム管理部 ／ 店舗設定 運用マニュアル v4.0（2026-07-14）
 </footer>
 </main>
 </div>
 
 <script>
-// スクロール進捗バー
 var bar=document.getElementById('progress');
 function onScroll(){
   var h=document.documentElement,b=document.body;
@@ -545,7 +562,6 @@ function onScroll(){
 }
 document.addEventListener('scroll',onScroll,{passive:true});onScroll();
 
-// 現在地ハイライト（サイドバー）
 var links=[].slice.call(document.querySelectorAll('#toc a'));
 var map={};links.forEach(function(a){var id=a.getAttribute('href').slice(1);(map[id]=map[id]||[]).push(a);});
 var obs=new IntersectionObserver(function(ents){
@@ -555,7 +571,7 @@ var obs=new IntersectionObserver(function(ents){
       (map[e.target.id]||[]).forEach(function(a){a.classList.add('active')});
     }
   });
-},{rootMargin:'-45% 0px -50% 0px',threshold:0});
+},{rootMargin:'-40% 0px -55% 0px',threshold:0});
 document.querySelectorAll('section[id]').forEach(function(s){obs.observe(s)});
 </script>
 </body>
