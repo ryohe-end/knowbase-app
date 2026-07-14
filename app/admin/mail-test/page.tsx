@@ -9,8 +9,16 @@ export default function MailTestPage() {
   const [config, setConfig] = useState<ConfigStatus>(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [to, setTo] = useState("");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [scheduled, setScheduled] = useState(false);
+  const [sendDate, setSendDate] = useState("");
+  const [sendTime, setSendTime] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  // 宛先をパース (カンマ/改行/セミコロン区切り)
+  const recipients = to.split(/[,\n;]+/).map((s) => s.trim()).filter(Boolean);
 
   // 画面読み込み時に設定チェック
   useEffect(() => {
@@ -23,7 +31,17 @@ export default function MailTestPage() {
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!to.trim()) return;
+    if (recipients.length === 0) return;
+
+    // タイマー配信: 日付+時刻を 'YYYY-MM-DD HH:mm' (JST) へ
+    let sendAt: string | undefined;
+    if (scheduled) {
+      if (!sendDate || !sendTime) {
+        setResult({ ok: false, message: "予約配信の日時を指定してください。" });
+        return;
+      }
+      sendAt = `${sendDate} ${sendTime}`;
+    }
 
     setSending(true);
     setResult(null);
@@ -32,12 +50,22 @@ export default function MailTestPage() {
       const res = await fetch("/api/mail-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ to: to.trim() }),
+        body: JSON.stringify({
+          to: recipients,
+          subject: subject.trim() || undefined,
+          message: message.trim() || undefined,
+          sendAt,
+        }),
       });
       const json = await res.json();
 
       if (json.ok) {
-        setResult({ ok: true, message: `${to.trim()} にテストメールを送信しました。受信ボックスを確認してください。` });
+        setResult({
+          ok: true,
+          message: json.scheduled
+            ? `${json.count} 件を ${sendAt}(JST) に予約配信しました。`
+            : `${json.count} 件にテストメールを送信しました。受信ボックスを確認してください。`,
+        });
       } else {
         setResult({ ok: false, message: `送信失敗: ${json.reason}` });
       }
@@ -77,7 +105,7 @@ export default function MailTestPage() {
         <header className="mt-header">
           <div className="mt-badge">MAIL TEST</div>
           <h1>メール送信テスト</h1>
-          <p>SendGrid の設定確認と、指定アドレスへのテスト送信を行います</p>
+          <p>SendGrid の設定確認と、テスト送信を行います（複数宛先・件名/本文の指定・タイマー配信に対応）</p>
         </header>
 
         {/* 設定チェック */}
@@ -109,25 +137,69 @@ export default function MailTestPage() {
           <h2 className="mt-card-title">テストメール送信</h2>
           <form onSubmit={handleSend} className="mt-form">
             <label className="mt-label" htmlFor="to-email">
-              送信先メールアドレス
+              送信先メールアドレス（複数可・カンマ / 改行区切り）
             </label>
-            <div className="mt-input-row">
-              <input
-                id="to-email"
-                type="email"
-                className="mt-input"
-                placeholder="example@okamoto-group.co.jp"
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                required
-                disabled={!config?.ok || sending}
-              />
+            <textarea
+              id="to-email"
+              className="mt-textarea"
+              rows={3}
+              placeholder={"example@okamoto-group.co.jp\nrei-takahashi@okamoto-group.co.jp"}
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              disabled={!config?.ok || sending}
+            />
+            {recipients.length > 0 && (
+              <div className="mt-count">宛先 {recipients.length} 件</div>
+            )}
+
+            <label className="mt-label" htmlFor="mt-subject">件名（任意）</label>
+            <input
+              id="mt-subject"
+              type="text"
+              className="mt-input"
+              placeholder="未入力の場合は既定の件名になります"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              disabled={!config?.ok || sending}
+            />
+
+            <label className="mt-label" htmlFor="mt-message">本文（任意）</label>
+            <textarea
+              id="mt-message"
+              className="mt-textarea"
+              rows={5}
+              placeholder="未入力の場合は既定のテスト文面が送られます。"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              disabled={!config?.ok || sending}
+            />
+
+            <label className="mt-label">配信タイミング</label>
+            <div className="mt-radio-row">
+              <label className={`mt-radio ${!scheduled ? "active" : ""}`}>
+                <input type="radio" checked={!scheduled} onChange={() => setScheduled(false)} disabled={!config?.ok || sending} />
+                今すぐ送信
+              </label>
+              <label className={`mt-radio ${scheduled ? "active" : ""}`}>
+                <input type="radio" checked={scheduled} onChange={() => setScheduled(true)} disabled={!config?.ok || sending} />
+                タイマー配信（予約）
+              </label>
+            </div>
+            {scheduled && (
+              <div className="mt-datetime-row">
+                <input type="date" className="mt-input" value={sendDate} onChange={(e) => setSendDate(e.target.value)} disabled={!config?.ok || sending} />
+                <input type="time" className="mt-input" value={sendTime} onChange={(e) => setSendTime(e.target.value)} disabled={!config?.ok || sending} />
+                <span className="mt-dt-note">JST・72時間先まで指定できます</span>
+              </div>
+            )}
+
+            <div className="mt-submit-row">
               <button
                 type="submit"
                 className="mt-send-btn"
-                disabled={!config?.ok || sending || !to.trim()}
+                disabled={!config?.ok || sending || recipients.length === 0}
               >
-                {sending ? "送信中..." : "テスト送信"}
+                {sending ? "送信中..." : scheduled ? "予約配信を登録" : "テスト送信"}
               </button>
             </div>
           </form>
@@ -314,6 +386,33 @@ export default function MailTestPage() {
           background: #f8fafc;
           color: #94a3b8;
         }
+        .mt-textarea {
+          width: 100%;
+          padding: 10px 14px;
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          font-size: 14px;
+          outline: none;
+          transition: border-color 0.2s;
+          resize: vertical;
+          font-family: inherit;
+          line-height: 1.6;
+        }
+        .mt-textarea:focus { border-color: #3b82f6; }
+        .mt-textarea:disabled { background: #f8fafc; color: #94a3b8; }
+        .mt-count { font-size: 12px; font-weight: 700; color: #2563eb; margin: -4px 0 4px; }
+        .mt-radio-row { display: flex; gap: 10px; flex-wrap: wrap; }
+        .mt-radio {
+          flex: 1; min-width: 150px; display: flex; align-items: center; gap: 8px;
+          padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 10px;
+          font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; transition: 0.15s;
+        }
+        .mt-radio.active { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8; }
+        .mt-radio input { accent-color: #2563eb; }
+        .mt-datetime-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .mt-datetime-row .mt-input { flex: 0 0 auto; }
+        .mt-dt-note { font-size: 11px; color: #94a3b8; }
+        .mt-submit-row { display: flex; justify-content: flex-end; margin-top: 6px; }
 
         .mt-send-btn {
           padding: 10px 24px;
