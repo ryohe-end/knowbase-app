@@ -318,6 +318,9 @@ export default function DmSettingsPage() {
         return;
       }
       setHtmlBody(data.html);
+      // AIが生成した件名・本文を入力欄へ反映 (Push と同じ挙動)
+      if (data.subject) setSubject(data.subject);
+      if (data.body) setBody(data.body);
     } catch {
       setAiError("AI生成リクエストに失敗しました。");
     } finally {
@@ -997,6 +1000,46 @@ export default function DmSettingsPage() {
         .placeholder { color: #cbd5e1; font-style: italic; }
         .req { color: #ef4444; }
         .mt-2 { margin-top: 8px; }
+
+        /* ===== スマホ: 3カラム → 縦積みで全体スクロール ===== */
+        @media (max-width: 860px) {
+          .dm-header-inner { padding: 0 14px; }
+          .dm-header-title { font-size: 1rem; }
+          .dm-main-content { margin: 20px auto; padding: 0 12px; }
+          /* 履歴一覧テーブルは横スクロールで見切れ防止 */
+          .dm-history-container { overflow-x: auto; }
+          .dm-history-table { min-width: 560px; }
+
+          .dm-modal-overlay { align-items: stretch; }
+          .dm-modal-window { width: 100vw; height: 100vh; height: 100dvh; max-height: none; border-radius: 0; }
+
+          /* 3カラムを縦積みにし、モーダル本体を1本のスクロールに */
+          .dm-modal-body-tri { display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+          .dm-col-config, .dm-col-list, .dm-col-preview {
+            height: auto; overflow: visible; border-right: none;
+            border-bottom: 8px solid #e5e9f0;
+          }
+          /* 各カラム内の独立スクロールを解除 (親でまとめてスクロール) */
+          .dm-panel-scroll { flex: none; overflow: visible; padding: 18px; }
+          .dm-list-container { overflow: visible; }
+          .dm-report-container { overflow: visible; padding: 18px; }
+          .dm-preview-frame { overflow: visible; padding: 20px 16px 28px; }
+
+          /* セクション見出しはスクロール時に上部固定して現在地を示す */
+          .dm-panel-header-sticky { position: sticky; top: 0; z-index: 20; }
+          /* 縦積みでは表ヘッダーの sticky が被るので解除 */
+          .dm-list-table th { position: static; }
+
+          .dm-col-list { min-height: 220px; }
+          .dm-col-preview { background: #e2e8f0; }
+          .dm-preview-frame .email-card { max-width: 100%; }
+
+          .dm-check-grid { grid-template-columns: 1fr 1fr; }
+
+          /* 送信ボタンは常に見える位置へ固定 */
+          .dm-modal-footer { position: sticky; bottom: 0; padding: 12px 16px; }
+          .dm-modal-submit { padding: 10px 18px; }
+        }
       `}</style>
     </div>
   );

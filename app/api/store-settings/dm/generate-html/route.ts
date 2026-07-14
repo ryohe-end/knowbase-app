@@ -2,7 +2,7 @@
 // DM メールの「おしゃれな HTML」を Claude on Bedrock で生成する (lib/bedrockHtml)。
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
-import { generateHtml } from "@/lib/bedrockHtml";
+import { generateHtml, generateText } from "@/lib/bedrockHtml";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +18,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const result = await generateHtml("email", body);
+  // HTMLメール本体と、件名/本文プレーンテキストを同時生成する。
+  // 件名・本文は入力欄へ反映するため (プレビューHTMLだけでなくフォームにも入れる)。
+  const [result, textResult] = await Promise.all([
+    generateHtml("email", body),
+    generateText({ prompt: body.prompt, subject: body.subject, body: body.body, brand: body.brand }),
+  ]);
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   }
-  return NextResponse.json({ ok: true, html: result.html });
+  return NextResponse.json({
+    ok: true,
+    html: result.html,
+    // 生成できた場合のみ返す (失敗しても HTML 生成は成功させる)
+    subject: textResult.ok ? textResult.title : undefined,
+    body: textResult.ok ? textResult.body : undefined,
+  });
 }
