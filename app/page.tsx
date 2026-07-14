@@ -747,6 +747,21 @@ export default function HomePage() {
     setLoadingAI(false);
   }
 
+  // 出典クリック: マニュアル本体を埋め込みモーダルで開く
+  function openSourceManual(s: SourceAttribution) {
+    const embedUrl = String(s.url || "").trim();
+    const mid = String((s as any).manualId || "");
+    const full = manuals.find((m) => m.manualId === mid);
+    const manualObj: any = full || { manualId: mid, title: String(s.title || "マニュアル"), embedUrl };
+    if (!manualObj.embedUrl && embedUrl) manualObj.embedUrl = embedUrl;
+    if (!manualObj.embedUrl) {
+      if (embedUrl) window.open(embedUrl.startsWith("http") ? embedUrl : `https://${embedUrl}`, "_blank");
+      return;
+    }
+    setShowSources(false);
+    setPreviewManual(manualObj);
+  }
+
   async function handleAsk(override?: string) {
     const base = (typeof override === "string" ? override : prompt).trim();
     if (!base || loadingAI) return;
@@ -766,7 +781,7 @@ export default function HomePage() {
     const newAssistantMessage: Message = {
       id: assistantId,
       role: "assistant",
-      content: "送信しました。検索しています…",
+      content: "",
       loading: true,
     };
 
@@ -785,18 +800,8 @@ export default function HomePage() {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const slowTimer = window.setTimeout(() => {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.id !== assistantId || !m.loading) return m;
-          const cur = (m.content ?? "").trim();
-          if (cur === "" || cur === INITIAL_TEXT) {
-            return { ...m, content: SLOW_TIP };
-          }
-          return m;
-        })
-      );
-    }, 3000);
+    // スロー案内は表示しない (ローディングは Knowbie アニメーションで表現)
+    const slowTimer = window.setTimeout(() => {}, 0);
 
     try {
       const res = await fetch("/api/kb-chat", {
@@ -1641,7 +1646,11 @@ export default function HomePage() {
                       {msg.role === "user" ? (
                         <span className="kb-bubble-usertext">{msg.content}</span>
                       ) : msg.loading && !msg.content ? (
-                        <span className="kb-typing"><span /><span /><span /></span>
+                        <span className="kb-knowbie-loader">
+                          <img src="/logos/Knowble_icon.png" alt="" className="kb-knowbie-loader-img" />
+                          <span className="kb-knowbie-loader-text">考え中</span>
+                          <span className="kb-typing"><span /><span /><span /></span>
+                        </span>
                       ) : (
                         <>
                           <MarkdownMessage text={msg.content} />
@@ -1697,23 +1706,16 @@ export default function HomePage() {
                     <button className="kb-srcmodal-x" onClick={() => setShowSources(false)} aria-label="閉じる">×</button>
                   </div>
                   <div className="kb-srcmodal-body">
-                    {sources.map((s, i) => {
-                      const href = String(s.url || "").trim();
-                      return (
-                        <div key={`${s.title}-${i}`} className="kb-srcitem">
-                          <div className="kb-srcitem-top">
-                            <span className="kb-srcitem-badge">{i + 1}</span>
-                            <span className="kb-srcitem-title">{String(s.title || (s as any).manualId || "マニュアル")}</span>
-                          </div>
-                          {s.excerpt ? <div className="kb-srcitem-excerpt">{String(s.excerpt)}</div> : null}
-                          {href && (
-                            <a className="kb-srcitem-open" href={href.startsWith("http") ? href : `https://${href}`} target="_blank" rel="noopener noreferrer">
-                              マニュアルを開く ↗
-                            </a>
-                          )}
+                    {sources.map((s, i) => (
+                      <button type="button" key={`${s.title}-${i}`} className="kb-srcitem" onClick={() => openSourceManual(s)}>
+                        <div className="kb-srcitem-top">
+                          <span className="kb-srcitem-badge">{i + 1}</span>
+                          <span className="kb-srcitem-title">{String(s.title || (s as any).manualId || "マニュアル")}</span>
                         </div>
-                      );
-                    })}
+                        {s.excerpt ? <div className="kb-srcitem-excerpt">{String(s.excerpt)}</div> : null}
+                        <span className="kb-srcitem-open">このマニュアルを開く →</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
