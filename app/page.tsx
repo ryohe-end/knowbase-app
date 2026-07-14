@@ -360,6 +360,51 @@ function extractSseData(eventBlock: string): string {
 
 /* ===== /SSE helpers ===== */
 
+/* ===== 軽量 Markdown レンダラ (Claude 回答用・依存なし) ===== */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function mdInline(s: string): string {
+  // インライン: コード → 太字 → 斜体 → リンク
+  return s
+    .replace(/`([^`]+)`/g, (_m, c) => `<code>${c}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+}
+function renderMarkdown(src: string): string {
+  const text = escapeHtml(src || "");
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let inCode = false;
+  const closeList = () => { if (listType) { out.push(`</${listType}>`); listType = null; } };
+  for (const raw of lines) {
+    const line = raw;
+    if (/^```/.test(line.trim())) {
+      if (!inCode) { closeList(); out.push("<pre><code>"); inCode = true; }
+      else { out.push("</code></pre>"); inCode = false; }
+      continue;
+    }
+    if (inCode) { out.push(line + "\n"); continue; }
+    const h = line.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { closeList(); const lv = Math.min(h[1].length + 2, 6); out.push(`<h${lv}>${mdInline(h[2])}</h${lv}>`); continue; }
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    const ul = line.match(/^\s*[-*・]\s+(.*)$/);
+    if (ol) { if (listType !== "ol") { closeList(); out.push("<ol>"); listType = "ol"; } out.push(`<li>${mdInline(ol[1])}</li>`); continue; }
+    if (ul) { if (listType !== "ul") { closeList(); out.push("<ul>"); listType = "ul"; } out.push(`<li>${mdInline(ul[1])}</li>`); continue; }
+    if (line.trim() === "") { closeList(); continue; }
+    closeList();
+    out.push(`<p>${mdInline(line)}</p>`);
+  }
+  if (inCode) out.push("</code></pre>");
+  closeList();
+  return out.join("");
+}
+function MarkdownMessage({ text }: { text: string }) {
+  return <div className="kb-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />;
+}
+
 function SourcesPanel({ sources }: { sources: SourceAttribution[] }) {
   if (!sources || sources.length === 0) return null;
 
@@ -689,10 +734,11 @@ export default function HomePage() {
     setLoadingAI(false);
   }
 
-  async function handleAsk() {
-    if (!prompt.trim() || loadingAI) return;
+  async function handleAsk(override?: string) {
+    const base = (typeof override === "string" ? override : prompt).trim();
+    if (!base || loadingAI) return;
 
-    const userPrompt = prompt.trim();
+    const userPrompt = base;
     setKeyword(userPrompt);
     recordSearchLog(userPrompt); // ✅ チャット入力時に検索ログ送信
     
@@ -1543,31 +1589,50 @@ export default function HomePage() {
             </div>
 
             <div className="kb-chat-box">
-              <div className="kb-chat-header">チャット</div>
-              <div className="kb-chat-body" style={{ padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-                {messages.length === 0 && <span className="kb-subnote">質問を入力するとここに回答が表示されます</span>}
+              <div className="kb-chat-body">
+                {messages.length === 0 && (
+                  <div className="kb-chat-empty">
+                    <div className="kb-chat-empty-avatar">
+                      <img src="/logos/Knowble_icon.png" alt="Knowbie" />
+                    </div>
+                    <div className="kb-chat-empty-title">何でも聞いてください</div>
+                    <div className="kb-chat-empty-sub">社内マニュアル・手順から、出典付きで回答します</div>
+                    <div className="kb-chat-suggests">
+                      {[
+                        "入会手続きの流れを教えて",
+                        "未納金がある会員のアプリでの支払い方法は？",
+                        "Canvaでテロップを作るには？",
+                        "休会の手続きを教えて",
+                      ].map((s) => (
+                        <button key={s} type="button" className="kb-chat-suggest" onClick={() => handleAsk(s)}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {messages.map((msg) => (
-                  <div key={msg.id} className={`kb-chat-message kb-chat-message-${msg.role}`} style={{ alignSelf: msg.role === "user" ? "flex-end" : "flex-start", maxWidth: "85%", marginLeft: msg.role === "user" ? "auto" : 0, display: "flex", gap: 8, flexDirection: msg.role === "user" ? "row-reverse" : "row" }}>
-                    {msg.role === "user" ? (
-                      <div style={{ padding: "8px 12px", borderRadius: 12, fontSize: 13, background: "#0ea5e9", color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        <div style={{ fontWeight: 600, marginBottom: 4, color: "#e0f2fe" }}>あなた:</div>
-                        {msg.content}
-                      </div>
-                    ) : (
-                      <>
-                        <img src="/logos/Knowble_icon.png" alt="Knowbie Icon" style={{ width: 32, height: 32, objectFit: "contain", borderRadius: 999, flexShrink: 0 }} />
-                        <div style={{ padding: "8px 12px", borderRadius: 12, fontSize: 13, background: "#334155", color: "#fff", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          <div style={{ fontWeight: 600, marginBottom: 4, color: "#60a5fa" }}>Knowbie:</div>
-                          {msg.content}
-                          {msg.loading && <span className="kb-subnote" style={{ marginLeft: 8, color: "#94a3b8" }}>...Thinking</span>}
-                        </div>
-                      </>
+                  <div key={msg.id} className={`kb-msg kb-msg-${msg.role}`}>
+                    {msg.role === "assistant" && (
+                      <img className="kb-msg-avatar" src="/logos/Knowble_icon.png" alt="Knowbie" />
                     )}
+                    <div className={`kb-bubble kb-bubble-${msg.role}`}>
+                      {msg.role === "user" ? (
+                        <span className="kb-bubble-usertext">{msg.content}</span>
+                      ) : msg.loading && !msg.content ? (
+                        <span className="kb-typing"><span /><span /><span /></span>
+                      ) : (
+                        <>
+                          <MarkdownMessage text={msg.content} />
+                          {msg.loading && <span className="kb-typing inline"><span /><span /><span /></span>}
+                        </>
+                      )}
+                    </div>
                   </div>
                 ))}
 
                 {sources.length > 0 && (
-                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(148,163,184,0.35)" }}>
+                  <div className="kb-sources-wrap">
                     <button type="button" onClick={() => setShowSources((v) => !v)} className="kb-sources-toggle" aria-expanded={showSources}>
                       <span className="kb-sources-toggle-left">
                         <span className="kb-sources-dot" />
@@ -1585,15 +1650,24 @@ export default function HomePage() {
               <div className="kb-chat-input-row">
                 <input
                   className="kb-chat-input"
-                  placeholder="例：入会手続きの流れを教えて / Canva テロップの作り方"
+                  placeholder="質問を入力…（例：入会手続きの流れ）"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.nativeEvent.isComposing) handleAsk();
                   }}
                 />
-                <button className="kb-chat-send" onClick={loadingAI ? handleCancelAsk : handleAsk} disabled={!loadingAI && !prompt.trim()}>
-                  {loadingAI ? "■" : "送信"}
+                <button
+                  className={`kb-chat-send${loadingAI ? " stop" : ""}`}
+                  onClick={loadingAI ? handleCancelAsk : () => handleAsk()}
+                  disabled={!loadingAI && !prompt.trim()}
+                  aria-label={loadingAI ? "停止" : "送信"}
+                >
+                  {loadingAI ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                  ) : (
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></svg>
+                  )}
                 </button>
               </div>
             </div>
