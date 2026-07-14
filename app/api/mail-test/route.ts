@@ -38,7 +38,7 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   try {
-    const { to } = await req.json();
+    const { to, subject: customSubject, message } = await req.json();
 
     if (!to || typeof to !== "string" || !to.includes("@")) {
       return NextResponse.json({ ok: false, reason: "有効なメールアドレスを入力してください" }, { status: 400 });
@@ -50,6 +50,22 @@ export async function POST(req: NextRequest) {
     }
 
     const now = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
+
+    // 任意メッセージが指定されたら、その文面で送る (指定が無ければ既定のテストテンプレ)
+    const custom = typeof message === "string" ? message.trim() : "";
+    if (custom) {
+      const safe = custom.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+      const msg = {
+        to: to.trim(),
+        from: { email: sg.fromEmail, name: "KnowBase運営事務局" },
+        subject: (typeof customSubject === "string" && customSubject.trim()) || custom.slice(0, 40),
+        html: `<div style="font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;max-width:640px;margin:0 auto;padding:8px;">
+          <div style="padding:24px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;color:#374151;line-height:1.7;font-size:15px;">${safe}</div>
+        </div>`,
+      };
+      await sgMail.send(msg);
+      return NextResponse.json({ ok: true });
+    }
 
     const msg = {
       to: to.trim(),
