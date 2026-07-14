@@ -5,92 +5,206 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>店舗設定 運用マニュアル</title>
 <style>
-:root{--indigo:#4f46e5;--indigo-l:#eef2ff;--teal:#0097a7;--teal-l:#e0f7fa;--ink:#1e293b;--muted:#64748b;--line:#e2e8f0;--bg:#f8fafc;--warn:#b45309;--warn-l:#fffbeb;--ok:#0f766e;--ok-l:#ecfdf5;}
-*{box-sizing:border-box}html{scroll-behavior:smooth}
-body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;color:var(--ink);background:var(--bg);line-height:1.75;font-size:15px}
+:root{
+  --indigo:#4f46e5;--indigo-d:#4338ca;--indigo-l:#eef2ff;
+  --emerald:#059669;--emerald-l:#ecfdf5;
+  --amber:#d97706;--amber-l:#fffbeb;
+  --rose:#e11d48;--rose-l:#fff1f2;
+  --sky:#0284c7;--sky-l:#f0f9ff;
+  --violet:#7c3aed;--violet-l:#f5f3ff;
+  --cyan:#0891b2;--cyan-l:#ecfeff;
+  --teal:#0d9488;--teal-l:#f0fdfa;
+  --ink:#0f172a;--body:#334155;--muted:#64748b;--line:#e2e8f0;--bg:#f1f5f9;
+  --warn:#b45309;--warn-l:#fffbeb;--ok:#0f766e;--ok-l:#ecfdf5;
+  --shadow:0 10px 30px -12px rgba(15,23,42,.18);
+  --shadow-sm:0 2px 8px rgba(15,23,42,.06);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;color:var(--body);background:var(--bg);line-height:1.8;font-size:15px;-webkit-font-smoothing:antialiased}
 a{color:var(--indigo);text-decoration:none}
-.layout{display:grid;grid-template-columns:260px 1fr;min-height:100vh}
-.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;background:#0f172a;color:#cbd5e1;padding:22px 18px}
-.side h1{font-size:16px;color:#fff;margin:0 0 4px}.side .ver{font-size:11px;color:#64748b;margin-bottom:18px}
-.side nav a{display:block;color:#cbd5e1;font-size:13px;padding:7px 10px;border-radius:8px;margin-bottom:2px}
-.side nav a:hover{background:#1e293b;color:#fff}.side nav a.sub{padding-left:24px;font-size:12px;color:#94a3b8}
-.side .tag{display:inline-block;font-size:10px;font-weight:700;color:#fff;background:var(--indigo);border-radius:999px;padding:1px 8px;margin-top:14px}
-main{padding:0 46px 80px;max-width:1000px}
-header.hero{padding:56px 0 30px;border-bottom:3px solid var(--indigo);margin-bottom:10px}
-header.hero .kicker{color:var(--indigo);font-weight:800;font-size:13px;letter-spacing:.15em}
-header.hero h1{font-size:34px;margin:6px 0 8px}header.hero p{color:var(--muted);margin:0}
-section{padding:34px 0;border-bottom:1px solid var(--line)}
-section h2{font-size:24px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
-section h2 .num{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;background:var(--indigo);color:#fff;border-radius:10px;font-size:16px;flex:0 0 auto}
-section .lead{color:var(--muted);margin:2px 0 20px}
-h3{font-size:17px;margin:26px 0 10px;color:var(--ink);border-left:4px solid var(--teal);padding-left:10px}
-ol.steps{counter-reset:s;list-style:none;padding:0;margin:0}
-ol.steps>li{position:relative;padding:10px 0 10px 44px;border-bottom:1px dashed var(--line)}
+
+/* ===== スクロール進捗バー ===== */
+#progress{position:fixed;top:0;left:0;height:3px;width:0;z-index:100;background:linear-gradient(90deg,#6366f1,#0ea5e9,#10b981);transition:width .1s}
+
+/* ===== レイアウト ===== */
+.layout{display:grid;grid-template-columns:274px 1fr;min-height:100vh}
+.side{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;background:linear-gradient(180deg,#0b1220 0%,#111a2e 100%);color:#cbd5e1;padding:24px 16px}
+.side .brand{display:flex;align-items:center;gap:10px;margin:2px 6px 4px}
+.side .brand .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#6366f1,#0ea5e9);display:flex;align-items:center;justify-content:center;flex:0 0 auto;box-shadow:0 4px 12px rgba(99,102,241,.4)}
+.side .brand h1{font-size:15px;color:#fff;margin:0;line-height:1.35;font-weight:800}
+.side .ver{font-size:11px;color:#64748b;margin:0 6px 16px;padding-left:44px}
+.side nav a{display:flex;align-items:center;gap:10px;color:#cbd5e1;font-size:13px;padding:8px 11px;border-radius:9px;margin-bottom:2px;transition:.15s;border:1px solid transparent}
+.side nav a .ic{width:16px;height:16px;flex:0 0 auto;opacity:.85}
+.side nav a:hover{background:#1e293b;color:#fff}
+.side nav a.active{background:rgba(99,102,241,.16);color:#fff;border-color:rgba(99,102,241,.4)}
+.side nav a.sub{padding-left:38px;font-size:12px;color:#94a3b8;gap:6px}
+.side nav a.sub::before{content:"";width:5px;height:5px;border-radius:50%;background:#475569;flex:0 0 auto}
+.side nav a.sub.active::before{background:#818cf8}
+.side .tag{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:#c7d2fe;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:999px;padding:5px 11px;margin:18px 6px 0}
+
+main{padding:0 52px 90px;max-width:1020px}
+
+/* ===== ヒーロー ===== */
+header.hero{position:relative;margin:0 -52px 8px;padding:60px 52px 40px;color:#fff;overflow:hidden;background:linear-gradient(135deg,#4338ca 0%,#4f46e5 45%,#0ea5e9 100%)}
+header.hero::after{content:"";position:absolute;inset:0;background:radial-gradient(700px 300px at 85% -20%,rgba(255,255,255,.22),transparent 60%);pointer-events:none}
+header.hero .kicker{display:inline-flex;align-items:center;gap:8px;color:#e0e7ff;font-weight:800;font-size:12px;letter-spacing:.18em;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);padding:5px 13px;border-radius:999px}
+header.hero h1{font-size:38px;margin:16px 0 10px;letter-spacing:-.01em;line-height:1.2}
+header.hero p{color:#dbeafe;margin:0;max-width:620px;font-size:15px}
+.hero-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.hero-badges span{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:6px 11px;color:#fff}
+
+/* ===== セクション ===== */
+section{padding:44px 0 40px;border-bottom:1px solid var(--line);scroll-margin-top:12px}
+section h2{font-size:25px;margin:0 0 6px;display:flex;align-items:center;gap:14px;color:var(--ink);letter-spacing:-.01em}
+section h2 .ic{width:46px;height:46px;border-radius:13px;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:#fff;box-shadow:var(--shadow-sm)}
+section .lead{color:var(--muted);margin:2px 0 22px;font-size:15px;padding-left:60px}
+/* セクション別アクセント */
+.acc-indigo .ic{background:linear-gradient(135deg,#6366f1,#4338ca)} .acc-indigo h3{border-color:var(--indigo)}
+.acc-slate  .ic{background:linear-gradient(135deg,#64748b,#334155)} .acc-slate h3{border-color:#64748b}
+.acc-emerald .ic{background:linear-gradient(135deg,#10b981,#059669)} .acc-emerald h3{border-color:var(--emerald)}
+.acc-amber  .ic{background:linear-gradient(135deg,#f59e0b,#d97706)} .acc-amber h3{border-color:var(--amber)}
+.acc-rose   .ic{background:linear-gradient(135deg,#fb7185,#e11d48)} .acc-rose h3{border-color:var(--rose)}
+.acc-sky    .ic{background:linear-gradient(135deg,#38bdf8,#0284c7)} .acc-sky h3{border-color:var(--sky)}
+.acc-violet .ic{background:linear-gradient(135deg,#a78bfa,#7c3aed)} .acc-violet h3{border-color:var(--violet)}
+.acc-cyan   .ic{background:linear-gradient(135deg,#22d3ee,#0891b2)} .acc-cyan h3{border-color:var(--cyan)}
+.acc-teal   .ic{background:linear-gradient(135deg,#2dd4bf,#0d9488)} .acc-teal h3{border-color:var(--teal)}
+
+h3{font-size:17px;margin:30px 0 12px;color:var(--ink);border-left:4px solid var(--teal);padding-left:12px;font-weight:800}
+
+/* ===== ステップ番号リスト ===== */
+ol.steps{counter-reset:s;list-style:none;padding:0;margin:14px 0}
+ol.steps>li{position:relative;padding:12px 0 12px 48px;border-bottom:1px dashed var(--line)}
 ol.steps>li:last-child{border-bottom:0}
-ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:10px;width:28px;height:28px;background:var(--teal-l);color:var(--teal);font-weight:800;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px}
-ol.steps b{color:var(--indigo)}
-ul.plain{margin:8px 0;padding-left:20px}ul.plain li{margin:3px 0}
-.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0;padding:18px;background:#fff;border:1px solid var(--line);border-radius:14px}
-.flow .node{background:var(--indigo-l);border:1.5px solid #c7d2fe;color:var(--indigo);font-weight:700;font-size:13px;padding:10px 14px;border-radius:10px;text-align:center;min-width:96px}
-.flow .node.start{background:#0f172a;border-color:#0f172a;color:#fff}
-.flow .node.end{background:var(--ok-l);border-color:#99f6e4;color:var(--ok)}
-.flow .node small{display:block;font-weight:500;font-size:10px;color:var(--muted);margin-top:2px}
-.flow .arrow{color:#94a3b8;font-size:20px;font-weight:700}
-.flow .branch{display:flex;flex-direction:column;gap:6px}.flow .branch .node{min-width:120px}
-.note{border-radius:12px;padding:12px 16px;margin:14px 0;font-size:14px}
-.note.tip{background:var(--ok-l);border:1px solid #99f6e4}.note.tip b{color:var(--ok)}
-.note.warn{background:var(--warn-l);border:1px solid #fde68a}.note.warn b{color:var(--warn)}
-.screens{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0}
-.screen{flex:1;min-width:210px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}
-.screen .bar{background:var(--indigo);color:#fff;font-size:12px;font-weight:700;padding:7px 12px}
-.screen .body{padding:12px;font-size:12.5px;color:var(--muted)}
-.screen .body .chip{display:inline-block;background:var(--indigo-l);color:var(--indigo);font-size:11px;font-weight:700;border-radius:999px;padding:2px 9px;margin:2px 3px 2px 0}
-table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.5px}
-th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
-th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
-.badge{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 8px}
-.badge.live{background:var(--ok-l);color:var(--ok)}.badge.soon{background:#f1f5f9;color:var(--muted)}
-.shot{margin:16px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(15,23,42,0.08);background:#fff}
-.shot .chrome{display:flex;align-items:center;gap:6px;padding:8px 12px;background:#f1f5f9;border-bottom:1px solid var(--line)}
-.shot .chrome i{width:10px;height:10px;border-radius:50%;display:inline-block}
+ol.steps>li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:10px;width:30px;height:30px;background:linear-gradient(135deg,#6366f1,#4338ca);color:#fff;font-weight:800;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 3px 8px rgba(79,70,229,.35)}
+ol.steps b{color:var(--indigo-d)}
+ul.plain{margin:10px 0;padding-left:22px}ul.plain li{margin:5px 0}
+ul.plain li b{color:var(--ink)}
+
+/* ===== フロー（ステッパー） ===== */
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:9px;margin:18px 0;padding:22px 20px;background:linear-gradient(180deg,#fff,#fbfcff);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm)}
+.flow .node{position:relative;background:#fff;border:1.5px solid #c7d2fe;color:var(--indigo-d);font-weight:800;font-size:13px;padding:11px 15px;border-radius:12px;text-align:center;min-width:100px;transition:.18s;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+.flow .node:hover{transform:translateY(-2px);box-shadow:0 8px 18px -8px rgba(79,70,229,.5)}
+.flow .node.start{background:linear-gradient(135deg,#1e293b,#0f172a);border-color:#0f172a;color:#fff}
+.flow .node.end{background:linear-gradient(135deg,#10b981,#059669);border-color:#059669;color:#fff}
+.flow .node small{display:block;font-weight:600;font-size:10px;color:var(--muted);margin-top:3px}
+.flow .node.start small,.flow .node.end small{color:rgba(255,255,255,.8)}
+.flow .arrow{color:#cbd5e1;font-size:18px;font-weight:800}
+.flow .branch{display:flex;flex-direction:column;gap:7px}.flow .branch .node{min-width:130px}
+
+/* ===== ノート ===== */
+.note{position:relative;border-radius:13px;padding:14px 16px 14px 48px;margin:16px 0;font-size:14px;line-height:1.75}
+.note::before{position:absolute;left:15px;top:14px;font-size:18px;line-height:1}
+.note.tip{background:var(--ok-l);border:1px solid #99f6e4}.note.tip b{color:var(--ok)}.note.tip::before{content:"💡"}
+.note.warn{background:var(--warn-l);border:1px solid #fde68a}.note.warn b{color:var(--warn)}.note.warn::before{content:"⚠️"}
+
+/* ===== 機能カードグリッド ===== */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;margin:18px 0}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow-sm);transition:.18s}
+.card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.card .top{display:flex;align-items:center;gap:11px;margin-bottom:9px}
+.card .ci{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;flex:0 0 auto}
+.card h4{margin:0;font-size:15px;color:var(--ink)}
+.card p{margin:0;font-size:13px;color:var(--muted);line-height:1.65}
+.card .badge{margin-top:10px}
+
+/* ===== ミニ画面カード ===== */
+.screens{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
+.screen{flex:1;min-width:220px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-sm)}
+.screen .bar{background:linear-gradient(135deg,#4f46e5,#4338ca);color:#fff;font-size:12px;font-weight:800;padding:9px 14px}
+.screen .body{padding:14px;font-size:12.5px;color:var(--muted)}
+.screen .body .chip{display:inline-block;background:var(--indigo-l);color:var(--indigo-d);font-size:11px;font-weight:700;border-radius:999px;padding:3px 10px;margin:3px 3px 3px 0;border:1px solid #e0e7ff}
+
+/* ===== テーブル ===== */
+table{width:100%;border-collapse:separate;border-spacing:0;margin:16px 0;font-size:13.5px;border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:var(--shadow-sm)}
+th,td{padding:11px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{background:var(--indigo-l);color:var(--indigo-d);font-weight:800}
+tbody tr:hover td{background:#fafbff}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;border-radius:7px;padding:3px 9px}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%}
+.badge.live{background:var(--ok-l);color:var(--ok)}.badge.live::before{background:var(--ok)}
+.badge.soon{background:#f1f5f9;color:var(--muted)}.badge.soon::before{background:#94a3b8}
+
+/* ===== スクリーンショット（デバイス枠） ===== */
+.shot{margin:20px 0;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);background:#fff}
+.shot .chrome{display:flex;align-items:center;gap:7px;padding:11px 14px;background:linear-gradient(180deg,#f8fafc,#eef2f7);border-bottom:1px solid var(--line)}
+.shot .chrome i{width:11px;height:11px;border-radius:50%;display:inline-block}
 .shot .chrome i.r{background:#f87171}.shot .chrome i.y{background:#fbbf24}.shot .chrome i.g{background:#34d399}
-.shot .chrome span{margin-left:8px;font-size:11px;color:var(--muted);font-weight:600}
-.shot svg{display:block;width:100%;height:auto}
-.shot .cap{padding:8px 12px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);background:#fafbff}
-@media(max-width:820px){.layout{grid-template-columns:1fr}.side{position:static;height:auto}main{padding:0 20px 60px}}
-@media print{.side{display:none}.layout{grid-template-columns:1fr}main{max-width:none}section{break-inside:avoid}}
+.shot .chrome span{margin-left:10px;font-size:11.5px;color:var(--muted);font-weight:700;letter-spacing:.02em}
+.shot .chrome .url{margin-left:auto;font-size:10px;color:#94a3b8;background:#fff;border:1px solid var(--line);padding:3px 10px;border-radius:999px}
+.shot svg{display:block;width:100%;height:auto;background:#f8fafc}
+.shot .cap{padding:11px 15px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line);background:#fafbff;display:flex;gap:8px;align-items:flex-start}
+.shot .cap::before{content:"📸";flex:0 0 auto}
+
+/* ===== 凡例 ===== */
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0 0;padding-left:60px}
+.legend span{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);font-weight:700}
+.legend .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+
+footer.foot{color:var(--muted);font-size:12px;padding:28px 0 0;display:flex;align-items:center;gap:10px}
+footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gradient(135deg,#6366f1,#0ea5e9);flex:0 0 auto}
+
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .side{position:static;height:auto}
+  main{padding:0 20px 60px}
+  header.hero{margin:0 -20px 8px;padding:44px 20px 30px}
+  header.hero h1{font-size:28px}
+  section .lead,.legend{padding-left:0}
+}
+@media print{
+  #progress,.side{display:none}
+  .layout{grid-template-columns:1fr}
+  main{max-width:none;padding:0}
+  header.hero{margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  section{break-inside:avoid}
+  .card:hover,.flow .node:hover{transform:none;box-shadow:var(--shadow-sm)}
+}
 </style>
 </head>
 <body>
+<div id="progress"></div>
 <div class="layout">
 <aside class="side">
-  <h1>店舗設定 運用マニュアル</h1>
-  <div class="ver">Version 2.1 ／ 2026-07-13</div>
-  <nav>
-    <a href="#intro">1. はじめに（権限・クラブコード）</a>
-    <a href="#map">全体の画面遷移マップ</a>
-    <a href="#push">2. Push通知・お知らせ</a>
+  <div class="brand">
+    <div class="logo"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
+    <h1>店舗設定<br>運用マニュアル</h1>
+  </div>
+  <div class="ver">Version 3.0 ／ 2026-07-14</div>
+  <nav id="toc">
+    <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. はじめに</a>
+    <a href="#map"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>画面遷移マップ</a>
+    <a href="#push"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>2. Push・お知らせ</a>
     <a href="#push-store" class="sub">複数店舗の選択</a>
     <a href="#push-target" class="sub">ターゲット抽出</a>
     <a href="#push-preview" class="sub">2種プレビュー</a>
-    <a href="#dm">3. DM（メール配信）</a>
-    <a href="#unpaid">4. 未納金管理</a>
-    <a href="#refund">5. 返金・入金管理</a>
-    <a href="#terms">6. 規約管理</a>
-    <a href="#users">7. ユーザー・クラブコード</a>
-    <a href="#tour">8. 使い方ツアー</a>
+    <a href="#dm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>3. DM（メール）</a>
+    <a href="#unpaid"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>4. 未納金管理</a>
+    <a href="#refund"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>5. 返金・入金</a>
+    <a href="#terms"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>6. 規約管理</a>
+    <a href="#users"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>7. ユーザー管理</a>
+    <a href="#tour"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>8. 使い方ツアー</a>
   </nav>
-  <span class="tag">管理画面 › 店舗設定</span>
+  <span class="tag"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>管理画面 › 店舗設定</span>
 </aside>
 <main>
 <header class="hero">
-  <div class="kicker">OPERATION MANUAL</div>
+  <div class="kicker"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>OPERATION MANUAL</div>
   <h1>店舗設定 運用マニュアル</h1>
   <p>管理画面「店舗設定」の操作手順と画面遷移をまとめた運用マニュアルです。店舗スタッフ・エリア担当者・管理者向け。</p>
+  <div class="hero-badges">
+    <span>🔔 Push・お知らせ</span>
+    <span>✉️ DM配信</span>
+    <span>📊 未納金管理</span>
+    <span>💳 返金・入金</span>
+    <span>📄 規約管理</span>
+  </div>
 </header>
 
-<section id="intro">
-  <h2><span class="num">1</span>はじめに（権限・クラブコード）</h2>
+<section id="intro" class="acc-indigo">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>はじめに（権限・クラブコード）</h2>
   <p class="lead">各アカウントには「担当クラブコード」または「担当エリア」が付与され、見える範囲が決まります。</p>
   <h3>ログインから各機能まで（画面遷移）</h3>
   <div class="flow">
@@ -113,35 +227,41 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   <h3>ホーム画面からの入口（直営店舗のみ）</h3>
   <p>ホーム画面の「外部リンク」の下に、<b>直営店舗の担当者のみ</b>「JOYFIT / FIT365 管理画面（店舗設定）」ボタンが表示されます。ここから店舗設定へ進めます（FC店舗には表示されません）。</p>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>ホーム画面</span></div>
-    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
-      <rect width="720" height="300" fill="#f8fafc"/>
-      <!-- 右サイド: 外部リンク + 管理画面ボタン -->
-      <rect x="470" y="20" width="230" height="260" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="486" y="44" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">外部リンク</text>
-      <rect x="486" y="54" width="198" height="34" rx="8" fill="#fff" stroke="#e2e8f0"/>
-      <text x="498" y="75" font-family="sans-serif" font-size="12" fill="#0f172a">店舗HP ↗</text>
-      <rect x="486" y="94" width="198" height="34" rx="8" fill="#fff" stroke="#e2e8f0"/>
-      <text x="498" y="115" font-family="sans-serif" font-size="12" fill="#0f172a">予約システム ↗</text>
-      <!-- 管理画面ボタン(直営のみ) -->
-      <rect x="486" y="146" width="198" height="40" rx="9" fill="#1F2C5C"/>
-      <text x="500" y="171" font-family="sans-serif" font-size="12.5" font-weight="800" fill="#fff">JOYFIT 管理画面（店舗設定）→</text>
-      <rect x="486" y="194" width="198" height="40" rx="9" fill="#E26E9D"/>
-      <text x="500" y="219" font-family="sans-serif" font-size="12.5" font-weight="800" fill="#fff">FIT365 管理画面（店舗設定）→</text>
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>ホーム画面</span><span class="url">app › home</span></div>
+    <svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+      <defs>
+        <linearGradient id="jf" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a3a72"/><stop offset="1" stop-color="#1F2C5C"/></linearGradient>
+        <linearGradient id="ft" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ec8ab4"/><stop offset="1" stop-color="#E26E9D"/></linearGradient>
+      </defs>
+      <rect width="720" height="300" fill="#f1f5f9"/>
       <!-- 左: メイン -->
-      <rect x="20" y="20" width="430" height="120" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="40" y="52" font-family="sans-serif" font-size="16" font-weight="800" fill="#0f172a">ホーム</text>
-      <text x="40" y="76" font-family="sans-serif" font-size="12" fill="#64748b">お知らせ・マニュアル・AIアシスタント</text>
-      <rect x="20" y="152" width="430" height="128" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="40" y="182" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">マニュアル / チャット</text>
-      <rect x="486" y="146" width="198" height="88" rx="9" fill="none" stroke="#4f46e5" stroke-width="2" stroke-dasharray="4 3"/>
+      <rect x="20" y="20" width="430" height="120" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <text x="42" y="54" font-size="17" font-weight="800" fill="#0f172a">ホーム</text>
+      <text x="42" y="80" font-size="12" fill="#64748b">お知らせ・マニュアル・AIアシスタント</text>
+      <rect x="42" y="98" width="120" height="26" rx="7" fill="#eef2ff"/><text x="58" y="115" font-size="11" font-weight="700" fill="#4338ca">お知らせ 3件</text>
+      <rect x="20" y="152" width="430" height="128" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <text x="42" y="184" font-size="13" font-weight="800" fill="#0f172a">マニュアル / チャット</text>
+      <rect x="42" y="200" width="180" height="60" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+      <rect x="234" y="200" width="180" height="60" rx="9" fill="#f8fafc" stroke="#e2e8f0"/>
+      <!-- 右サイド -->
+      <rect x="470" y="20" width="230" height="260" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <text x="488" y="46" font-size="13" font-weight="800" fill="#0f172a">外部リンク</text>
+      <rect x="488" y="56" width="194" height="34" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="502" y="78" font-size="12" fill="#334155">店舗HP ↗</text>
+      <rect x="488" y="96" width="194" height="34" rx="9" fill="#f8fafc" stroke="#e2e8f0"/><text x="502" y="118" font-size="12" fill="#334155">予約システム ↗</text>
+      <!-- 管理画面ボタン(直営のみ) -->
+      <rect x="482" y="140" width="206" height="98" rx="11" fill="none" stroke="#4f46e5" stroke-width="2" stroke-dasharray="5 4"/>
+      <rect x="488" y="148" width="194" height="40" rx="10" fill="url(#jf)"/>
+      <text x="502" y="173" font-size="12.5" font-weight="800" fill="#fff">JOYFIT 管理画面 →</text>
+      <rect x="488" y="192" width="194" height="40" rx="10" fill="url(#ft)"/>
+      <text x="502" y="217" font-size="12.5" font-weight="800" fill="#fff">FIT365 管理画面 →</text>
+      <circle cx="686" cy="140" r="13" fill="#4f46e5"/><text x="686" y="145" font-size="13" font-weight="800" fill="#fff" text-anchor="middle">!</text>
     </svg>
-    <div class="cap">直営店舗の担当者には「外部リンク」の下に管理画面ボタンが表示され、店舗設定へ遷移します。</div>
+    <div class="cap">直営店舗の担当者には「外部リンク」の下に管理画面ボタン（点線枠）が表示され、店舗設定へ遷移します。</div>
   </div>
 </section>
 
-<section id="map">
-  <h2><span class="num">◎</span>全体の画面遷移マップ</h2>
+<section id="map" class="acc-slate">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>全体の画面遷移マップ</h2>
   <p class="lead">「店舗設定」メニューから各機能への遷移の全体像です。</p>
   <div class="flow">
     <div class="node start">店舗設定 TOP</div><span class="arrow">→</span>
@@ -153,19 +273,18 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
       <div class="node">規約管理 <small>一覧 → 版編集 → PDF</small></div>
     </div>
   </div>
-  <table>
-    <tr><th>機能</th><th>状態</th><th>概要</th></tr>
-    <tr><td>Push通知・お知らせ</td><td><span class="badge live">稼働</span></td><td>アプリへのプッシュ通知とお知らせ配信</td></tr>
-    <tr><td>DM（メール配信）</td><td><span class="badge live">稼働</span></td><td>会員へのHTMLメール配信・開封率計測</td></tr>
-    <tr><td>未納金管理</td><td><span class="badge live">稼働</span></td><td>初回振替の結果と、未納者のその後の追跡</td></tr>
-    <tr><td>返金・入金管理</td><td><span class="badge live">稼働</span></td><td>返金申請〜承認〜経理処理</td></tr>
-    <tr><td>規約管理</td><td><span class="badge live">稼働</span></td><td>規約のバージョン管理・PDF出力</td></tr>
-    <tr><td>1dayパス / ポイント / オプション都度利用</td><td><span class="badge soon">準備中</span></td><td>今後提供予定</td></tr>
-  </table>
+  <div class="cards">
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#10b981,#059669)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div><h4>Push通知・お知らせ</h4></div><p>アプリへのプッシュ通知とお知らせ配信</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#f59e0b,#d97706)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></div><h4>DM（メール配信）</h4></div><p>会員へのHTMLメール配信・開封率計測</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#fb7185,#e11d48)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div><h4>未納金管理</h4></div><p>初回振替の結果と、未納者のその後の追跡</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#38bdf8,#0284c7)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div><h4>返金・入金管理</h4></div><p>返金申請〜承認〜経理処理</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#a78bfa,#7c3aed)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><h4>規約管理</h4></div><p>規約のバージョン管理・PDF出力</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci" style="background:linear-gradient(135deg,#94a3b8,#64748b)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h4>1day / ポイント / 都度利用</h4></div><p>今後提供予定</p><div class="badge soon">準備中</div></div>
+  </div>
 </section>
 
-<section id="push">
-  <h2><span class="num">2</span>Push通知・お知らせ</h2>
+<section id="push" class="acc-emerald">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></span>Push通知・お知らせ</h2>
   <p class="lead">アプリのロック画面に出るPUSH通知と、アプリ内「お知らせ」欄への掲載を同時に作成します。</p>
   <h3>配信の流れ（画面遷移）</h3>
   <div class="flow">
@@ -179,40 +298,40 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     <div class="node end">送信完了</div>
   </div>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>Push通知 › 新規配信作成</span></div>
-    <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg">
-      <rect width="720" height="340" fill="#f8fafc"/>
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>Push通知 › 新規配信作成</span><span class="url">store-settings › push › new</span></div>
+    <svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+      <rect width="720" height="340" fill="#f1f5f9"/>
       <!-- 左: 設定 -->
-      <rect x="16" y="16" width="300" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <circle cx="36" cy="40" r="10" fill="#4f46e5"/><text x="30" y="45" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">1</text>
-      <text x="54" y="45" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">配信店舗（複数選択可）</text>
-      <rect x="30" y="56" width="272" height="30" rx="7" fill="#eef2ff" stroke="#c7d2fe"/><text x="42" y="76" font-family="sans-serif" font-size="11" fill="#4f46e5">ブランド / 直営・FC / エリアで絞込 + 検索</text>
-      <circle cx="36" cy="110" r="10" fill="#4f46e5"/><text x="30" y="115" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">2</text>
-      <text x="54" y="115" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">通知コンテンツ（AIで文章作成）</text>
-      <rect x="30" y="126" width="272" height="24" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-      <rect x="30" y="154" width="272" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
-      <circle cx="36" cy="212" r="10" fill="#4f46e5"/><text x="30" y="217" font-family="sans-serif" font-size="12" font-weight="800" fill="#fff">3</text>
-      <text x="54" y="217" font-family="sans-serif" font-size="13" font-weight="700" fill="#0f172a">ターゲット抽出</text>
-      <rect x="30" y="228" width="130" height="20" rx="10" fill="#eef2ff"/><text x="42" y="242" font-family="sans-serif" font-size="10" fill="#4f46e5">性別 / 在籍状況</text>
-      <rect x="166" y="228" width="136" height="20" rx="10" fill="#eef2ff"/><text x="178" y="242" font-family="sans-serif" font-size="10" fill="#4f46e5">契約種別 / 形態 / OP</text>
-      <rect x="30" y="256" width="272" height="30" rx="7" fill="#0f172a"/><text x="120" y="276" font-family="sans-serif" font-size="11" font-weight="700" fill="#fff">条件で名簿を作成</text>
+      <rect x="16" y="16" width="300" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <circle cx="36" cy="40" r="11" fill="#4f46e5"/><text x="36" y="45" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">1</text>
+      <text x="56" y="45" font-size="13" font-weight="800" fill="#0f172a">配信店舗（複数選択可）</text>
+      <rect x="30" y="56" width="272" height="30" rx="8" fill="#eef2ff" stroke="#c7d2fe"/><text x="44" y="76" font-size="11" fill="#4338ca">ブランド / 直営・FC / エリアで絞込 + 検索</text>
+      <circle cx="36" cy="110" r="11" fill="#4f46e5"/><text x="36" y="115" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">2</text>
+      <text x="56" y="115" font-size="13" font-weight="800" fill="#0f172a">通知コンテンツ（AIで文章作成）</text>
+      <rect x="30" y="126" width="272" height="24" rx="7" fill="#f8fafc" stroke="#e2e8f0"/><text x="42" y="142" font-size="10" fill="#94a3b8">タイトル</text>
+      <rect x="30" y="154" width="272" height="34" rx="7" fill="#f8fafc" stroke="#e2e8f0"/><text x="42" y="170" font-size="10" fill="#94a3b8">本文</text>
+      <rect x="222" y="126" width="80" height="24" rx="7" fill="#ecfdf5" stroke="#a7f3d0"/><text x="262" y="142" font-size="10" font-weight="700" fill="#059669" text-anchor="middle">✦ AI生成</text>
+      <circle cx="36" cy="212" r="11" fill="#4f46e5"/><text x="36" y="217" font-size="12" font-weight="800" fill="#fff" text-anchor="middle">3</text>
+      <text x="56" y="217" font-size="13" font-weight="800" fill="#0f172a">ターゲット抽出</text>
+      <rect x="30" y="228" width="130" height="22" rx="11" fill="#eef2ff"/><text x="95" y="243" font-size="10" fill="#4338ca" text-anchor="middle">性別 / 在籍状況</text>
+      <rect x="166" y="228" width="136" height="22" rx="11" fill="#eef2ff"/><text x="234" y="243" font-size="10" fill="#4338ca" text-anchor="middle">契約種別 / 形態 / OP</text>
+      <rect x="30" y="258" width="272" height="32" rx="9" fill="#0f172a"/><text x="166" y="279" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">条件で名簿を作成</text>
       <!-- 中: 宛先リスト -->
-      <rect x="326" y="16" width="200" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="340" y="40" font-family="sans-serif" font-size="12" font-weight="700" fill="#0f172a">宛先リスト（配信可能のみ）</text>
-      <g font-family="sans-serif" font-size="10" fill="#334155">
-        <rect x="336" y="52" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="69">☑ 田中 太郎 · 在籍中</text>
-        <rect x="336" y="82" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="99">☑ 佐藤 花子 · 在籍中</text>
-        <rect x="336" y="112" width="180" height="26" rx="5" fill="#f8fafc"/><text x="346" y="129">☑ 鈴木 一郎 · 在籍中</text>
-      </g>
+      <rect x="326" y="16" width="200" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <text x="340" y="40" font-size="12" font-weight="800" fill="#0f172a">宛先リスト（配信可能のみ）</text>
+      <rect x="336" y="50" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="67" font-size="10" fill="#334155">☑ 田中 太郎 · 在籍中</text>
+      <rect x="336" y="80" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="97" font-size="10" fill="#334155">☑ 佐藤 花子 · 在籍中</text>
+      <rect x="336" y="110" width="180" height="26" rx="6" fill="#ecfdf5" stroke="#a7f3d0"/><text x="346" y="127" font-size="10" fill="#334155">☑ 鈴木 一郎 · 在籍中</text>
+      <rect x="336" y="150" width="180" height="20" rx="6" fill="#f8fafc"/><text x="346" y="164" font-size="9" fill="#94a3b8">配信可 3 名 / 抽出 5 名</text>
       <!-- 右: プレビュー2種 -->
-      <rect x="536" y="16" width="168" height="308" rx="10" fill="#fff" stroke="#e2e8f0"/>
-      <text x="548" y="38" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">プレビュー（2種）</text>
-      <rect x="556" y="48" width="128" height="120" rx="14" fill="#0f172a"/>
-      <text x="576" y="74" font-family="sans-serif" font-size="10" fill="#cbd5e1">ロック画面 10:41</text>
-      <rect x="566" y="84" width="108" height="46" rx="8" fill="#fff"/><text x="576" y="104" font-family="sans-serif" font-size="9" fill="#0f172a">JOYFITアプリ</text><text x="576" y="118" font-family="sans-serif" font-size="8" fill="#475569">通知タイトル/本文</text>
-      <rect x="556" y="180" width="128" height="130" rx="14" fill="#0f172a"/>
-      <rect x="566" y="190" width="108" height="18" rx="4" fill="#E26E9D"/><text x="574" y="203" font-family="sans-serif" font-size="9" fill="#fff">お知らせ</text>
-      <rect x="566" y="212" width="108" height="88" rx="6" fill="#fff"/><text x="576" y="230" font-family="sans-serif" font-size="8" fill="#0f172a">画像・本文</text>
+      <rect x="536" y="16" width="168" height="308" rx="12" fill="#fff" stroke="#e2e8f0"/>
+      <text x="548" y="38" font-size="11" font-weight="800" fill="#0f172a">プレビュー（2種）</text>
+      <rect x="556" y="48" width="128" height="120" rx="16" fill="#0f172a"/>
+      <text x="620" y="72" font-size="10" fill="#cbd5e1" text-anchor="middle">ロック画面 10:41</text>
+      <rect x="566" y="82" width="108" height="46" rx="9" fill="#fff"/><text x="576" y="102" font-size="9" font-weight="700" fill="#0f172a">JOYFITアプリ</text><text x="576" y="116" font-size="8" fill="#475569">通知タイトル/本文</text>
+      <rect x="556" y="180" width="128" height="130" rx="16" fill="#0f172a"/>
+      <rect x="566" y="190" width="108" height="18" rx="5" fill="#E26E9D"/><text x="620" y="203" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">お知らせ</text>
+      <rect x="566" y="212" width="108" height="88" rx="7" fill="#fff"/><rect x="574" y="220" width="92" height="40" rx="5" fill="#eef2ff"/><text x="576" y="278" font-size="8" fill="#0f172a">画像・本文</text>
     </svg>
     <div class="cap">左＝設定（店舗/内容/ターゲット）、中＝宛先リスト（配信可能な人のみ）、右＝プレビュー2種。</div>
   </div>
@@ -227,6 +346,7 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     <li><b>タイトル・本文</b>を入力。お知らせ画像は「クリックして画像を選択」でアップロードします（S3保管）。</li>
     <li><b>「AIで文章作成」</b>に指示を入れると、タイトル・本文が自動生成され各欄へ反映されます。</li>
   </ol>
+  <div class="note warn"><b>送信ルール：</b>配信可能時間は <b>8:00〜21:00</b> です（21時以降は送信不可）。件名・本文に<b>NGワード</b>が含まれると送信できません。予約配信も同じ時間帯の範囲で指定してください。</div>
   <h3 id="push-target">③ ターゲット抽出</h3>
   <div class="screens">
     <div class="screen"><div class="bar">条件グループ</div><div class="body">
@@ -255,8 +375,8 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   <div class="note tip"><b>ポイント：</b>PUSHはロック画面・通知センターに（テキストのみ）、お知らせはアプリを開いた「お知らせ」画面に表示されます。入力に応じて2つのプレビューが同時に更新されます。</div>
 </section>
 
-<section id="dm">
-  <h2><span class="num">3</span>DM（メール配信）</h2>
+<section id="dm" class="acc-amber">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></span>DM（メール配信）</h2>
   <p class="lead">会員へHTMLメールを配信し、開封率・クリック率を計測します。</p>
   <div class="flow">
     <div class="node start">DM 一覧</div><span class="arrow">→</span>
@@ -273,10 +393,11 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     <li><b>配信店舗</b>は複数選択可。<b>ターゲット抽出</b>はPush通知と同じ条件で指定します。</li>
     <li>送信後、履歴で<b>開封率・クリック率</b>を確認します（担当店舗の履歴のみ表示）。</li>
   </ol>
+  <div class="note warn"><b>送信ルール：</b>Push同様、配信可能時間は <b>8:00〜21:00</b>、<b>NGワード</b>を含むメールは送信できません。</div>
 </section>
 
-<section id="unpaid">
-  <h2><span class="num">4</span>未納金管理</h2>
+<section id="unpaid" class="acc-rose">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>未納金管理</h2>
   <p class="lead">「初回振替がどうだったか」と「未納になった人がその後どうなったか」を2軸で管理します。</p>
   <div class="flow">
     <div class="node start">基本設定</div><span class="arrow">→</span>
@@ -288,38 +409,41 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
     </div>
   </div>
   <div class="shot">
-    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>基本設定 › 未納金管理</span></div>
-    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg">
-      <rect width="720" height="330" fill="#f8fafc"/>
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span>基本設定 › 未納金管理</span><span class="url">store-settings › basic › unpaid</span></div>
+    <svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg" font-family="sans-serif">
+      <rect width="720" height="330" fill="#f1f5f9"/>
       <!-- フィルタ -->
-      <rect x="16" y="16" width="688" height="40" rx="8" fill="#fff" stroke="#e2e8f0"/>
-      <rect x="28" y="26" width="150" height="20" rx="6" fill="#eef2ff"/><text x="40" y="40" font-family="sans-serif" font-size="10" fill="#4f46e5">店舗/エリア/ブランド</text>
-      <rect x="188" y="26" width="120" height="20" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="200" y="40" font-family="sans-serif" font-size="10" fill="#475569">2025年度（4-3月）</text>
+      <rect x="16" y="16" width="688" height="40" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <rect x="28" y="26" width="150" height="20" rx="6" fill="#eef2ff"/><text x="103" y="40" font-size="10" fill="#4338ca" text-anchor="middle">店舗/エリア/ブランド</text>
+      <rect x="188" y="26" width="130" height="20" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="253" y="40" font-size="10" fill="#475569" text-anchor="middle">2025年度（4-3月）</text>
       <!-- ① 初回振替 KPI -->
-      <text x="20" y="76" font-family="sans-serif" font-size="12" font-weight="800" fill="#0f172a">① 初回振替の結果</text>
-      <g font-family="sans-serif">
-        <rect x="16" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="28" y="104" font-size="10" fill="#2563eb">請求件数</text><text x="28" y="126" font-size="16" font-weight="800" fill="#2563eb">9,341</text>
-        <rect x="184" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="196" y="104" font-size="10" fill="#059669">回収件数</text><text x="196" y="126" font-size="16" font-weight="800" fill="#059669">8,794</text>
-        <rect x="352" y="84" width="160" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="364" y="104" font-size="10" fill="#dc2626">未納件数</text><text x="364" y="126" font-size="16" font-weight="800" fill="#dc2626">547</text>
-        <rect x="520" y="84" width="184" height="56" rx="8" fill="#fff" stroke="#e2e8f0"/><text x="532" y="104" font-size="10" fill="#dc2626">未納金額</text><text x="532" y="126" font-size="16" font-weight="800" fill="#dc2626">¥1.38百万</text>
-      </g>
+      <text x="20" y="78" font-size="12" font-weight="800" fill="#0f172a">① 初回振替の結果</text>
+      <rect x="16" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#dbeafe"/><rect x="16" y="86" width="4" height="58" rx="2" fill="#2563eb"/><text x="30" y="106" font-size="10" fill="#2563eb">請求件数</text><text x="30" y="130" font-size="17" font-weight="800" fill="#2563eb">9,341</text>
+      <rect x="184" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#a7f3d0"/><rect x="184" y="86" width="4" height="58" rx="2" fill="#059669"/><text x="198" y="106" font-size="10" fill="#059669">回収件数</text><text x="198" y="130" font-size="17" font-weight="800" fill="#059669">8,794</text>
+      <rect x="352" y="86" width="160" height="58" rx="10" fill="#fff" stroke="#fecaca"/><rect x="352" y="86" width="4" height="58" rx="2" fill="#dc2626"/><text x="366" y="106" font-size="10" fill="#dc2626">未納件数</text><text x="366" y="130" font-size="17" font-weight="800" fill="#dc2626">547</text>
+      <rect x="520" y="86" width="184" height="58" rx="10" fill="#fff" stroke="#fecaca"/><rect x="520" y="86" width="4" height="58" rx="2" fill="#dc2626"/><text x="534" y="106" font-size="10" fill="#dc2626">未納金額</text><text x="534" y="130" font-size="17" font-weight="800" fill="#dc2626">¥1.38百万</text>
       <!-- グラフ + ② -->
-      <rect x="16" y="152" width="420" height="162" rx="8" fill="#fff" stroke="#e2e8f0"/>
-      <text x="28" y="174" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">推移 / 比較（ブランド・店舗）</text>
-      <polyline points="30,300 90,280 150,288 210,270 270,292 330,276 400,284" fill="none" stroke="#f87171" stroke-width="2"/>
-      <polyline points="30,240 90,232 150,246 210,228 270,250 330,236 400,242" fill="none" stroke="#34d399" stroke-width="2"/>
-      <rect x="448" y="152" width="256" height="162" rx="8" fill="#fff" stroke="#e2e8f0"/>
-      <text x="460" y="174" font-family="sans-serif" font-size="11" font-weight="700" fill="#0f172a">② 未納になった人のその後</text>
-      <g font-family="sans-serif" font-size="10">
-        <rect x="460" y="184" width="70" height="18" rx="9" fill="#ecfdf5"/><text x="470" y="197" fill="#059669">支払済 288</text>
-        <rect x="536" y="184" width="66" height="18" rx="9" fill="#fef2f2"/><text x="546" y="197" fill="#dc2626">現未納 31</text>
-        <rect x="460" y="210" width="232" height="1" fill="#e2e8f0"/>
-        <text x="460" y="232" fill="#475569">月次内訳（行クリックで会員一覧）</text>
-        <rect x="460" y="240" width="232" height="20" rx="4" fill="#f8fafc"/><text x="468" y="254" fill="#334155">2026-02  未納40件 → 回収25 / 現未納4</text>
-        <rect x="460" y="264" width="232" height="20" rx="4" fill="#f8fafc"/><text x="468" y="278" fill="#334155">2026-01  未納38件 → 回収20 / 現未納5</text>
-      </g>
+      <rect x="16" y="156" width="420" height="158" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="28" y="178" font-size="11" font-weight="800" fill="#0f172a">推移 / 比較（ブランド・店舗）</text>
+      <line x1="30" y1="300" x2="410" y2="300" stroke="#e2e8f0"/><line x1="30" y1="200" x2="410" y2="200" stroke="#f1f5f9"/>
+      <polyline points="30,300 90,282 150,288 210,272 270,292 330,278 400,284" fill="none" stroke="#f87171" stroke-width="2.5"/>
+      <polyline points="30,244 90,234 150,248 210,228 270,252 330,236 400,242" fill="none" stroke="#34d399" stroke-width="2.5"/>
+      <circle cx="400" cy="284" r="3" fill="#f87171"/><circle cx="400" cy="242" r="3" fill="#34d399"/>
+      <rect x="448" y="156" width="256" height="158" rx="10" fill="#fff" stroke="#e2e8f0"/>
+      <text x="460" y="178" font-size="11" font-weight="800" fill="#0f172a">② 未納になった人のその後</text>
+      <rect x="460" y="186" width="80" height="20" rx="10" fill="#ecfdf5"/><text x="500" y="200" font-size="10" fill="#059669" text-anchor="middle">支払済 288</text>
+      <rect x="546" y="186" width="72" height="20" rx="10" fill="#fef2f2"/><text x="582" y="200" font-size="10" fill="#dc2626" text-anchor="middle">現未納 31</text>
+      <line x1="460" y1="216" x2="692" y2="216" stroke="#e2e8f0"/>
+      <text x="460" y="236" font-size="10" fill="#475569">月次内訳（行クリックで会員一覧）</text>
+      <rect x="460" y="244" width="232" height="22" rx="5" fill="#f8fafc" stroke="#eef2f7"/><text x="468" y="259" font-size="10" fill="#334155">2026-02  未納40件 → 回収25 / 現未納4</text>
+      <rect x="460" y="270" width="232" height="22" rx="5" fill="#f8fafc" stroke="#eef2f7"/><text x="468" y="285" font-size="10" fill="#334155">2026-01  未納38件 → 回収20 / 現未納5</text>
     </svg>
     <div class="cap">①初回振替のKPI、推移グラフ（ブランド/店舗比較）、②未納のその後、月次内訳（クリックでドリルダウン）。</div>
+  </div>
+  <div class="legend">
+    <span><i class="dot" style="background:#2563eb"></i>請求</span>
+    <span><i class="dot" style="background:#059669"></i>回収（振替成功）</span>
+    <span><i class="dot" style="background:#dc2626"></i>未納</span>
   </div>
   <h3>対象と年度の選択</h3>
   <ul class="plain">
@@ -344,8 +468,8 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   <p>店舗・エリア・ブランド単位で未納者CSVを出力できます。列順：<b>会員番号／名前／未納金額／電話番号／メールアドレス</b>／会員区分／ステータス／セキュリティ費。</p>
 </section>
 
-<section id="refund">
-  <h2><span class="num">5</span>返金・入金管理</h2>
+<section id="refund" class="acc-sky">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></span>返金・入金管理</h2>
   <p class="lead">返金申請から承認・経理処理までを役割ごとに進めます。</p>
   <div class="flow">
     <div class="node start">申請（店舗）<small>会員検索・口座入力</small></div><span class="arrow">→</span>
@@ -362,8 +486,8 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   <div class="note warn"><b>注意：</b>担当店舗以外の申請は表示されず、ID直接指定でもアクセスは拒否されます。</div>
 </section>
 
-<section id="terms">
-  <h2><span class="num">6</span>規約管理</h2>
+<section id="terms" class="acc-violet">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>規約管理</h2>
   <p class="lead">ブランド×カテゴリ×規約を、バージョン管理しながら編集・PDF出力します。</p>
   <div class="flow">
     <div class="node start">規約管理 一覧</div><span class="arrow">→</span>
@@ -378,8 +502,8 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   </ul>
 </section>
 
-<section id="users">
-  <h2><span class="num">7</span>ユーザー・クラブコード管理</h2>
+<section id="users" class="acc-cyan">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg></span>ユーザー・クラブコード管理</h2>
   <p class="lead">利用者に担当クラブコード・エリアを付与します（管理者のみ）。</p>
   <div class="flow">
     <div class="node start">管理 › ユーザー管理</div><span class="arrow">→</span>
@@ -394,8 +518,8 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   <div class="note tip"><b>ポイント：</b>付与した担当範囲が、全機能の表示・操作範囲にそのまま反映されます。</div>
 </section>
 
-<section id="tour">
-  <h2><span class="num">8</span>使い方ツアー（アプリ内ガイド）</h2>
+<section id="tour" class="acc-teal">
+  <h2><span class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>使い方ツアー（アプリ内ガイド）</h2>
   <p class="lead">各画面の右下にある「使い方」ボタンから、操作ガイドをいつでも表示できます。</p>
   <ul class="plain">
     <li>初回アクセス時は自動でガイドが起動します（一度見ると次回以降は自動起動しません）。</li>
@@ -404,8 +528,35 @@ th{background:var(--indigo-l);color:var(--indigo);font-weight:700}
   </ul>
 </section>
 
-<p style="color:var(--muted);font-size:12px;padding:24px 0">© システム管理部 ／ 店舗設定 運用マニュアル v2.1（2026-07-13, 画像付き）</p>
+<footer class="foot">
+  <span class="logo"></span>
+  © システム管理部 ／ 店舗設定 運用マニュアル v3.0（2026-07-14）
+</footer>
 </main>
 </div>
+
+<script>
+// スクロール進捗バー
+var bar=document.getElementById('progress');
+function onScroll(){
+  var h=document.documentElement,b=document.body;
+  var st=h.scrollTop||b.scrollTop, sh=(h.scrollHeight||b.scrollHeight)-h.clientHeight;
+  bar.style.width=(sh>0?(st/sh*100):0)+'%';
+}
+document.addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+// 現在地ハイライト（サイドバー）
+var links=[].slice.call(document.querySelectorAll('#toc a'));
+var map={};links.forEach(function(a){var id=a.getAttribute('href').slice(1);(map[id]=map[id]||[]).push(a);});
+var obs=new IntersectionObserver(function(ents){
+  ents.forEach(function(e){
+    if(e.isIntersecting){
+      links.forEach(function(a){a.classList.remove('active')});
+      (map[e.target.id]||[]).forEach(function(a){a.classList.add('active')});
+    }
+  });
+},{rootMargin:'-45% 0px -50% 0px',threshold:0});
+document.querySelectorAll('section[id]').forEach(function(s){obs.observe(s)});
+</script>
 </body>
 </html>
