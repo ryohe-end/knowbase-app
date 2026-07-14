@@ -322,7 +322,40 @@ body {
 }
 .kb-chat-suggest:hover { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; transform: translateY(-1px); }
 
-.kb-sources-wrap { margin-top: 4px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+.kb-sources-wrap { margin-top: 2px; }
+.kb-sources-btn {
+  display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700;
+  color: #334155; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px;
+  padding: 7px 14px; cursor: pointer; transition: .15s;
+}
+.kb-sources-btn:hover { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }
+.kb-sources-btn .kb-sources-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+.kb-sources-btn .kb-sources-count { background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 1px 8px; font-size: 11px; }
+
+/* リセットボタン */
+.kb-chat-reset {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 700;
+  color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px;
+  padding: 6px 12px; cursor: pointer; transition: .15s; flex-shrink: 0;
+}
+.kb-chat-reset:hover { background: #fee2e2; border-color: #fecaca; color: #dc2626; }
+
+/* 出典モーダル */
+.kb-srcmodal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 3000; padding: 20px; }
+.kb-srcmodal { background: #fff; border-radius: 18px; width: 100%; max-width: 560px; max-height: 82vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 30px 70px -18px rgba(0,0,0,.5); animation: kbMsgIn .18s ease; }
+.kb-srcmodal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid #eef2f7; }
+.kb-srcmodal-title { font-size: 15px; font-weight: 800; color: #0f172a; }
+.kb-srcmodal-title span { color: #94a3b8; font-weight: 600; font-size: 12px; margin-left: 6px; }
+.kb-srcmodal-x { border: none; background: #f1f5f9; width: 32px; height: 32px; border-radius: 50%; font-size: 20px; color: #64748b; cursor: pointer; }
+.kb-srcmodal-x:hover { background: #e2e8f0; }
+.kb-srcmodal-body { padding: 14px 18px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.kb-srcitem { border: 1px solid #e8ecf2; border-radius: 12px; padding: 12px 14px; background: #fbfcfe; }
+.kb-srcitem-top { display: flex; align-items: center; gap: 9px; }
+.kb-srcitem-badge { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg,#6366f1,#4338ca); color: #fff; font-size: 12px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.kb-srcitem-title { font-size: 13.5px; font-weight: 800; color: #1e293b; }
+.kb-srcitem-excerpt { font-size: 12px; color: #64748b; line-height: 1.6; margin: 8px 0 0; max-height: 66px; overflow: hidden; }
+.kb-srcitem-open { display: inline-block; margin-top: 10px; font-size: 12px; font-weight: 700; color: #2563eb; text-decoration: none; }
+.kb-srcitem-open:hover { text-decoration: underline; }
 
 /* 入力 */
 .kb-chat-input-row { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: center; }

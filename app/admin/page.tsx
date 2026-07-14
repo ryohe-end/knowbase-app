@@ -112,6 +112,13 @@ export default function AdminHome() {
       color: "#f59e0b",
     },
     {
+      href: "/admin/chat-logs",
+      label: "7-B. CHAT LOGS",
+      title: "AIチャット会話ログ",
+      desc: "誰が・いつ・何を質問し、どう回答したかを確認します",
+      color: "#0ea5e9",
+    },
+    {
       href: "/admin/mail-test",
       label: "8. MAIL TEST",
       title: "メール送信テスト",

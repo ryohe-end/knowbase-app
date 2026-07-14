@@ -20,7 +20,7 @@ import {
   InvokeModelWithResponseStreamCommand,
 } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, BatchGetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -31,6 +31,28 @@ const KB_ID = process.env.KNOWLEDGE_BASE_ID || "3N515PTP3C";
 const MODEL_ID = process.env.KB_MODEL_ID || "us.anthropic.claude-sonnet-4-6";
 const NUM_RESULTS = Number(process.env.KB_NUM_RESULTS || 12);
 const MANUALS_TABLE = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
+const CHAT_LOG_TABLE = process.env.KB_CHAT_LOG_TABLE || "knowbie-chat-logs";
+
+// 「誰が・何を聞き・どう答えたか」を記録 (ベストエフォート)。会話は残さずリセット可だが、
+// 監査用にこのログだけは保存し、管理画面で確認できるようにする。
+async function logChat(entry: { userId: string; query: string; answer: string; sourceIds: string[] }): Promise<void> {
+  try {
+    const nowIso = new Date().toISOString();
+    await ddb.send(new PutCommand({
+      TableName: CHAT_LOG_TABLE,
+      Item: {
+        userId: entry.userId,
+        ts: nowIso,
+        day: nowIso.slice(0, 10),
+        query: entry.query.slice(0, 2000),
+        answer: entry.answer.slice(0, 8000),
+        sourceIds: entry.sourceIds.length > 0 ? entry.sourceIds : undefined,
+      },
+    }));
+  } catch (e) {
+    console.error("[kb-chat] log failed:", (e as Error)?.message);
+  }
+}
 
 const agent = new BedrockAgentRuntimeClient({ region: REGION });
 const bedrock = new BedrockRuntimeClient({ region: REGION });
@@ -50,9 +72,9 @@ function manualIdFromUri(uri: string): string {
   return m ? m[1] : uri.split("/").pop() || uri;
 }
 
-// 出典ID → マニュアルタイトルを best-effort で引く
-async function titlesFor(ids: string[]): Promise<Record<string, string>> {
-  const map: Record<string, string> = {};
+// 出典ID → { title, url(マニュアルの元URL) } を best-effort で引く
+async function manualMetaFor(ids: string[]): Promise<Record<string, { title: string; url: string }>> {
+  const map: Record<string, { title: string; url: string }> = {};
   if (ids.length === 0) return map;
   try {
     const res = await ddb.send(
@@ -60,16 +82,21 @@ async function titlesFor(ids: string[]): Promise<Record<string, string>> {
         RequestItems: {
           [MANUALS_TABLE]: {
             Keys: ids.slice(0, 100).map((id) => ({ manualId: id })),
-            ProjectionExpression: "manualId, title",
+            ProjectionExpression: "manualId, title, embedUrl",
           },
         },
       })
     );
     for (const it of res.Responses?.[MANUALS_TABLE] ?? []) {
-      if (it.manualId) map[String(it.manualId)] = String(it.title ?? it.manualId);
+      if (it.manualId) {
+        map[String(it.manualId)] = {
+          title: String(it.title ?? it.manualId),
+          url: String(it.embedUrl ?? ""),
+        };
+      }
     }
   } catch (e) {
-    console.warn("[kb-chat] title lookup failed:", (e as Error)?.message);
+    console.warn("[kb-chat] manual meta lookup failed:", (e as Error)?.message);
   }
   return map;
 }
@@ -145,18 +172,21 @@ export async function POST(req: Request) {
 
         // 該当なし
         if (chunks.length === 0) {
-          controller.enqueue(sse(null, "マニュアルには該当する記載が見つかりませんでした。別のキーワードでお試しください。"));
+          const noHit = "マニュアルには該当する記載が見つかりませんでした。別のキーワードでお試しください。";
+          controller.enqueue(sse(null, noHit));
+          void logChat({ userId, query: prompt, answer: noHit, sourceIds: [] });
           controller.enqueue(sse("done", "[DONE]"));
           controller.close();
           return;
         }
 
-        // 2) 出典を先に送る (タイトルは best-effort)
+        // 2) 出典を先に送る (タイトル・元URLは best-effort)
         const ids = [...seen];
-        const titles = await titlesFor(ids);
+        const meta = await manualMetaFor(ids);
         const sources = ids.map((id) => ({
-          title: titles[id] || id,
-          url: `/?manual=${encodeURIComponent(id)}`,
+          title: meta[id]?.title || id,
+          url: meta[id]?.url || "",
+          manualId: id,
           excerpt: bestExcerpt[id] || "",
         }));
         controller.enqueue(sse("sources", JSON.stringify(sources)));
@@ -177,16 +207,20 @@ export async function POST(req: Request) {
             body: JSON.stringify(payload),
           })
         );
+        let answer = "";
         for await (const ev of resp.body ?? []) {
           const bytes = (ev as any).chunk?.bytes;
           if (!bytes) continue;
           try {
             const j = JSON.parse(new TextDecoder().decode(bytes));
             if (j.type === "content_block_delta" && j.delta?.type === "text_delta" && j.delta.text) {
+              answer += j.delta.text;
               controller.enqueue(sse(null, j.delta.text));
             }
           } catch {}
         }
+        // 監査ログ (誰が・何を・どう答えたか)
+        void logChat({ userId, query: prompt, answer, sourceIds: ids });
         controller.enqueue(sse("done", "[DONE]"));
       } catch (e: any) {
         console.error("[kb-chat] error:", e?.name, e?.message);

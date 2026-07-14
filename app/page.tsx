@@ -654,8 +654,10 @@ export default function HomePage() {
 
   const [conversationId, setConversationId] = useState<string | undefined>(undefined);
   const abortRef = useRef<AbortController | null>(null);
-  const aiBufRef = useRef("");
-  const flushTimerRef = useRef<number | null>(null);
+  const aiBufRef = useRef("");            // 受信済みの全文(ターゲット)
+  const shownLenRef = useRef(0);          // 表示済み文字数
+  const streamDoneRef = useRef(false);    // ストリーム受信完了フラグ
+  const flushTimerRef = useRef<number | null>(null); // タイプライタのタイマー
 
   function mergeSources(prev: SourceAttribution[], incoming: SourceAttribution[]) {
     const next = [...prev, ...incoming];
@@ -673,45 +675,43 @@ export default function HomePage() {
     chatEndRef.current?.scrollIntoView({ behavior, block: "end" });
   }, [messages, sources, showSources, loadingAI]);
 
-  const flushAssistant = (assistantId: number) => {
-    flushTimerRef.current = null;
-    const chunk = aiBufRef.current;
-    aiBufRef.current = "";
-    if (!chunk) return;
-
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === assistantId
-          ? { ...m, content: (m.content ?? "") + chunk, loading: true }
-          : m
-      )
-    );
+  // タイプライタ: 受信済み全文(aiBufRef)を一定速度で1文字ずつ表示する
+  const typeTick = (assistantId: number) => {
+    const target = aiBufRef.current;
+    const shown = shownLenRef.current;
+    if (shown < target.length) {
+      // 遅れているほど少し速く追いつく (自然なタイピング感)
+      const behind = target.length - shown;
+      const step = behind > 240 ? Math.ceil(behind / 40) : behind > 60 ? 3 : 1;
+      const next = Math.min(target.length, shown + step);
+      shownLenRef.current = next;
+      const text = target.slice(0, next);
+      setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: text, loading: true } : m)));
+      flushTimerRef.current = window.setTimeout(() => typeTick(assistantId), 18);
+    } else if (!streamDoneRef.current) {
+      // 追いついた。次の受信を待つ
+      flushTimerRef.current = window.setTimeout(() => typeTick(assistantId), 30);
+    } else {
+      // 完了
+      flushTimerRef.current = null;
+      setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: aiBufRef.current, loading: false } : m)));
+    }
   };
 
   const appendToAssistant = (assistantId: number, chunk: string) => {
     if (!chunk) return;
     aiBufRef.current += chunk;
-    if (flushTimerRef.current != null) return;
-    flushTimerRef.current = window.setTimeout(() => flushAssistant(assistantId), 50);
+    if (flushTimerRef.current == null) {
+      flushTimerRef.current = window.setTimeout(() => typeTick(assistantId), 18);
+    }
   };
 
   const setAssistantDone = (assistantId: number) => {
-    if (flushTimerRef.current != null) {
-      window.clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
+    streamDoneRef.current = true;
+    // タイプライタが動いていなければ即確定
+    if (flushTimerRef.current == null) {
+      setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: aiBufRef.current, loading: false } : m)));
     }
-    if (aiBufRef.current) {
-      const rest = aiBufRef.current;
-      aiBufRef.current = "";
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: (m.content ?? "") + rest, loading: true }
-            : m
-        )
-      );
-    }
-    setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, loading: false } : m)));
   };
 
   function handleCancelAsk() {
@@ -731,6 +731,19 @@ export default function HomePage() {
       };
       return next;
     });
+    setLoadingAI(false);
+  }
+
+  // 会話をリセット (履歴は残さない方針。サーバ側の監査ログのみ保持)
+  function handleResetChat() {
+    try { abortRef.current?.abort(); } catch {}
+    abortRef.current = null;
+    if (flushTimerRef.current != null) { window.clearTimeout(flushTimerRef.current); flushTimerRef.current = null; }
+    aiBufRef.current = ""; shownLenRef.current = 0; streamDoneRef.current = false;
+    setMessages([]);
+    setSources([]);
+    setShowSources(false);
+    setConversationId(undefined);
     setLoadingAI(false);
   }
 
@@ -761,6 +774,8 @@ export default function HomePage() {
     setLoadingAI(true);
 
     aiBufRef.current = "";
+    shownLenRef.current = 0;
+    streamDoneRef.current = false;
     stageActiveRef.current = false;
     if (flushTimerRef.current != null) {
       window.clearTimeout(flushTimerRef.current);
@@ -1576,7 +1591,7 @@ export default function HomePage() {
 
         <main className="kb-center">
           <div className="kb-card" data-tour="knowbie">
-            <div className="kb-card-header">
+            <div className="kb-card-header" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div className="kb-avatar">
                   <img src="/logos/Knowble_icon.png" alt="Knowbie アイコン" style={{ width: 32, height: 32, objectFit: "contain" }} />
@@ -1586,6 +1601,12 @@ export default function HomePage() {
                   <div className="kb-card-subtitle">社内マニュアル／手順の質問に回答します</div>
                 </div>
               </div>
+              {messages.length > 0 && (
+                <button type="button" className="kb-chat-reset" onClick={handleResetChat} title="会話をリセット">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                  リセット
+                </button>
+              )}
             </div>
 
             <div className="kb-chat-box">
@@ -1633,15 +1654,11 @@ export default function HomePage() {
 
                 {sources.length > 0 && (
                   <div className="kb-sources-wrap">
-                    <button type="button" onClick={() => setShowSources((v) => !v)} className="kb-sources-toggle" aria-expanded={showSources}>
-                      <span className="kb-sources-toggle-left">
-                        <span className="kb-sources-dot" />
-                        <span className="kb-sources-label">参照元</span>
-                        <span className="kb-sources-count">{sources.length}件</span>
-                      </span>
-                      <span className={"kb-sources-caret" + (showSources ? " open" : "")}>▾</span>
+                    <button type="button" onClick={() => setShowSources(true)} className="kb-sources-btn">
+                      <span className="kb-sources-dot" />
+                      参照したマニュアル
+                      <span className="kb-sources-count">{sources.length}</span>
                     </button>
-                    {showSources && <div style={{ marginTop: 8 }}><SourcesPanel sources={sources} /></div>}
                   </div>
                 )}
                 <div ref={chatEndRef} />
@@ -1671,6 +1688,36 @@ export default function HomePage() {
                 </button>
               </div>
             </div>
+
+            {showSources && sources.length > 0 && (
+              <div className="kb-srcmodal-bg" onClick={() => setShowSources(false)}>
+                <div className="kb-srcmodal" onClick={(e) => e.stopPropagation()}>
+                  <div className="kb-srcmodal-head">
+                    <div className="kb-srcmodal-title">参照したマニュアル <span>{sources.length}件</span></div>
+                    <button className="kb-srcmodal-x" onClick={() => setShowSources(false)} aria-label="閉じる">×</button>
+                  </div>
+                  <div className="kb-srcmodal-body">
+                    {sources.map((s, i) => {
+                      const href = String(s.url || "").trim();
+                      return (
+                        <div key={`${s.title}-${i}`} className="kb-srcitem">
+                          <div className="kb-srcitem-top">
+                            <span className="kb-srcitem-badge">{i + 1}</span>
+                            <span className="kb-srcitem-title">{String(s.title || (s as any).manualId || "マニュアル")}</span>
+                          </div>
+                          {s.excerpt ? <div className="kb-srcitem-excerpt">{String(s.excerpt)}</div> : null}
+                          {href && (
+                            <a className="kb-srcitem-open" href={href.startsWith("http") ? href : `https://${href}`} target="_blank" rel="noopener noreferrer">
+                              マニュアルを開く ↗
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="kb-card kb-manual-card">
