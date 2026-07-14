@@ -31,7 +31,7 @@ import crypto from "node:crypto";
 import { google } from "googleapis";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { TextractClient, DetectDocumentTextCommand } from "@aws-sdk/client-textract";
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import {
   TranscribeClient,
   StartTranscriptionJobCommand,
@@ -374,11 +374,19 @@ export async function processPdf(auth: any, fileId: string, fileMeta: any): Prom
   let extracted = "";
   let extractionMethod = "pdf-parse";
   try {
-    const mod = (await import("pdf-parse" as any));
-    const pdfParse = (mod.default ?? mod) as (b: Buffer) => Promise<{ text: string; numpages: number }>;
-    const result = await pdfParse(buf);
-    extracted = String(result.text || "").trim();
-    console.log(`   ${result.numpages} ページ / pdf-parse 抽出 ${extracted.length} 文字`);
+    // pdf-parse v2 はクラスAPI (new PDFParse({data}).getText())。v1 の関数呼び出しは通らない。
+    const mod = (await import("pdf-parse" as any)) as any;
+    const PDFParse = mod.PDFParse ?? mod.default?.PDFParse;
+    if (typeof PDFParse !== "function") throw new Error("PDFParse class not found in pdf-parse");
+    const parser = new PDFParse({ data: buf });
+    try {
+      const result = await parser.getText();
+      extracted = String(result?.text || "").trim();
+      const pages = result?.total ?? result?.numpages ?? "?";
+      console.log(`   ${pages} ページ / pdf-parse 抽出 ${extracted.length} 文字`);
+    } finally {
+      try { await parser.destroy?.(); } catch {}
+    }
   } catch (e: any) {
     console.warn(`   pdf-parse エラー: ${e?.message ?? String(e)}`);
   }
@@ -586,11 +594,13 @@ export async function processVideo(auth: any, fileId: string, fileMeta: any): Pr
     const s = status.TranscriptionJob?.TranscriptionJobStatus;
     if (pollCount % 6 === 0) console.log(`   ジョブ状態: ${s} (${(pollCount * 5)}s 経過)`);
     if (s === "COMPLETED") {
-      const transcriptUri = status.TranscriptionJob?.Transcript?.TranscriptFileUri;
-      if (!transcriptUri) throw new Error("Transcript URI 未取得");
       console.log(`   ✅ 文字起こし完了`);
-      const r = await fetch(transcriptUri);
-      const j: any = await r.json();
+      // OutputBucketName を自バケットに指定しているため、字幕JSONは S3 から認証付きで取得する
+      // (TranscriptFileUri を plain fetch すると非公開バケットで AccessDenied XML になる)
+      const transcriptKey = `preprocess/transcripts/${jobName}.json`;
+      const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: transcriptKey }));
+      const bodyStr = await obj.Body!.transformToString();
+      const j: any = JSON.parse(bodyStr);
       transcriptText = j?.results?.transcripts?.[0]?.transcript ?? "";
       const items: any[] = j?.results?.items ?? [];
       // 連続発話で簡易セグメント化

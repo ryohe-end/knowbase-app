@@ -22,7 +22,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 
 import { preprocessOne, extractDriveFileId, extractYouTubeId } from "./preprocess-manual";
 
@@ -56,6 +57,39 @@ const MANUALS_TABLE = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
 
 const ddbClient = new DynamoDBClient({ region: REGION });
 const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
+
+// --persist 用: 本番RAGへ反映 (route と同じ S3 バケット/キー・DDB項目)
+const OUTPUT_BUCKET = process.env.PREPROCESS_OUTPUT_BUCKET || "knowbie-preprocessed-manuals";
+const s3 = new S3Client({ region: REGION });
+
+async function persistSuccess(manualId: string, embedUrl: string, markdown: string, sourceType: string, sourceId?: string) {
+  const s3Key = `manuals/${manualId}.md`;
+  await s3.send(new PutObjectCommand({
+    Bucket: OUTPUT_BUCKET,
+    Key: s3Key,
+    Body: Buffer.from(markdown, "utf-8"),
+    ContentType: "text/markdown; charset=utf-8",
+    Metadata: { manualId, sourceType, sourceId: sourceId ?? "" },
+  }));
+  await ddbDoc.send(new UpdateCommand({
+    TableName: MANUALS_TABLE,
+    Key: { manualId },
+    UpdateExpression: "SET preprocessedAt = :a, preprocessedEmbedUrl = :u, preprocessedKey = :k, preprocessedStatus = :s, preprocessedError = :e",
+    ExpressionAttributeValues: {
+      ":a": new Date().toISOString(), ":u": embedUrl, ":k": s3Key, ":s": "ok", ":e": null,
+    },
+  }));
+  return s3Key;
+}
+
+async function persistFailure(manualId: string, msg: string) {
+  await ddbDoc.send(new UpdateCommand({
+    TableName: MANUALS_TABLE,
+    Key: { manualId },
+    UpdateExpression: "SET preprocessedStatus = :s, preprocessedError = :e",
+    ExpressionAttributeValues: { ":s": "failed", ":e": String(msg).slice(0, 1000) },
+  }));
+}
 
 async function scanAllManuals(): Promise<any[]> {
   const items: any[] = [];
@@ -118,6 +152,7 @@ type Args = {
   filter?: string;
   skipVideo: boolean;
   skipYoutube: boolean;
+  persist: boolean;
 };
 
 function parseArgs(): Args {
@@ -128,15 +163,17 @@ function parseArgs(): Args {
   let force = false;
   let skipVideo = false;
   let skipYoutube = false;
+  let persist = false;
   for (const a of argv) {
     if (a === "--dry-run") dryRun = true;
     else if (a === "--force") force = true;
     else if (a === "--skip-video") skipVideo = true;
     else if (a === "--skip-youtube") skipYoutube = true;
+    else if (a === "--persist") persist = true;
     else if (a.startsWith("--limit=")) limit = Number(a.slice("--limit=".length)) || undefined;
     else if (a.startsWith("--filter=")) filter = a.slice("--filter=".length);
   }
-  return { limit, dryRun, force, filter, skipVideo, skipYoutube };
+  return { limit, dryRun, force, filter, skipVideo, skipYoutube, persist };
 }
 
 // =====================================================================
@@ -282,8 +319,13 @@ async function main() {
       }
 
       fs.writeFileSync(outputPath, result.markdown, "utf8");
+      // --persist: 本番S3 + DDB へ反映 (RAGの索引対象になる)
+      let persistedKey: string | undefined;
+      if (args.persist && embedUrl) {
+        persistedKey = await persistSuccess(manualId, embedUrl, result.markdown, result.sourceType, detected.sourceId);
+      }
       const elapsedMs = Date.now() - startedAt;
-      log(`  ↳ ✅ 出力 ${outputPath} (${result.markdown.length} chars, ${elapsedMs}ms)`);
+      log(`  ↳ ✅ 出力 ${outputPath} (${result.markdown.length} chars, ${elapsedMs}ms)${persistedKey ? ` → s3://${OUTPUT_BUCKET}/${persistedKey}` : ""}`);
       results.push({
         ...baseEntry,
         status: "ok",
@@ -297,6 +339,7 @@ async function main() {
       const elapsedMs = Date.now() - startedAt;
       const msg = e?.message ?? String(e);
       log(`  ↳ ❌ 失敗: ${msg}`);
+      if (args.persist) { try { await persistFailure(manualId, msg); } catch {} }
       results.push({
         ...baseEntry,
         status: "failed",
