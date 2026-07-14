@@ -16,11 +16,40 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { isAdminRequest } from "@/lib/auth";
+import fs from "node:fs";
+import path from "node:path";
 
 // Lambda タイムアウトを 15 分に延長 (Vision LLM 込みで 5 分程度かかる想定)
 export const maxDuration = 900;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Amplify SSR ランタイムでは Amplify 環境変数が process.env に載らないため、
+// buildSpec が生成する runtime-env.txt を読み、前処理に必要な値を process.env へ注入する。
+// (preprocessOne は process.env.GOOGLE_SERVICE_ACCOUNT_JSON 等を直接参照するため)
+let _runtimeEnvLoaded = false;
+function loadRuntimeEnvIntoProcess() {
+  if (_runtimeEnvLoaded) return;
+  _runtimeEnvLoaded = true;
+  const keys = ["GOOGLE_SERVICE_ACCOUNT_JSON", "PREPROCESS_TRANSCRIBE_BUCKET", "BEDROCK_MODEL_ID", "YOUTUBE_API_KEY"];
+  try {
+    const p = path.join(process.cwd(), ".next", "server", "runtime-env.txt");
+    const text = fs.readFileSync(p, "utf8");
+    for (const line of text.split("\n")) {
+      const s = line.trim();
+      if (!s || s.startsWith("#")) continue;
+      const i = s.indexOf("=");
+      if (i <= 0) continue;
+      const k = s.slice(0, i).trim();
+      if (!keys.includes(k)) continue;
+      let v = s.slice(i + 1);
+      v = v.replace(/^'(.*)'$/, "$1").replace(/^"(.*)"$/, "$1");
+      if (v && !process.env[k]) process.env[k] = v;
+    }
+  } catch (e) {
+    console.warn("[preprocess] runtime-env load failed:", (e as Error)?.message);
+  }
+}
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const MANUALS_TABLE = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
@@ -65,6 +94,8 @@ async function updateManualMeta(
 }
 
 async function runPreprocess(manualId: string) {
+  // 0) 認証情報など runtime-env を process.env へ注入 (preprocessOne が参照)
+  loadRuntimeEnvIntoProcess();
   // 1) マニュアル取得
   const getRes = await ddbDoc.send(
     new GetCommand({ TableName: MANUALS_TABLE, Key: { manualId } })
