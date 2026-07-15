@@ -124,6 +124,17 @@ export async function usePoint(brand: CpssBrand, env: CpssEnv, args: {
   }, { test: args.test });
 }
 
+// 会員からの調整減算 (ポイント削除)。誤付与の調整等に使用。返り値に hid。
+export async function removePoint(brand: CpssBrand, env: CpssEnv, args: {
+  aid: string; shopid: string; point: number; reqid: string; ptypes?: string; hid?: string;
+  scode?: string; svalue?: string; empid?: string; reason?: string; test?: boolean;
+}): Promise<{ aid: string; hid: string; ptype: string; point: number; balance: number }> {
+  return call(brand, env, "cspm", "remove_point", {
+    aid: args.aid, shopid: args.shopid, point: args.point, reqid: args.reqid,
+    ptypes: args.ptypes, hid: args.hid, scode: args.scode, svalue: args.svalue, empid: args.empid, reason: args.reason,
+  }, { test: args.test });
+}
+
 // ポイント移動のキャンセル (hid 指定)
 export async function cancelPoint(brand: CpssBrand, env: CpssEnv, args: {
   hid: string; shopid?: string; reason?: string; empid?: string; secid?: string; reqid?: string;
