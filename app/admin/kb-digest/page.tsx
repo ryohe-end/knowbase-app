@@ -27,6 +27,7 @@ export default function KbDigestPage() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const [genLoading, setGenLoading] = useState(false);
+  const [genStage, setGenStage] = useState("");
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [sending, setSending] = useState(false);
 
@@ -53,14 +54,44 @@ export default function KbDigestPage() {
 
   const generate = useCallback(async () => {
     if (!cfg) return;
-    setGenLoading(true); setMsg(null); setPreview(null);
+    setGenLoading(true); setMsg(null); setPreview(null); setGenStage("生成を開始…");
     try {
       const res = await fetch("/api/admin/kb-digest/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cfg }) });
-      const d = await res.json();
-      if (d.ok) setPreview({ subject: d.subject, html: d.html });
-      else setMsg({ ok: false, text: d.error || "生成失敗" });
+      if (!res.ok || !res.body) {
+        const t = await res.json().catch(() => ({}));
+        setMsg({ ok: false, text: (t as any)?.error || `生成失敗 (HTTP ${res.status})` });
+        return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", acc = "", genErr = "";
+      const handle = (block: string) => {
+        const ev = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() || null;
+        const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
+        if (ev === "status") { try { setGenStage(JSON.parse(data).stage || ""); } catch {} return false; }
+        if (ev === "error") { try { genErr = JSON.parse(data).error; } catch { genErr = data; } return true; }
+        if (ev === "done" || data === "[DONE]") return true;
+        if (!ev && data) acc += data;
+        return false;
+      };
+      let done = false;
+      while (!done) {
+        const { done: rd, value } = await reader.read();
+        if (rd) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split("\n\n"); buf = parts.pop() ?? "";
+        for (const p of parts) { if (handle(p)) { done = true; break; } }
+      }
+      if (genErr) { setMsg({ ok: false, text: genErr }); return; }
+      // SUBJECT: 抽出
+      let html = acc.trim().replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+      let subject = "KB通信";
+      const m = html.match(/^\s*SUBJECT:\s*(.+)\s*[\r\n]+/i);
+      if (m) { subject = m[1].trim(); html = html.slice(m[0].length); }
+      if (!html) { setMsg({ ok: false, text: "生成結果が空でした" }); return; }
+      setPreview({ subject, html });
     } catch { setMsg({ ok: false, text: "生成に失敗しました" }); }
-    finally { setGenLoading(false); }
+    finally { setGenLoading(false); setGenStage(""); }
   }, [cfg]);
 
   const sendNow = useCallback(async () => {
@@ -195,7 +226,7 @@ export default function KbDigestPage() {
 
       <div className="kd-actions">
         <button className="kd-btn" onClick={save} disabled={saving}>{saving ? "保存中…" : "設定を保存"}</button>
-        <button className="kd-btn" onClick={generate} disabled={genLoading}>{genLoading ? "生成中…" : "プレビュー生成"}</button>
+        <button className="kd-btn" onClick={generate} disabled={genLoading}>{genLoading ? (genStage || "生成中…") : "プレビュー生成"}</button>
         <button className="kd-btn primary" onClick={sendNow} disabled={sending}>{sending ? "配信中…" : "今すぐ配信"}</button>
       </div>
 

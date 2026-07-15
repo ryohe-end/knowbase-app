@@ -193,7 +193,10 @@ function brandBlock(): string {
   return `KnowBase(ノウビー) は社内マニュアル・ナレッジの検索/閲覧/AIチャットができる社内ポータルです。`;
 }
 
-export async function generateDigest(input: { cfg?: Partial<DigestConfig>; draft?: string; trends: Trends }): Promise<{ subject: string; html: string }> {
+export const DIGEST_MODEL_ID = MODEL_ID;
+
+// 生成用の system/user プロンプトを組み立てる (ストリーミング/非ストリーミング共通)
+export function buildDigestMessages(input: { cfg?: Partial<DigestConfig>; draft?: string; trends: Trends }): { system: string; user: string } {
   const { trends } = input;
   const cfg = input.cfg || {};
   const sections = (cfg.sections || DEFAULT_SECTIONS) as Record<SectionId, boolean>;
@@ -249,23 +252,33 @@ ${trendsText}
 
 上記の「載せるセクション」だけで、ユーモアの効いたKB通信のHTMLメールを構成してください。指定に無いセクションは作らない。1行目はSUBJECT:。`;
 
+  return { system, user: userText };
+}
+
+// Claude 出力(先頭 SUBJECT: 付き)を {subject, html} に分解する
+export function parseDigestOutput(raw: string): { subject: string; html: string } {
+  let text = (raw || "").trim().replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+  let subject = "KB通信";
+  const m = text.match(/^\s*SUBJECT:\s*(.+)\s*[\r\n]+/i);
+  if (m) { subject = m[1].trim(); text = text.slice(m[0].length); }
+  return { subject, html: text };
+}
+
+export async function generateDigest(input: { cfg?: Partial<DigestConfig>; draft?: string; trends: Trends }): Promise<{ subject: string; html: string }> {
+  const { system, user } = buildDigestMessages(input);
   const payload = {
     anthropic_version: "bedrock-2023-05-31",
     max_tokens: 4096,
     system,
-    messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
+    messages: [{ role: "user", content: [{ type: "text", text: user }] }],
   };
   const res = await bedrock.send(new InvokeModelCommand({
     modelId: MODEL_ID, contentType: "application/json", accept: "application/json", body: JSON.stringify(payload),
   }));
-  let text = JSON.parse(new TextDecoder().decode(res.body)).content?.map((b: any) => b.text).join("") || "";
-  text = text.trim().replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
-  // 1行目 SUBJECT: を取り出す
-  let subject = "KB通信";
-  const m = text.match(/^\s*SUBJECT:\s*(.+)\s*[\r\n]+/i);
-  if (m) { subject = m[1].trim(); text = text.slice(m[0].length); }
-  if (!text) throw new Error("empty_generation");
-  return { subject, html: text };
+  const raw = JSON.parse(new TextDecoder().decode(res.body)).content?.map((b: any) => b.text).join("") || "";
+  const out = parseDigestOutput(raw);
+  if (!out.html) throw new Error("empty_generation");
+  return out;
 }
 
 // ===== 全員へ配信 =====
