@@ -92,6 +92,27 @@ async function callMultipart(
 
 // ===== 各API =====
 
+// 会員登録 (CMMM。CPSS IDと会員番号を紐付ける。通常はタウン・システムが一括登録するが検証用に提供)
+export async function addMember(brand: CpssBrand, env: CpssEnv, args: {
+  aid: string; reqid: string; sts?: string; pw?: string;
+  familyNameKana?: string; firstNameKana?: string; familyNameKanji?: string; firstNameKanji?: string;
+  gender?: string; birthday?: string; rank?: string; test?: boolean;
+}): Promise<any> {
+  return call(brand, env, "cmmm", "add_member", {
+    aid: args.aid, reqid: args.reqid, sts: args.sts || "REG", pw: args.pw,
+    familyNameKana: args.familyNameKana, firstNameKana: args.firstNameKana,
+    familyNameKanji: args.familyNameKanji, firstNameKanji: args.firstNameKanji,
+    gender: args.gender, birthday: args.birthday, rank: args.rank,
+  }, { test: args.test });
+}
+
+// 会員ランク更新 (CMMM)
+export async function updateMember(brand: CpssBrand, env: CpssEnv, args: {
+  aid: string; reqid: string; rank?: string;
+}): Promise<any> {
+  return call(brand, env, "cmmm", "update_member", { aid: args.aid, reqid: args.reqid, rank: args.rank });
+}
+
 // アプリ向け会員情報取得: ランク/残高/累計/次ランクまで
 export async function getMemberForApp(brand: CpssBrand, env: CpssEnv, args: {
   aid: string; ptypes?: string; cumulus?: boolean; expires?: boolean; retattr?: string; shopid?: string;

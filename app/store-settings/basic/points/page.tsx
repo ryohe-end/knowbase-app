@@ -41,6 +41,17 @@ type MemberPointInfo = {
   expiringNextMonth: number;
   expiringIn3Months: number;
   transactions: PointTransaction[];
+
+  // 実データ(RDS/CPSS)連携
+  plan?: string | null;          // 会員区分
+  withdrawnAt?: string | null;   // 退会日
+  tenureLabel?: string | null;   // 継続期間
+  rank?: string | null;
+  rankName?: string | null;      // CPSS ランク名
+  age?: number | null;
+  brand?: "JOYFIT" | "FIT365";
+  cpssAvailable?: boolean;
+  cpssError?: string | null;
 };
 
 type StoreSummary = {
@@ -253,7 +264,7 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
           <input
             type="text"
             className="pt-search-input"
-            placeholder="例: M012345"
+            placeholder="例: 5110001234"
             value={memberCodeInput}
             onChange={(e) => setMemberCodeInput(e.target.value)}
             autoFocus
@@ -326,8 +337,10 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                   <div className="pt-member-meta">
                     <code className="pt-member-code">{member.memberCode}</code>
                     <span className={`pt-member-status status-${member.status}`}>
-                      {member.status === "active" ? "稼働中" : member.status === "dormant" ? "休会中" : "退会済"}
+                      {member.status === "active" ? "現行" : member.status === "dormant" ? "休会中" : "退会"}
                     </span>
+                    {member.plan && <span className="pt-member-plan">{member.plan}</span>}
+                    {member.rankName && <span className="pt-member-rank">★ {member.rankName}</span>}
                   </div>
                 </div>
               </div>
@@ -364,10 +377,28 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
             </div>
 
             <div className="pt-member-contact">
-              {member.email && (
+              {member.plan && (
                 <div className="pt-contact-item">
-                  <span className="pt-contact-label">メール:</span>
-                  <span>{member.email}</span>
+                  <span className="pt-contact-label">会員区分:</span>
+                  <span>{member.plan}</span>
+                </div>
+              )}
+              {member.joinedAt && (
+                <div className="pt-contact-item">
+                  <span className="pt-contact-label">入会日:</span>
+                  <span>{formatDate(member.joinedAt)}</span>
+                </div>
+              )}
+              {member.tenureLabel && (
+                <div className="pt-contact-item">
+                  <span className="pt-contact-label">継続期間:</span>
+                  <span>{member.tenureLabel}</span>
+                </div>
+              )}
+              {member.status === "withdrawn" && member.withdrawnAt && (
+                <div className="pt-contact-item">
+                  <span className="pt-contact-label">退会日:</span>
+                  <span>{formatDate(member.withdrawnAt)}</span>
                 </div>
               )}
               {member.phone && (
@@ -376,11 +407,13 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                   <span>{member.phone}</span>
                 </div>
               )}
-              <div className="pt-contact-item">
-                <span className="pt-contact-label">入会日:</span>
-                <span>{formatDate(member.joinedAt)}</span>
-              </div>
             </div>
+
+            {!isDemo && member.cpssAvailable === false && (
+              <div className="pt-cpss-warn">
+                ポイント残高(CPSS)を取得できませんでした{member.cpssError ? `: ${member.cpssError}` : ""}。会員情報のみ表示しています。
+              </div>
+            )}
           </section>
 
           {/* トランザクション履歴 */}
@@ -996,6 +1029,9 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .pt-member-status.status-active { background: #d1fae5; color: #047857; }
         .pt-member-status.status-dormant { background: #fef3c7; color: #b45309; }
         .pt-member-status.status-withdrawn { background: #fee2e2; color: #dc2626; }
+        .pt-member-plan { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: #eff6ff; color: #1d4ed8; }
+        .pt-member-rank { font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 99px; background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+        .pt-cpss-warn { margin-top: 14px; padding: 10px 14px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: 12px; font-weight: 600; }
         .pt-balance-big { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
         .pt-grant-btn { margin-top: 8px; padding: 8px 16px; border-radius: 8px; border: none; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.15s; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3); }
         .pt-grant-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }

@@ -23,6 +23,10 @@ export type PointTransaction = {
   operatorId: string;
   operatorName: string;
 
+  // CPSS 連携: give_point/cancel_point の履歴ID(取消に使用) と処理後残高
+  hid?: string;
+  cpssBalanceAfter?: number;
+
   // 取り消しの場合は元 transactionId を参照
   cancelledOf?: string;
   // 逆に取り消された場合は ID を記録 (UI で「取消済」を出す)

@@ -3,12 +3,18 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { PointTransaction as PersistedTx } from "@/types/pointTransaction";
+import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { cpssCall } from "@/lib/cpssProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const PT_TABLE = process.env.DYNAMO_POINT_TRANSACTIONS_TABLE || "yamauchi-PointTransactions";
+const MS_API_BASE = process.env.MEMBER_SEARCH_API_BASE || "";
+const MS_API_KEY = process.env.MEMBER_SEARCH_API_KEY || "";
+const CPSS_ENV = (process.env.CPSS_ENV as "stg" | "prod") || "stg";
 const ddb = DynamoDBDocumentClient.from(
   new DynamoDBClient({ region: REGION }),
   { marshallOptions: { removeUndefinedValues: true } }
@@ -68,7 +74,112 @@ export type MemberPointInfo = {
   expiringNextMonth: number;
   expiringIn3Months: number;
   transactions: PointTransaction[];
+
+  // --- 実データ(RDS/CPSS)連携で追加される会員情報 ---
+  plan?: string | null;          // 会員区分 (member-search)
+  planCode?: number | string | null;
+  isCorporate?: boolean;
+  withdrawnAt?: string | null;   // 退会日
+  tenureLabel?: string | null;   // 継続期間 "N年Mヶ月"
+  tenureMonths?: number | null;
+  rank?: string | null;          // CPSS ランクコード
+  rankName?: string | null;      // CPSS ランク名
+  age?: number | null;
+  gender?: string | null;
+  brand?: "JOYFIT" | "FIT365";
+  cpssAvailable?: boolean;       // CPSS 参照可否
+  cpssError?: string | null;
 };
+
+// 入会日→(退会日 or 現在)の継続期間を「N年Mヶ月」で
+function tenure(joinDate: string | null, endDate: string | null): { months: number; label: string } | null {
+  if (!joinDate) return null;
+  const j = new Date(joinDate + "T00:00:00+09:00");
+  const e = endDate ? new Date(endDate + "T00:00:00+09:00") : new Date();
+  if (isNaN(j.getTime()) || isNaN(e.getTime()) || e < j) return null;
+  let months = (e.getFullYear() - j.getFullYear()) * 12 + (e.getMonth() - j.getMonth());
+  if (e.getDate() < j.getDate()) months -= 1;
+  if (months < 0) months = 0;
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return { months, label: y > 0 ? `${y}年${m}ヶ月` : `${m}ヶ月` };
+}
+
+// RDS(member-search type=refundable) から会員情報を取得。決済履歴が無い会員は null。
+async function fetchRdsMember(memberNo: string, clubCode: string): Promise<any | null> {
+  if (!MS_API_BASE || !MS_API_KEY) return null;
+  try {
+    const url = new URL(`${MS_API_BASE}/members/search`);
+    url.searchParams.set("type", "refundable");
+    url.searchParams.set("memberNo", memberNo);
+    url.searchParams.set("clubCode", clubCode);
+    url.searchParams.set("fromMonth", "190001"); // 契約が拾えるよう全期間
+    const up = await fetch(url.toString(), { headers: { "x-api-key": MS_API_KEY }, cache: "no-store" });
+    if (!up.ok) { console.error("[points/member] member-search", up.status); return null; }
+    const j = (await up.json()) as { results?: { member?: any } };
+    return j.results?.member ?? null;
+  } catch (e) {
+    console.error("[points/member] member-search fetch failed", e);
+    return null;
+  }
+}
+
+// RDS会員情報 + CPSSポイント + DDB店舗操作履歴 をマージした実データを構築
+async function buildRealMember(
+  clubCode: string, memberCode: string
+): Promise<MemberPointInfo | null> {
+  const homeClub = memberCode.slice(0, 3);
+  const brand = cpssBrandForBusinessType(await getClubBusinessType(clubCode));
+
+  const [rds, cp, persisted] = await Promise.all([
+    fetchRdsMember(memberCode, homeClub),
+    cpssCall(brand, CPSS_ENV, "getMemberForApp", { aid: memberCode, cumulus: true, expires: true }),
+    fetchPersisted(clubCode, memberCode),
+  ]);
+  const cpss = cp.ok ? cp.result : null;
+  if (!rds && !cpss && persisted.length === 0) return null;
+
+  const endDate = rds?.status === "withdrawn" ? rds?.withdrawnAt ?? null : null;
+  const cont = tenure(rds?.joinDate ?? null, endDate);
+
+  // 店舗操作履歴 (DDB): 保存済みの CPSS 残高をそのまま表示。新しい順。
+  const txs: PointTransaction[] = persisted
+    .map((p) => persistedToView(p, typeof p.cpssBalanceAfter === "number" ? p.cpssBalanceAfter : 0))
+    .sort((a, b) => (a.occurredAt > b.occurredAt ? -1 : 1));
+
+  const cpssBalance = typeof cpss?.balance === "number" ? cpss.balance : 0;
+  const cpssName = cpss ? `${cpss.familynamekj ?? ""} ${cpss.firstnamekj ?? ""}`.trim() : "";
+  const memberName = rds?.name || cpssName || memberCode;
+
+  return {
+    memberCode,
+    memberName,
+    email: null,
+    phone: rds?.phone ?? null,
+    joinedAt: rds?.joinDate ? `${rds.joinDate}T00:00:00+09:00` : "",
+    status: rds?.status === "withdrawn" ? "withdrawn" : "active",
+    currentBalance: cpssBalance,
+    lifetimeEarned: txs.filter((t) => t.points > 0).reduce((s, t) => s + t.points, 0),
+    lifetimeUsed: -txs.filter((t) => t.type === "used").reduce((s, t) => s + t.points, 0),
+    lifetimeExpired: 0,
+    expiringNextMonth: 0,
+    expiringIn3Months: 0,
+    transactions: txs,
+    plan: rds?.plan ?? null,
+    planCode: rds?.planCode ?? null,
+    isCorporate: rds?.isCorporate ?? false,
+    withdrawnAt: rds?.withdrawnAt ?? null,
+    tenureLabel: cont?.label ?? null,
+    tenureMonths: cont?.months ?? null,
+    rank: cpss?.rank ?? null,
+    rankName: cpss?.rankname ?? null,
+    age: cpss?.age ?? null,
+    gender: cpss?.gender ?? null,
+    brand,
+    cpssAvailable: !!cpss,
+    cpssError: cp.ok ? null : cp.error,
+  };
+}
 
 function generateDemoMember(clubCode: string, memberCode: string): MemberPointInfo {
   let seed = (clubCode + memberCode).split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -229,7 +340,7 @@ function mergeAndRecompute(demo: MemberPointInfo | null, persisted: PersistedTx[
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const clubCode = searchParams.get("clubCode");
-  const memberCode = searchParams.get("memberCode");
+  const memberCode = (searchParams.get("memberCode") || "").trim();
   const demo = searchParams.get("demo");
 
   if (!clubCode) {
@@ -239,13 +350,27 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "memberCode is required" }, { status: 400 });
   }
 
-  const demoMember = demo === "1" ? generateDemoMember(clubCode, memberCode) : null;
-  const persisted = await fetchPersisted(clubCode, memberCode);
-
-  if (!demoMember && persisted.length === 0) {
-    return NextResponse.json({ member: null, isDemo: false });
+  // サンプル表示はデモ生成 (認証・実データ参照なし)
+  if (demo === "1") {
+    const demoMember = generateDemoMember(clubCode, memberCode);
+    const persisted = await fetchPersisted(clubCode, memberCode);
+    const member = mergeAndRecompute(demoMember, persisted);
+    return NextResponse.json({ member, isDemo: true });
   }
 
-  const member = mergeAndRecompute(demoMember, persisted);
-  return NextResponse.json({ member, isDemo: !!demoMember });
+  // 実データ: 認証 + スコープ。会員の所属クラブ(会員番号先頭3桁)で厳密に絞る。
+  const user = await getRefundUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!/^\d{4,}$/.test(memberCode)) {
+    return NextResponse.json({ error: "会員番号を正しく入力してください" }, { status: 400 });
+  }
+  const homeClub = memberCode.slice(0, 3);
+  // 選択店舗・会員所属クラブの両方が担当スコープ内であること
+  if (!isClubInScope(user, homeClub) || !isClubInScope(user, clubCode)) {
+    return NextResponse.json({ error: "この会員は担当クラブ外です" }, { status: 403 });
+  }
+
+  // ブランド/API・RDS は会員の所属クラブ(homeClub)から解決 (JOYFIT/FIT365 を会員単位で振り分け)
+  const member = await buildRealMember(homeClub, memberCode);
+  return NextResponse.json({ member, isDemo: false });
 }

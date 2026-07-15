@@ -1279,7 +1279,12 @@ function buildRefundableResult(rows) {
   const withdrawnAt = withdrawnRaw && withdrawnRaw.length === 8
     ? `${withdrawnRaw.slice(0, 4)}-${withdrawnRaw.slice(4, 6)}-${withdrawnRaw.slice(6, 8)}`
     : null;
-  const memberStatus = withdrawnAt ? "withdrawn" : "active";
+  // 退会日 '99999999'/NULL は在籍中(現行会員)とみなす
+  const memberStatus = (withdrawnAt && withdrawnRaw !== "99999999") ? "withdrawn" : "active";
+  const joinRaw = first.JOIN_DATE != null ? String(first.JOIN_DATE) : null;
+  const joinDate = joinRaw && joinRaw.length === 8
+    ? `${joinRaw.slice(0, 4)}-${joinRaw.slice(4, 6)}-${joinRaw.slice(6, 8)}`
+    : null;
 
   const member = {
     memberNo: first.MEMBER_NO != null ? String(first.MEMBER_NO) : null,
@@ -1292,6 +1297,7 @@ function buildRefundableResult(rows) {
     isCorporate: first.IS_CORPORATE === 1 || first.IS_CORPORATE === "1",
     joinClubCode: first.CLUB_CODE != null ? String(first.CLUB_CODE) : null,
     joinClubName: null,
+    joinDate,          // 入会届出日 (継続期間の起点)
     withdrawnAt,
     status: memberStatus,
   };

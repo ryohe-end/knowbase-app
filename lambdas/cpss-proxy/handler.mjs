@@ -13,6 +13,8 @@ export const handler = async (event) => {
     let result;
     switch (action) {
       case "isAlive": result = await cpss.isAlive(brand, env); break;
+      case "addMember": result = await cpss.addMember(brand, env, a); break;
+      case "updateMember": result = await cpss.updateMember(brand, env, a); break;
       case "getMemberForApp": result = await cpss.getMemberForApp(brand, env, a); break;
       case "givePoint": result = await cpss.givePoint(brand, env, a); break;
       case "usePoint": result = await cpss.usePoint(brand, env, a); break;

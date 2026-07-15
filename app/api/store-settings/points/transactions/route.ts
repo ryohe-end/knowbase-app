@@ -18,6 +18,8 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { cpssCall } from "@/lib/cpssProxy";
 import { POINT_REASONS, type PointReason, type PointTransaction } from "@/types/pointTransaction";
 
 export const runtime = "nodejs";
@@ -25,6 +27,7 @@ export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.DYNAMO_POINT_TRANSACTIONS_TABLE || "yamauchi-PointTransactions";
+const CPSS_ENV = (process.env.CPSS_ENV as "stg" | "prod") || "stg";
 
 const ddb = DynamoDBDocumentClient.from(
   new DynamoDBClient({ region: REGION }),
@@ -95,9 +98,17 @@ export async function POST(req: Request) {
   if (!body.clubCode || !body.memberCode) {
     return NextResponse.json({ ok: false, error: "clubCode and memberCode required" }, { status: 400 });
   }
-  if (!isClubInScope(user, body.clubCode)) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!/^\d{4,}$/.test(body.memberCode)) {
+    return NextResponse.json({ ok: false, error: "会員番号が不正です" }, { status: 400 });
   }
+  // 会員の所属クラブ(会員番号先頭3桁)を正とし、shopid/ブランド/スコープ/台帳キーを統一する。
+  // 選択店舗(body.clubCode)と所属クラブの両方が担当スコープ内であること。
+  const club = body.memberCode.slice(0, 3);
+  if (!isClubInScope(user, club) || !isClubInScope(user, body.clubCode)) {
+    return NextResponse.json({ ok: false, error: "この会員は担当クラブ外です" }, { status: 403 });
+  }
+  // 所属クラブのブランドで JOYFIT/FIT365 の API を振り分け
+  const brand = cpssBrandForBusinessType(await getClubBusinessType(club));
 
   const ts = nowIso();
   const action = body.action;
@@ -111,9 +122,27 @@ export async function POST(req: Request) {
       if (!body.reason || !POINT_REASONS.includes(body.reason)) {
         return NextResponse.json({ ok: false, error: "invalid reason" }, { status: 400 });
       }
+      const transactionId = newTransactionId();
+
+      // CPSS へ手動付与 (shopid=会員所属クラブ, reqid=transactionId で冪等)。CPSS が真実。
+      const cp = await cpssCall(brand, CPSS_ENV, "givePoint", {
+        aid: body.memberCode,
+        shopid: club,
+        point: points,
+        reqid: transactionId,
+        scode: "MANUAL",
+        svalue: body.reason,
+      });
+      if (!cp.ok) {
+        return NextResponse.json(
+          { ok: false, error: `ポイント付与に失敗しました: ${cp.cpssMsg || cp.error}`, code: cp.code },
+          { status: 502 }
+        );
+      }
+
       const tx: PointTransaction = {
-        transactionId: newTransactionId(),
-        clubCode: body.clubCode,
+        transactionId,
+        clubCode: club,
         memberCode: body.memberCode,
         type: "earned",
         points,
@@ -122,14 +151,21 @@ export async function POST(req: Request) {
         occurredAt: ts,
         operatorId: user.userId,
         operatorName: user.name,
+        hid: cp.result?.hid,
+        cpssBalanceAfter: typeof cp.result?.balance === "number" ? cp.result.balance : undefined,
       };
-      await ddb.send(
-        new PutCommand({
-          TableName: TABLE,
-          Item: tx,
-          ConditionExpression: "attribute_not_exists(transactionId)",
-        })
-      );
+      // CPSS は成功済みなので DDB は監査用台帳。失敗しても付与自体は成立。
+      try {
+        await ddb.send(
+          new PutCommand({
+            TableName: TABLE,
+            Item: tx,
+            ConditionExpression: "attribute_not_exists(transactionId)",
+          })
+        );
+      } catch (e) {
+        console.error("[points transactions] grant CPSS ok but DDB write failed", e);
+      }
       return NextResponse.json({ ok: true, transaction: tx });
     }
 
@@ -145,7 +181,7 @@ export async function POST(req: Request) {
       if (!source) {
         return NextResponse.json({ ok: false, error: "source transaction not found" }, { status: 404 });
       }
-      if (source.clubCode !== body.clubCode || source.memberCode !== body.memberCode) {
+      if (source.memberCode !== body.memberCode || (source.clubCode !== club && source.clubCode !== body.clubCode)) {
         return NextResponse.json({ ok: false, error: "source mismatch" }, { status: 400 });
       }
       if (source.type !== "earned") {
@@ -155,10 +191,31 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: false, error: "既に取り消されています" }, { status: 400 });
       }
 
+      // CPSS のポイント移動を取消 (hid 指定)。実データ付与には hid がある。
+      let cancelBalance: number | undefined;
+      if (source.hid) {
+        const cp = await cpssCall(brand, CPSS_ENV, "cancelPoint", {
+          hid: source.hid,
+          shopid: club,
+          reason: body.note || "店舗操作による取消",
+          reqid: `${source.transactionId}-C`,
+        });
+        if (!cp.ok) {
+          return NextResponse.json(
+            { ok: false, error: `ポイント取消に失敗しました: ${cp.cpssMsg || cp.error}`, code: cp.code },
+            { status: 502 }
+          );
+        }
+        // cancel_point は {from,to:{afterbalance}} を返す。会員側(to)の処理後残高を採用。
+        const to = cp.result?.to;
+        if (typeof to?.afterbalance === "number") cancelBalance = to.afterbalance;
+        else if (typeof cp.result?.balance === "number") cancelBalance = cp.result.balance;
+      }
+
       // 逆方向の adjusted トランザクション
       const tx: PointTransaction = {
         transactionId: newTransactionId(),
-        clubCode: body.clubCode,
+        clubCode: club,
         memberCode: body.memberCode,
         type: "adjusted",
         points: -source.points,
@@ -168,6 +225,7 @@ export async function POST(req: Request) {
         operatorId: user.userId,
         operatorName: user.name,
         cancelledOf: source.transactionId,
+        cpssBalanceAfter: cancelBalance,
       };
       await ddb.send(
         new PutCommand({

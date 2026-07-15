@@ -1,4 +1,6 @@
-// lib/cpss.ts
+import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);
+
+// ../../lib/cpss.ts
 var BASE_URLS = {
   JOYFIT: { stg: "https://stg-yamauchi.nac.jp", prod: "https://yamauchi.nac.jp" },
   FIT365: { stg: "https://stg-wellness.nac.jp", prod: "https://wellness.nac.jp" }
@@ -70,6 +72,24 @@ async function callMultipart(brand, env, apiset, name, fileName, fileBuf, extra 
   }
   if (j.code && j.code !== "000-000-000") throw new CpssError(j.code, j.msg || "\u30A8\u30E9\u30FC", j.transid);
   return j.result;
+}
+async function addMember(brand, env, args) {
+  return call(brand, env, "cmmm", "add_member", {
+    aid: args.aid,
+    reqid: args.reqid,
+    sts: args.sts || "REG",
+    pw: args.pw,
+    familyNameKana: args.familyNameKana,
+    firstNameKana: args.firstNameKana,
+    familyNameKanji: args.familyNameKanji,
+    firstNameKanji: args.firstNameKanji,
+    gender: args.gender,
+    birthday: args.birthday,
+    rank: args.rank
+  }, { test: args.test });
+}
+async function updateMember(brand, env, args) {
+  return call(brand, env, "cmmm", "update_member", { aid: args.aid, reqid: args.reqid, rank: args.rank });
 }
 async function getMemberForApp(brand, env, args) {
   return call(brand, env, "cspm", "get_member_for_app", {
@@ -163,7 +183,7 @@ async function isAlive(brand, env) {
   }
 }
 
-// lambdas/cpss-proxy/handler.mjs
+// handler.mjs
 var handler = async (event) => {
   const brand = event?.brand === "FIT365" ? "FIT365" : "JOYFIT";
   const env = event?.env === "prod" ? "prod" : "stg";
@@ -174,6 +194,12 @@ var handler = async (event) => {
     switch (action) {
       case "isAlive":
         result = await isAlive(brand, env);
+        break;
+      case "addMember":
+        result = await addMember(brand, env, a);
+        break;
+      case "updateMember":
+        result = await updateMember(brand, env, a);
         break;
       case "getMemberForApp":
         result = await getMemberForApp(brand, env, a);
