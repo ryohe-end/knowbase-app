@@ -262,10 +262,12 @@ function SettingsTab({
   brand,
   durations,
   setDurations,
+  readOnly = false,
 }: {
   brand: string;
   durations: DurationPrices[];
   setDurations: React.Dispatch<React.SetStateAction<DurationPrices[]>>;
+  readOnly?: boolean;
 }) {
   const unitType = deriveUnitType(brand);
   const unitLabel = unitType === "30min" ? "30分単位" : "1日単位";
@@ -333,15 +335,12 @@ function SettingsTab({
         <div className="otp-info-body">
           <h3 className="otp-info-title">
             {isJoyfit(brand)
-              ? "30/60/90/120/150/180/210分の販売金額を設定します"
-              : "1日利用権の販売金額を設定します"}
+              ? "現在の時間別販売金額（30〜210分）"
+              : "現在の1日利用権の販売金額"}
           </h3>
           <p className="otp-info-desc">
-            {isJoyfit(brand)
-              ? `JOYFITブランドでは${unitLabel}で利用時間ごとに販売金額を設定します。期間ごとに異なる金額を予約することができます (例: 通常価格・キャンペーン価格)。`
-              : "FIT365ブランドでは1日利用権の販売金額を設定します。期間ごとに異なる金額を予約することができます。"}
-            <br />
-            「適用終了日」を空欄にすると無期限になります。
+            EnjoyTimePass（決済システム）で管理されている現在の料金を表示しています。
+            この画面は<strong>参照専用</strong>で、金額の変更は EnjoyTimePass 側で行います。
           </p>
         </div>
       </section>
@@ -351,6 +350,7 @@ function SettingsTab({
           <DurationCard
             key={d.durationMinutes}
             duration={d}
+            readOnly={readOnly}
             onAdd={() => addPeriod(d.durationMinutes)}
             onUpdate={(id, patch) => updatePeriod(d.durationMinutes, id, patch)}
             onRemove={(id) => removePeriod(d.durationMinutes, id)}
@@ -366,11 +366,13 @@ function DurationCard({
   onAdd,
   onUpdate,
   onRemove,
+  readOnly = false,
 }: {
   duration: DurationPrices;
   onAdd: () => void;
   onUpdate: (id: string, patch: Partial<PricePeriod>) => void;
   onRemove: (id: string) => void;
+  readOnly?: boolean;
 }) {
   const sorted = useMemo(() => {
     const w: Record<string, number> = { current: 0, upcoming: 1, expired: 2 };
@@ -403,14 +405,16 @@ function DurationCard({
             </span>
           )}
         </div>
-        <button type="button" className="otp-add-btn" onClick={onAdd}>
-          <span className="otp-add-icon">+</span>
-          期間を追加
-        </button>
+        {!readOnly && (
+          <button type="button" className="otp-add-btn" onClick={onAdd}>
+            <span className="otp-add-icon">+</span>
+            期間を追加
+          </button>
+        )}
       </header>
 
       {sorted.length === 0 ? (
-        <div className="otp-empty-inline">価格期間が登録されていません。</div>
+        <div className="otp-empty-inline">価格が登録されていません。</div>
       ) : (
         <div className="otp-period-list">
           {sorted.map((p) => {
@@ -426,6 +430,7 @@ function DurationCard({
                     type="date"
                     className="otp-input"
                     value={p.validFrom}
+                    disabled={readOnly}
                     onChange={(e) => onUpdate(p.id, { validFrom: e.target.value })}
                   />
                 </div>
@@ -436,6 +441,7 @@ function DurationCard({
                     className="otp-input"
                     value={p.validTo ?? ""}
                     min={p.validFrom || undefined}
+                    disabled={readOnly}
                     onChange={(e) => onUpdate(p.id, { validTo: e.target.value || null })}
                   />
                 </div>
@@ -448,37 +454,36 @@ function DurationCard({
                       min={range?.min ?? 0}
                       max={range?.max}
                       step={10}
-                      className={`otp-input otp-price-input ${range && (p.price < range.min || p.price > range.max) ? "out-of-range" : ""}`}
+                      disabled={readOnly}
+                      className={`otp-input otp-price-input ${!readOnly && range && (p.price < range.min || p.price > range.max) ? "out-of-range" : ""}`}
                       value={Number.isFinite(p.price) ? p.price : 0}
                       onChange={(e) =>
                         onUpdate(p.id, { price: Math.max(0, Number(e.target.value) || 0) })
                       }
                     />
                   </div>
-                  {range && (p.price < range.min || p.price > range.max) && (
-                    <span className="otp-range-warn">
-                      レンジ外: ¥{range.min.toLocaleString("ja-JP")} 〜 ¥{range.max.toLocaleString("ja-JP")}
-                    </span>
-                  )}
                 </div>
                 <div className="otp-field">
                   <label className="otp-label">ラベル</label>
                   <input
                     type="text"
                     className="otp-input"
-                    placeholder="例: 通常価格"
+                    placeholder="—"
                     value={p.label ?? ""}
+                    disabled={readOnly}
                     onChange={(e) => onUpdate(p.id, { label: e.target.value })}
                   />
                 </div>
-                <button
-                  type="button"
-                  className="otp-remove-btn"
-                  onClick={() => onRemove(p.id)}
-                  aria-label="削除"
-                >
-                  削除
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="otp-remove-btn"
+                    onClick={() => onRemove(p.id)}
+                    aria-label="削除"
+                  >
+                    削除
+                  </button>
+                )}
               </div>
             );
           })}
@@ -533,6 +538,75 @@ function rangeDays(from: string, to: string): number {
   return Math.max(1, Math.round((t.getTime() - f.getTime()) / 86400000) + 1);
 }
 
+// 簡易Markdown描画 (## 見出し / **強調** / 番号リスト / 段落)
+function AiMarkdown({ text }: { text: string }) {
+  const renderInline = (s: string, key: number) => {
+    const parts = s.split(/(\*\*[^*]+\*\*)/g);
+    return <span key={key}>{parts.map((p, i) => (p.startsWith("**") && p.endsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p))}</span>;
+  };
+  const lines = text.split("\n");
+  return (
+    <div className="otp-ai-md">
+      {lines.map((ln, i) => {
+        const t = ln.trim();
+        if (!t) return null;
+        if (t.startsWith("## ")) return <h4 key={i} className="otp-ai-h">{t.slice(3)}</h4>;
+        if (/^\d+\.\s/.test(t)) return <div key={i} className="otp-ai-li">{renderInline(t, i)}</div>;
+        if (t.startsWith("- ")) return <div key={i} className="otp-ai-li">{renderInline(t.slice(2), i)}</div>;
+        return <p key={i} className="otp-ai-p">{renderInline(t, i)}</p>;
+      })}
+    </div>
+  );
+}
+
+// 売上チャート: 実績(棒) + 3ヶ月移動平均(線) + 予測(点線+レンジ帯)
+function ForecastChart({
+  monthly,
+  forecast,
+}: {
+  monthly: { ym: string; sales: number; ma: number | null }[];
+  forecast: { ym: string; sales: number; low: number; high: number }[];
+}) {
+  const W = 760, H = 210, padL = 8, padR = 8, padT = 14, padB = 26;
+  const pts = [...monthly.map((m) => ({ ym: m.ym, sales: m.sales, ma: m.ma, fc: false })),
+               ...forecast.map((f) => ({ ym: f.ym, sales: f.sales, ma: null as number | null, fc: true, low: f.low, high: f.high }))];
+  const n = pts.length;
+  const maxY = Math.max(1, ...pts.map((p) => p.sales), ...forecast.map((f) => f.high), ...monthly.map((m) => m.ma ?? 0));
+  const x = (i: number) => padL + (i * (W - padL - padR)) / Math.max(1, n - 1);
+  const y = (v: number) => H - padB - (v / maxY) * (H - padT - padB);
+  const bw = ((W - padL - padR) / n) * 0.55;
+  const splitX = x(monthly.length - 1) + (x(1) - x(0)) / 2;
+
+  const maPath = monthly.map((m, i) => (m.ma == null ? null : `${i === 0 || monthly[i - 1].ma == null ? "M" : "L"}${x(i)},${y(m.ma)}`)).filter(Boolean).join(" ");
+  const fcStart = monthly.length - 1;
+  const fcLine = [{ x: x(fcStart), y: y(monthly[monthly.length - 1].sales) }, ...forecast.map((f, i) => ({ x: x(fcStart + 1 + i), y: y(f.sales) }))];
+  const fcPath = fcLine.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  const band = forecast.length
+    ? `M${x(fcStart + 1)},${y(forecast[0].high)} ` + forecast.map((f, i) => `L${x(fcStart + 1 + i)},${y(f.high)}`).join(" ") + " " +
+      forecast.map((f, i) => `L${x(fcStart + forecast.length - i)},${y(forecast[forecast.length - 1 - i].low)}`).join(" ") + " Z"
+    : "";
+
+  return (
+    <svg className="otp-fc-svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet">
+      {band && <path d={band} fill="rgba(168,85,247,0.12)" stroke="none" />}
+      {/* 実績棒 */}
+      {monthly.map((m, i) => (
+        <rect key={i} x={x(i) - bw / 2} y={y(m.sales)} width={bw} height={Math.max(0, H - padB - y(m.sales))} rx={2} fill="#fcd34d" />
+      ))}
+      {/* 予測棒 */}
+      {forecast.map((f, i) => (
+        <rect key={`f${i}`} x={x(fcStart + 1 + i) - bw / 2} y={y(f.sales)} width={bw} height={Math.max(0, H - padB - y(f.sales))} rx={2} fill="rgba(168,85,247,0.35)" />
+      ))}
+      {maPath && <path d={maPath} fill="none" stroke="#64748b" strokeWidth={1.6} strokeDasharray="4 3" />}
+      {fcPath && <path d={fcPath} fill="none" stroke="#7c3aed" strokeWidth={2} strokeDasharray="2 3" />}
+      <line x1={splitX} y1={padT - 8} x2={splitX} y2={H - padB} stroke="#cbd5e1" strokeWidth={1} strokeDasharray="3 3" />
+      {pts.map((p, i) => (i % 2 === 0 || p.fc) && (
+        <text key={`t${i}`} x={x(i)} y={H - 8} textAnchor="middle" fontSize={9} fill={p.fc ? "#7c3aed" : "#94a3b8"}>{p.ym.slice(5)}月</text>
+      ))}
+    </svg>
+  );
+}
+
 function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) {
   const def = defaultDateRange();
   const [from, setFrom] = useState(def.from);
@@ -548,6 +622,27 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   const [durationFilter, setDurationFilter] = useState<number | "all">("all");
   const [genderFilter, setGenderFilter] = useState<"all" | Gender>("all");
   const [ageFilter, setAgeFilter] = useState<"all" | AgeGroup>("all");
+
+  // AI売上分析 + 統計予測 (店舗単位・事前集計ベース)
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiText, setAiText] = useState<string | null>(null);
+  const [aiMonth, setAiMonth] = useState<string | null>(null);
+  const [aiErr, setAiErr] = useState<string | null>(null);
+  const [aiMonthly, setAiMonthly] = useState<{ ym: string; sales: number; count: number; ma: number | null }[]>([]);
+  const [aiForecast, setAiForecast] = useState<{ ym: string; sales: number; count: number; low: number; high: number }[]>([]);
+  const [aiTrend, setAiTrend] = useState<string | null>(null);
+  const genAi = useCallback(async () => {
+    setAiLoading(true); setAiErr(null);
+    try {
+      const res = await fetch(`/api/store-settings/onetime-pass/ai-analysis?clubCode=${clubCode}`);
+      const d = await res.json();
+      if (res.ok && d.ok) {
+        setAiText(d.analysis); setAiMonth(d.month);
+        setAiMonthly(d.monthly || []); setAiForecast(d.forecast || []); setAiTrend(d.trend || null);
+      } else setAiErr(d?.error || "AI分析の生成に失敗しました");
+    } catch { setAiErr("AI分析の生成に失敗しました"); }
+    finally { setAiLoading(false); }
+  }, [clubCode]);
 
   const fetchData = useCallback(
     async (demo: boolean, rangeFrom: string, rangeTo: string) => {
@@ -610,6 +705,50 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
 
   return (
     <>
+      {/* AI売上分析 (店舗単位・事前集計ベース / 相手DB負荷なし) */}
+      <section className="otp-ai-card">
+        <div className="otp-ai-head">
+          <div className="otp-ai-title">
+            <span className="otp-ai-badge">AI</span>
+            売上分析（この店舗）
+            {aiMonth && <span className="otp-ai-month">対象月 {aiMonth}</span>}
+          </div>
+          <button type="button" className="otp-ai-btn" onClick={genAi} disabled={aiLoading}>
+            {aiLoading ? "分析中…" : aiText ? "再分析" : "AIで分析する"}
+          </button>
+        </div>
+        {aiErr && <div className="otp-ai-err">{aiErr}</div>}
+
+        {aiMonthly.length > 0 && (
+          <div className="otp-fc-wrap">
+            <div className="otp-fc-legend">
+              <span className="otp-fc-lg"><span className="otp-fc-swatch bar" />実績売上</span>
+              <span className="otp-fc-lg"><span className="otp-fc-swatch ma" />3ヶ月移動平均</span>
+              <span className="otp-fc-lg"><span className="otp-fc-swatch fc" />予測（次3ヶ月）</span>
+              {aiTrend && <span className="otp-fc-trend">トレンド: {aiTrend}</span>}
+            </div>
+            <ForecastChart monthly={aiMonthly} forecast={aiForecast} />
+            {aiForecast.length > 0 && (
+              <div className="otp-fc-cards">
+                {aiForecast.map((f) => (
+                  <div key={f.ym} className="otp-fc-fcard">
+                    <div className="otp-fc-fym">{f.ym} 予測</div>
+                    <div className="otp-fc-fsales">{formatYen(f.sales)}</div>
+                    <div className="otp-fc-frange">{f.count}件 / ¥{f.low.toLocaleString("ja-JP")}〜¥{f.high.toLocaleString("ja-JP")}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {aiText ? (
+          <AiMarkdown text={aiText} />
+        ) : (
+          !aiErr && <div className="otp-ai-empty">{aiLoading ? "集計データをもとに、移動平均・売上予測とAIの見立てを作成しています…" : "夜間集計データをもとに、移動平均・売上予測とAIの推測（傾向・需要・客層・施策）を組み合わせて分析します。"}</div>
+        )}
+      </section>
+
       {/* 期間フィルター */}
       <section className="otp-range-bar">
         <div className="otp-range-left">
@@ -1972,18 +2111,8 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
           </Link>
           <h1 className="otp-page-title">1dayパス / One Time Pass</h1>
           <div className="otp-header-right">
-            {tab === "settings" && isDirty && (
-              <span className="otp-unsaved">未保存の変更あり</span>
-            )}
             {tab === "settings" && (
-              <button
-                type="button"
-                className="otp-save-btn"
-                onClick={handleSave}
-                disabled={!isDirty || saving}
-              >
-                保存
-              </button>
+              <span className="otp-readonly-badge">参照のみ（EnjoyTimePass管理）</span>
             )}
           </div>
         </div>
@@ -2048,6 +2177,7 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
             brand={brand}
             durations={durations}
             setDurations={setDurations}
+            readOnly
           />
         )}
         {tab === "dashboard" && <DashboardTab clubCode={clubCode} brand={brand} />}
@@ -2080,6 +2210,8 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
         .otp-page-title { margin: 0; font-size: 17px; font-weight: 800; color: #1e293b; }
         .otp-header-right { display: flex; align-items: center; gap: 12px; min-width: 80px; justify-content: flex-end; }
         .otp-unsaved { font-size: 11px; font-weight: 700; color: #b45309; background: #fef3c7; padding: 4px 10px; border-radius: 99px; }
+        .otp-readonly-badge { font-size: 11px; font-weight: 700; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 5px 12px; border-radius: 99px; }
+        .otp-input:disabled { background: #f8fafc; color: #334155; cursor: default; -webkit-text-fill-color: #334155; opacity: 1; }
         .otp-save-btn { padding: 8px 22px; border-radius: 10px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(245,158,11,0.35); transition: 0.15s; }
         .otp-save-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
         .otp-save-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(245,158,11,0.45); }
@@ -2500,6 +2632,38 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
         .otp-season-apply-all.season-normal { background: linear-gradient(135deg, #64748b, #475569); }
 
         /* === ダッシュボード v2: 期間フィルター === */
+        /* AI売上分析カード */
+        .otp-ai-card { background: linear-gradient(160deg, #faf5ff 0%, #fff 60%); border: 1px solid #e9d5ff; border-radius: 16px; padding: 20px 22px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
+        .otp-ai-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .otp-ai-title { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 800; color: #1e293b; }
+        .otp-ai-badge { font-size: 11px; font-weight: 800; color: #fff; background: linear-gradient(135deg, #a855f7, #7c3aed); padding: 3px 9px; border-radius: 6px; letter-spacing: 0.05em; }
+        .otp-ai-month { font-size: 11px; font-weight: 700; color: #7c3aed; background: #f3e8ff; padding: 3px 10px; border-radius: 99px; }
+        .otp-ai-btn { padding: 8px 18px; border-radius: 10px; font-size: 13px; font-weight: 700; background: linear-gradient(135deg, #a855f7, #7c3aed); color: #fff; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(124,58,237,0.3); transition: 0.15s; }
+        .otp-ai-btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+        .otp-ai-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,58,237,0.4); }
+        .otp-ai-empty { font-size: 13px; color: #64748b; margin-top: 14px; line-height: 1.7; }
+        .otp-ai-err { font-size: 12px; color: #b91c1c; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px 12px; margin-top: 12px; }
+        .otp-ai-md { margin-top: 14px; }
+        .otp-ai-h { font-size: 13px; font-weight: 800; color: #7c3aed; margin: 14px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #f1e8fc; }
+        .otp-ai-p { font-size: 13px; color: #334155; line-height: 1.75; margin: 4px 0; }
+        .otp-ai-li { font-size: 13px; color: #334155; line-height: 1.7; margin: 4px 0 4px 8px; }
+        .otp-ai-md strong { color: #0f172a; font-weight: 800; }
+        .otp-fc-wrap { margin-top: 16px; padding: 14px; background: #fff; border: 1px solid #f1e8fc; border-radius: 12px; }
+        .otp-fc-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+        .otp-fc-lg { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #64748b; }
+        .otp-fc-swatch { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
+        .otp-fc-swatch.bar { background: #fcd34d; }
+        .otp-fc-swatch.ma { background: repeating-linear-gradient(90deg, #64748b 0 4px, transparent 4px 7px); height: 2px; }
+        .otp-fc-swatch.fc { background: rgba(168,85,247,0.5); }
+        .otp-fc-trend { margin-left: auto; font-size: 11px; font-weight: 700; color: #7c3aed; background: #f3e8ff; padding: 3px 10px; border-radius: 99px; }
+        .otp-fc-svg { width: 100%; height: auto; display: block; }
+        .otp-fc-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+        .otp-fc-fcard { background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 10px; padding: 10px 12px; text-align: center; }
+        .otp-fc-fym { font-size: 11px; font-weight: 700; color: #7c3aed; }
+        .otp-fc-fsales { font-size: 17px; font-weight: 800; color: #6d28d9; margin: 3px 0; font-variant-numeric: tabular-nums; }
+        .otp-fc-frange { font-size: 10px; color: #94a3b8; }
+        @media (max-width: 640px) { .otp-fc-cards { grid-template-columns: 1fr; } }
+
         .otp-range-bar { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
         .otp-range-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
         .otp-range-right { display: flex; align-items: center; gap: 10px; }

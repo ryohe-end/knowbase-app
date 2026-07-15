@@ -1,8 +1,27 @@
 // app/api/store-settings/onetime-pass/purchases/route.ts
 import { NextResponse } from "next/server";
+import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { sshQuery } from "@/lib/sshDbProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// あちらの本番DBへの負荷対策: 単一店舗・期間上限・短TTLキャッシュ。
+const LIVE_MAX_DAYS = 92;               // ライブ明細取得の期間上限
+const LIVE_ROW_LIMIT = 5000;
+const CACHE_TTL_MS = 5 * 60_000;        // 5分
+const _cache = new Map<string, { at: number; body: any }>();
+function daysBetween(from: string, to: string): number {
+  const a = new Date(from + "T00:00:00Z").getTime();
+  const b = new Date(to + "T00:00:00Z").getTime();
+  return Math.round((b - a) / 86400000);
+}
+function clampFrom(from: string, to: string): string {
+  if (daysBetween(from, to) <= LIVE_MAX_DAYS) return from;
+  const d = new Date(to + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - LIVE_MAX_DAYS);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
 
 export type PurchaseStatus = "purchased" | "used" | "expired" | "refunded";
 export type Gender = "male" | "female" | "other" | "unknown";
@@ -379,9 +398,88 @@ export async function GET(req: Request) {
     });
   }
 
-  return NextResponse.json({
-    purchases: [],
-    summary: emptySummary(from, to),
-    isDemo: false,
+  // --- 実データ (EnjoyTimePass t1pass: ticket_tbl + user_tbl) ---
+  const user = await getRefundUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!/^\d+$/.test(clubCode)) return NextResponse.json({ error: "clubCode invalid" }, { status: 400 });
+  if (!isClubInScope(user, clubCode)) {
+    return NextResponse.json({ error: "この店舗は担当外です" }, { status: 403 });
+  }
+
+  // 期間上限で丸め、短TTLキャッシュ(店舗×期間)で相手DBの反復読取を抑制
+  const fromClamped = clampFrom(from, to);
+  const cacheKey = `${clubCode}|${fromClamped}|${to}`;
+  const hit = _cache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CACHE_TTL_MS) {
+    return NextResponse.json({ ...hit.body, cached: true });
+  }
+
+  const sql = `
+    select
+      coalesce(u.name,'') as name, u.mail_address as mail, u.tel as tel,
+      u.cust_code as member_code, u.sex as sex, u.birthday as birthday,
+      t.max_hour as dur, t.amount as amount, t.insert_dt as purchased_at,
+      t.ticket_stat as stat, t.res_pay_method as pay,
+      coalesce(t.order_id, t.seq::text) as id,
+      (t.insert_dt = (select min(t2.insert_dt) from t1pass.ticket_tbl t2 where t2.access_key = t.access_key)) as is_first
+    from t1pass.ticket_tbl t
+    left join t1pass.user_tbl u on u.access_key = t.access_key
+    where t.club_cd = $1 and t.insert_dt >= $2::date and t.insert_dt < ($3::date + interval '1 day')
+    order by t.insert_dt desc
+    limit ${LIVE_ROW_LIMIT}`;
+  const res = await sshQuery(TARGET_ONETIMEPASS, sql, [Number(clubCode), fromClamped, to]);
+  if (!res.ok) {
+    return NextResponse.json({ error: `購入データの取得に失敗しました: ${res.error}`, purchases: [], summary: emptySummary(from, to) }, { status: 502 });
+  }
+  const asOf = new Date(`${to}T00:00:00Z`);
+  const purchases: Purchase[] = res.rows.map((r: any) => {
+    const age = ageFromBirthday(r.birthday, asOf);
+    return {
+      id: String(r.id),
+      purchaserName: r.name || "—",
+      purchaserEmail: r.mail || null,
+      purchaserPhone: r.tel || null,
+      memberCode: r.member_code ? String(r.member_code) : null,
+      gender: r.sex === "1" ? "male" : r.sex === "2" ? "female" : "unknown",
+      age,
+      ageGroup: ageToGroup(age),
+      isFirstPurchase: !!r.is_first,
+      durationMinutes: Number(r.dur) || 0,
+      price: Number(r.amount) || 0,
+      purchasedAt: r.purchased_at ? new Date(r.purchased_at).toISOString() : "",
+      usedAt: null,
+      status: mapTicketStatus(r.stat),
+      paymentMethod: r.pay || "—",
+    };
   });
+  const body = {
+    purchases,
+    summary: buildSummary(purchases, fromClamped, to),
+    isDemo: false,
+    source: "EnjoyTimePass (t1pass)",
+    rangeClamped: fromClamped !== from,
+  };
+  _cache.set(cacheKey, { at: Date.now(), body });
+  if (_cache.size > 200) { const oldest = [..._cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) _cache.delete(oldest[0]); }
+  return NextResponse.json(body);
+}
+
+const TARGET_ONETIMEPASS = "onetimepass";
+function mapTicketStatus(stat: string): PurchaseStatus {
+  switch (stat) {
+    case "Z": case "U": return "used";
+    case "E": return "expired";
+    case "B": case "D": return "refunded";
+    default: return "purchased"; // N 等
+  }
+}
+function ageFromBirthday(birthday: any, asOf: Date): number {
+  const v = birthday == null ? "" : String(birthday);
+  if (!/^\d{8}$/.test(v)) return 0;
+  const y = Number(v.slice(0, 4)), m = Number(v.slice(4, 6)), d = Number(v.slice(6, 8));
+  if (!y || y < 1900) return 0;
+  let age = asOf.getUTCFullYear() - y;
+  const mo = asOf.getUTCMonth() + 1 - m;
+  if (mo < 0 || (mo === 0 && asOf.getUTCDate() < d)) age -= 1;
+  return age >= 0 && age < 120 ? age : 0;
 }

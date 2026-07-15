@@ -1627,10 +1627,9 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
     },
     {
       title: "1dayパス / One Time Pass 設定",
-      desc: "1日利用券およびワンタイムパスの料金・販売設定を管理します。",
+      desc: "EnjoyTimePass の現在の料金設定を参照します（読み取り専用）。",
       href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}`,
       color: "#f59e0b",
-      comingSoon: true,
       iconPath: "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z",
     },
     {
