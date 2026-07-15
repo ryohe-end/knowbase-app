@@ -54,42 +54,20 @@ export default function KbDigestPage() {
 
   const generate = useCallback(async () => {
     if (!cfg) return;
-    setGenLoading(true); setMsg(null); setPreview(null); setGenStage("生成を開始…");
+    setGenLoading(true); setMsg(null); setPreview(null); setGenStage("生成をキューに投入…");
     try {
       const res = await fetch("/api/admin/kb-digest/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cfg }) });
-      if (!res.ok || !res.body) {
-        const t = await res.json().catch(() => ({}));
-        setMsg({ ok: false, text: (t as any)?.error || `生成失敗 (HTTP ${res.status})` });
-        return;
+      const d = await res.json();
+      if (!d.ok || !d.previewId) { setMsg({ ok: false, text: d.error || `生成失敗 (HTTP ${res.status})` }); return; }
+      setGenStage("AIが通信を作成中…（数十秒）");
+      const pid = d.previewId;
+      for (let i = 0; i < 50; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const pr = await fetch(`/api/admin/kb-digest/generate?previewId=${encodeURIComponent(pid)}`, { cache: "no-store" }).then((r) => r.json()).catch(() => ({}));
+        if (pr.status === "ready" && pr.html) { setPreview({ subject: pr.subject || "KB通信", html: pr.html }); return; }
+        if (pr.status === "error") { setMsg({ ok: false, text: pr.error || "生成に失敗しました" }); return; }
       }
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "", acc = "", genErr = "";
-      const handle = (block: string) => {
-        const ev = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() || null;
-        const data = block.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
-        if (ev === "status") { try { setGenStage(JSON.parse(data).stage || ""); } catch {} return false; }
-        if (ev === "error") { try { genErr = JSON.parse(data).error; } catch { genErr = data; } return true; }
-        if (ev === "done" || data === "[DONE]") return true;
-        if (!ev && data) acc += data;
-        return false;
-      };
-      let done = false;
-      while (!done) {
-        const { done: rd, value } = await reader.read();
-        if (rd) break;
-        buf += dec.decode(value, { stream: true });
-        const parts = buf.split("\n\n"); buf = parts.pop() ?? "";
-        for (const p of parts) { if (handle(p)) { done = true; break; } }
-      }
-      if (genErr) { setMsg({ ok: false, text: genErr }); return; }
-      // SUBJECT: 抽出
-      let html = acc.trim().replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
-      let subject = "KB通信";
-      const m = html.match(/^\s*SUBJECT:\s*(.+)\s*[\r\n]+/i);
-      if (m) { subject = m[1].trim(); html = html.slice(m[0].length); }
-      if (!html) { setMsg({ ok: false, text: "生成結果が空でした" }); return; }
-      setPreview({ subject, html });
+      setMsg({ ok: false, text: "生成がタイムアウトしました。もう一度お試しください。" });
     } catch { setMsg({ ok: false, text: "生成に失敗しました" }); }
     finally { setGenLoading(false); setGenStage(""); }
   }, [cfg]);
@@ -101,7 +79,7 @@ export default function KbDigestPage() {
       const body = preview ? { subject: preview.subject, html: preview.html } : {};
       const res = await fetch("/api/admin/kb-digest/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json();
-      if (d.ok) { setMsg({ ok: true, text: `${d.sent}件に配信しました（失敗 ${d.failed || 0}）` }); setPreview(null); patch({ nextDraft: "", lastSubject: d.subject, lastSentAt: new Date().toISOString() }); }
+      if (d.ok) { setMsg({ ok: true, text: "配信を開始しました。数十秒〜数分で対象者へ順次届きます。" }); setPreview(null); patch({ nextDraft: "" }); }
       else setMsg({ ok: false, text: d.error || "配信失敗" });
     } catch { setMsg({ ok: false, text: "配信に失敗しました" }); }
     finally { setSending(false); }
