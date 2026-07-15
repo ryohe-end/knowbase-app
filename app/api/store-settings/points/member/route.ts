@@ -6,6 +6,7 @@ import type { PointTransaction as PersistedTx } from "@/types/pointTransaction";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
 import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
 import { cpssCall } from "@/lib/cpssProxy";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -372,5 +373,15 @@ export async function GET(req: Request) {
 
   // ブランド/API・RDS は会員の所属クラブ(homeClub)から解決 (JOYFIT/FIT365 を会員単位で振り分け)
   const member = await buildRealMember(homeClub, memberCode);
+  void writeAudit({
+    userId: user.email || user.userId, userName: user.name,
+    action: "points.memberLookup", resource: `member:${memberCode}`,
+    clubCodes: [homeClub], result: member ? "ok" : "error",
+    detail: {
+      brand: member?.brand, found: !!member,
+      balance: member?.currentBalance ?? null, cpssAvailable: member?.cpssAvailable ?? null,
+    },
+    ip: clientIp(req),
+  });
   return NextResponse.json({ member, isDemo: false });
 }

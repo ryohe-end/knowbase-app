@@ -27,6 +27,23 @@ type PointTransaction = {
 const POINT_REASONS = ["歩数", "イベント", "パーソナルトレーニング", "ボーナス", "その他"] as const;
 type PointReason = typeof POINT_REASONS[number];
 
+// CPSS変動履歴の1行 (期間指定 + ページ送り)
+type HistoryRow = {
+  id: string;
+  occurredAt: string;
+  type: PointTxType;
+  points: number;
+  status?: string | null;    // AVA/CAN
+  cancelled?: boolean;
+  source: string;
+  shopid?: string | null;
+  hid?: string;
+  operatorName?: string | null;
+  note?: string | null;
+  cancellableTxId?: string | null;  // knowbase由来かつ取消可能なら DDB transactionId
+};
+type CancelTarget = { txId: string; points: number; occurredAt: string; source: string };
+
 type MemberPointInfo = {
   memberCode: string;
   memberName: string;
@@ -62,30 +79,30 @@ type StoreSummary = {
   prefecture: string;
 };
 
-type RecentTransaction = {
-  id: string;
-  memberCode: string;
-  memberName: string;
-  type: PointTxType;
-  points: number;
-  occurredAt: string;
-  source: string;
-};
-
-type PointsSummary = {
-  totalMembers: number;
-  totalActiveBalance: number;
-  expiringNextMonth: number;
-  thisMonthEarned: number;
-  thisMonthUsed: number;
-  thisMonthExpired: number;
-  todayTransactions: number;
-  todayEarned: number;
-  todayUsed: number;
-  byType: { type: PointTxType; count: number; total: number }[];
-  dailyTrend: { date: string; earned: number; used: number }[];
-  topMembers: { memberCode: string; memberName: string; balance: number }[];
-  recentTransactions: RecentTransaction[];
+type Bucket = { granted: number; used: number; members: number };
+type SummaryData = {
+  ok: boolean;
+  clubCode: string;
+  brand: "JOYFIT" | "FIT365";
+  month: string;
+  available: boolean;
+  updatedAt: string | null;
+  current: {
+    granted: number; used: number; grantedCount: number; usedCount: number; memberCount: number;
+    byGender: Record<string, Bucket>;
+    byAge: Record<string, Bucket>;
+    byRank: Record<string, Bucket>;
+    avgTenureMonths: number | null;
+    avgEarnToUseDays: number | null;
+    earnToUseSamples: number;
+  } | null;
+  compare: {
+    prevMonth: { granted: number; used: number } | null;
+    prevYear: { granted: number; used: number } | null;
+    grantedMoM: number | null; usedMoM: number | null;
+    grantedYoY: number | null; usedYoY: number | null;
+  };
+  monthly: { ym: string; granted: number; used: number; memberCount: number }[];
 };
 
 type TabKey = "member" | "dashboard";
@@ -106,6 +123,16 @@ function formatPoints(n: number): string {
 }
 function formatBalance(n: number): string {
   return `${n.toLocaleString("ja-JP")} pt`;
+}
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// 既定期間 = 直近3ヶ月
+function defaultPeriod(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date();
+  from.setMonth(from.getMonth() - 3);
+  return { from: ymd(from), to: ymd(to) };
 }
 function formatDate(iso: string): string {
   try {
@@ -134,6 +161,16 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
   const [isDemo, setIsDemo] = useState(false);
   const [typeFilter, setTypeFilter] = useState<"all" | PointTxType>("all");
 
+  // 変動履歴 (CPSS期間指定 + 50行ページ送り)
+  const initPeriod = useMemo(() => defaultPeriod(), []);
+  const [fromDate, setFromDate] = useState(initPeriod.from);
+  const [toDate, setToDate] = useState(initPeriod.to);
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [histLoading, setHistLoading] = useState(false);
+  const [histErr, setHistErr] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+
   // 付与モーダル
   const [grantOpen, setGrantOpen] = useState(false);
   const [grantPoints, setGrantPoints] = useState("");
@@ -142,9 +179,39 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
   const [granting, setGranting] = useState(false);
 
   // 取消モーダル
-  const [cancelTarget, setCancelTarget] = useState<PointTransaction | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelNote, setCancelNote] = useState("");
   const [cancelling, setCancelling] = useState(false);
+
+  // CPSS変動履歴の取得 (実データ会員のみ)
+  const fetchHistory = useCallback(
+    async (code: string, p: number, from: string, to: string) => {
+      setHistLoading(true);
+      setHistErr(null);
+      try {
+        const q = new URLSearchParams({ memberCode: code, from, to, page: String(p) });
+        const res = await fetch(`/api/store-settings/points/history?${q}`);
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          setHistory(data.rows || []);
+          setHasNext(!!data.hasNext);
+          setPage(data.page || p);
+        } else {
+          setHistory([]);
+          setHasNext(false);
+          setHistErr(data?.error || "履歴の取得に失敗しました");
+        }
+      } catch (e) {
+        console.error(e);
+        setHistory([]);
+        setHasNext(false);
+        setHistErr("履歴の取得に失敗しました");
+      } finally {
+        setHistLoading(false);
+      }
+    },
+    []
+  );
 
   const doSearch = useCallback(
     async (code: string, demo: boolean) => {
@@ -155,6 +222,9 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
       }
       setLoading(true);
       setSearched(true);
+      setPage(1);
+      setHistory([]);
+      setHistErr(null);
       try {
         const q = new URLSearchParams({ clubCode, memberCode: trimmed });
         if (demo) q.set("demo", "1");
@@ -163,6 +233,9 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
           const data = await res.json();
           setMember(data.member);
           setIsDemo(!!data.isDemo);
+          if (data.member && !data.isDemo) {
+            fetchHistory(trimmed, 1, fromDate, toDate);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -171,7 +244,7 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
         setLoading(false);
       }
     },
-    [clubCode, showToast]
+    [clubCode, showToast, fetchHistory, fromDate, toDate]
   );
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -179,11 +252,33 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
     doSearch(memberCodeInput, false);
   };
 
-  const filteredTx = useMemo(() => {
-    if (!member) return [];
-    if (typeFilter === "all") return member.transactions;
-    return member.transactions.filter((t) => t.type === typeFilter);
-  }, [member, typeFilter]);
+  // 期間の適用 (1ページ目から再取得)
+  const applyPeriod = () => {
+    if (fromDate && toDate && fromDate > toDate) {
+      showToast("開始日は終了日以前にしてください。", "error");
+      return;
+    }
+    if (member && !isDemo) fetchHistory(member.memberCode, 1, fromDate, toDate);
+  };
+  const gotoPage = (p: number) => {
+    if (member && !isDemo && p >= 1) fetchHistory(member.memberCode, p, fromDate, toDate);
+  };
+
+  // 表示行: 実データは /history(サーバページ)、サンプルは member.transactions を種別フィルタ
+  const displayRows: HistoryRow[] = useMemo(() => {
+    if (isDemo) {
+      const src = member?.transactions ?? [];
+      const filtered = typeFilter === "all" ? src : src.filter((t) => t.type === typeFilter);
+      return filtered.map((t) => ({
+        id: t.id, occurredAt: t.occurredAt, type: t.type, points: t.points,
+        status: null, cancelled: !!t.cancelledBy, source: t.source, shopid: null,
+        hid: "", operatorName: t.operatorName ?? null, note: t.note ?? null,
+        cancellableTxId: t.type === "earned" && !t.cancelledBy ? t.id : null,
+      }));
+    }
+    if (typeFilter === "all") return history;
+    return history.filter((t) => t.type === typeFilter);
+  }, [isDemo, member, typeFilter, history]);
 
   // 付与実行
   const doGrant = async () => {
@@ -234,7 +329,7 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
           action: "cancel",
           clubCode,
           memberCode: member.memberCode,
-          sourceTransactionId: cancelTarget.id,
+          sourceTransactionId: cancelTarget.txId,
           note: cancelNote || undefined,
         }),
       });
@@ -416,12 +511,12 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
             )}
           </section>
 
-          {/* トランザクション履歴 */}
+          {/* ポイント変動履歴 (期間指定 + 50行ページ送り) */}
           <section className="pt-list-card">
             <div className="pt-list-header">
               <h2 className="pt-list-title">
                 ポイント変動履歴
-                <span className="pt-count">{filteredTx.length}</span>
+                {histLoading && <span className="pt-count">読込中…</span>}
               </h2>
               <div className="pt-tx-filters">
                 <button
@@ -431,7 +526,7 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                 >
                   すべて
                 </button>
-                {(["earned", "used", "expired", "adjusted"] as PointTxType[]).map((t) => (
+                {(["earned", "used"] as PointTxType[]).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -444,61 +539,115 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
               </div>
             </div>
 
-            {filteredTx.length === 0 ? (
-              <div className="pt-empty-inline">該当する履歴はありません。</div>
-            ) : (
-              <div className="pt-table-wrap">
-                <table className="pt-table">
-                  <thead>
-                    <tr>
-                      <th>日時</th>
-                      <th>種別</th>
-                      <th style={{ textAlign: "right" }}>変動</th>
-                      <th style={{ textAlign: "right" }}>残高</th>
-                      <th>取得元</th>
-                      <th>担当</th>
-                      <th>備考</th>
-                      <th style={{ width: 100 }}>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTx.map((t) => {
-                      const isCancellable = t.type === "earned" && !t.cancelledBy;
-                      const isCancelled = !!t.cancelledBy;
-                      return (
-                      <tr key={t.id} className={isCancelled ? "is-cancelled" : ""}>
-                        <td className="pt-date-cell">{formatDateTime(t.occurredAt)}</td>
-                        <td>
-                          <span
-                            className="pt-type-chip"
-                            style={{ color: TX_META[t.type].color, background: TX_META[t.type].bg }}
-                          >
-                            {TX_META[t.type].label}
-                          </span>
-                          {isCancelled && <span className="pt-cancelled-chip">取消済</span>}
-                        </td>
-                        <td className={`pt-pts-cell ${t.points >= 0 ? "pos" : "neg"}`}>
-                          {formatPoints(t.points)}
-                        </td>
-                        <td className="pt-bal-cell">{formatBalance(t.balanceAfter)}</td>
-                        <td className="pt-src-cell">{t.source}</td>
-                        <td className="pt-op-cell">{t.operatorName ?? <span className="pt-na">—</span>}</td>
-                        <td className="pt-note-cell">{t.note ?? <span className="pt-na">—</span>}</td>
-                        <td>
-                          {isCancellable ? (
-                            <button className="pt-cancel-btn" onClick={() => setCancelTarget(t)}>
-                              取消
-                            </button>
-                          ) : (
-                            <span className="pt-na">—</span>
-                          )}
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            {/* 期間セレクタ (サンプル表示時は無効) */}
+            <div className="pt-period-bar">
+              <span className="pt-period-label">期間</span>
+              <input
+                type="date"
+                className="pt-period-input"
+                value={fromDate}
+                max={toDate}
+                disabled={isDemo}
+                onChange={(e) => setFromDate(e.target.value)}
+              />
+              <span className="pt-period-tilde">〜</span>
+              <input
+                type="date"
+                className="pt-period-input"
+                value={toDate}
+                min={fromDate}
+                disabled={isDemo}
+                onChange={(e) => setToDate(e.target.value)}
+              />
+              <button type="button" className="pt-period-apply" onClick={applyPeriod} disabled={isDemo || histLoading}>
+                適用
+              </button>
+              {isDemo && <span className="pt-period-note">サンプル表示中は期間指定は使用できません</span>}
+            </div>
+
+            {histErr && !isDemo ? (
+              <div className="pt-empty-inline">{histErr}</div>
+            ) : displayRows.length === 0 ? (
+              <div className="pt-empty-inline">
+                {histLoading ? "読み込み中…" : "この期間の変動履歴はありません。"}
               </div>
+            ) : (
+              <>
+                <div className="pt-table-wrap">
+                  <table className="pt-table">
+                    <thead>
+                      <tr>
+                        <th>日時</th>
+                        <th>種別</th>
+                        <th style={{ textAlign: "right" }}>変動</th>
+                        <th>店舗</th>
+                        <th>取得元</th>
+                        <th>担当</th>
+                        <th>備考</th>
+                        <th style={{ width: 90 }}>操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayRows.map((t) => (
+                        <tr key={t.id} className={t.cancelled ? "is-cancelled" : ""}>
+                          <td className="pt-date-cell">{formatDateTime(t.occurredAt)}</td>
+                          <td>
+                            <span
+                              className="pt-type-chip"
+                              style={{ color: TX_META[t.type].color, background: TX_META[t.type].bg }}
+                            >
+                              {TX_META[t.type].label}
+                            </span>
+                            {t.cancelled && <span className="pt-cancelled-chip">取消済</span>}
+                          </td>
+                          <td className={`pt-pts-cell ${t.points >= 0 ? "pos" : "neg"}`}>
+                            {formatPoints(t.points)}
+                          </td>
+                          <td className="pt-src-cell">{t.shopid ?? <span className="pt-na">—</span>}</td>
+                          <td className="pt-src-cell">{t.source}</td>
+                          <td className="pt-op-cell">{t.operatorName ?? <span className="pt-na">—</span>}</td>
+                          <td className="pt-note-cell">{t.note ?? <span className="pt-na">—</span>}</td>
+                          <td>
+                            {t.cancellableTxId ? (
+                              <button
+                                className="pt-cancel-btn"
+                                onClick={() => setCancelTarget({ txId: t.cancellableTxId!, points: t.points, occurredAt: t.occurredAt, source: t.source })}
+                              >
+                                取消
+                              </button>
+                            ) : (
+                              <span className="pt-na">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* ページ送り (実データのみ / 50行単位) */}
+                {!isDemo && (
+                  <div className="pt-pager">
+                    <button
+                      type="button"
+                      className="pt-pager-btn"
+                      onClick={() => gotoPage(page - 1)}
+                      disabled={page <= 1 || histLoading}
+                    >
+                      ← 前の50件
+                    </button>
+                    <span className="pt-pager-page">ページ {page}</span>
+                    <button
+                      type="button"
+                      className="pt-pager-btn"
+                      onClick={() => gotoPage(page + 1)}
+                      disabled={!hasNext || histLoading}
+                    >
+                      次の50件 →
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </section>
         </>
@@ -606,263 +755,192 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
 }
 
 // --- ダッシュボードタブ ---
-function DashboardTab({ clubCode }: { clubCode: string }) {
-  const [summary, setSummary] = useState<PointsSummary | null>(null);
+// --- ダッシュボードタブ (夜間集計ベースの分析) ---
+function thisMonthStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+const GENDER_LABEL: Record<string, string> = { male: "男性", female: "女性", unknown: "不明" };
+const GENDER_COLOR: Record<string, string> = { male: "#3b82f6", female: "#ec4899", unknown: "#94a3b8" };
+function ageLabel(b: string): string {
+  if (b === "unknown") return "不明";
+  if (b === "0") return "〜9歳";
+  if (b === "70") return "70代以上";
+  return `${b}代`;
+}
+function DeltaBadge({ label, value }: { label: string; value: number | null }) {
+  if (value == null) return <span className="pt-delta na">{label} —</span>;
+  const cls = value > 0 ? "up" : value < 0 ? "down" : "flat";
+  const arrow = value > 0 ? "▲" : value < 0 ? "▼" : "±";
+  return <span className={`pt-delta ${cls}`}>{label} {arrow}{Math.abs(value)}%</span>;
+}
+
+function DashboardTab({ clubCode, brand }: { clubCode: string; brand?: string }) {
+  const [month, setMonth] = useState<string>(thisMonthStr());
+  const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
 
-  const fetchData = useCallback(
-    async (demo: boolean) => {
-      setLoading(true);
-      try {
-        const q = new URLSearchParams({ clubCode });
-        if (demo) q.set("demo", "1");
-        const res = await fetch(`/api/store-settings/points/summary?${q}`);
-        if (res.ok) {
-          const data = await res.json();
-          setSummary(data.summary || null);
-          setIsDemo(!!data.isDemo);
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [clubCode]
-  );
+  const fetchData = useCallback(async (m: string) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/store-settings/points/summary?clubCode=${clubCode}&month=${m}`);
+      const d = await res.json();
+      setData(d?.ok ? d : null);
+    } catch (e) {
+      console.error(e);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [clubCode]);
 
-  useEffect(() => {
-    fetchData(false);
-  }, [fetchData]);
+  useEffect(() => { fetchData(month); }, [fetchData, month]);
 
-  const maxTrend = useMemo(() => {
-    if (!summary) return 1;
-    return Math.max(
-      1,
-      ...summary.dailyTrend.flatMap((d) => [d.earned, d.used])
-    );
-  }, [summary]);
+  const cur = data?.current ?? null;
+  const cmp = data?.compare;
+  const isFit365 = (data?.brand || brand || "").toUpperCase() === "FIT365";
+  const monthly = data?.monthly ?? [];
+  const maxMonthly = useMemo(() => Math.max(1, ...monthly.flatMap((m) => [m.granted, m.used])), [monthly]);
+  const genderKeys = ["male", "female", "unknown"];
+  const ageKeys = ["0", "10", "20", "30", "40", "50", "60", "70", "unknown"];
+  const maxGender = Math.max(1, ...genderKeys.map((k) => (cur?.byGender?.[k]?.granted ?? 0)));
+  const maxAge = Math.max(1, ...ageKeys.map((k) => (cur?.byAge?.[k]?.granted ?? 0)));
+  const rankRows = cur ? Object.entries(cur.byRank || {}).sort((a, b) => a[0].localeCompare(b[0])) : [];
+  const maxRank = Math.max(1, ...rankRows.map(([, v]) => v.granted));
 
   return (
     <>
-      <div className="pt-dash-actions">
-        {isDemo && <span className="pt-demo-badge">サンプルデータ表示中</span>}
-        <button
-          type="button"
-          className="pt-demo-btn"
-          onClick={() => fetchData(!isDemo)}
-        >
-          {isDemo ? "実データに戻す" : "サンプルを表示"}
-        </button>
+      {/* 期間セレクタ */}
+      <div className="pt-dash-head">
+        <div className="pt-dash-period">
+          <span className="pt-period-label">対象月</span>
+          <input type="month" className="pt-period-input" value={month} max={thisMonthStr()} onChange={(e) => setMonth(e.target.value)} />
+        </div>
+        <div className="pt-dash-meta">
+          {loading ? "読込中…" : data?.updatedAt ? `集計: ${formatDateTime(data.updatedAt)}` : ""}
+        </div>
       </div>
 
-      {/* サマリー */}
+      {!loading && !data?.available && (
+        <section className="pt-empty-state">
+          <div className="pt-empty-text">
+            この月の集計データはまだありません。<br />
+            集計は夜間バッチで作成されます（対象店舗が本番CPSSに登録済みで、当月のポイント処理がある場合に表示されます）。
+          </div>
+        </section>
+      )}
+
+      {/* KPI */}
       <section className="pt-summary-grid">
-        <SummaryCard
-          label="今月の付与"
-          value={summary ? formatBalance(summary.thisMonthEarned) : "—"}
-          sub={summary ? `本日: ${formatBalance(summary.todayEarned)}` : ""}
-          color="#10b981"
-          loading={loading}
-        />
-        <SummaryCard
-          label="今月の利用"
-          value={summary ? formatBalance(summary.thisMonthUsed) : "—"}
-          sub={summary ? `本日: ${formatBalance(summary.todayUsed)}` : ""}
-          color="#3b82f6"
-          loading={loading}
-        />
-        <SummaryCard
-          label="保有ポイント総額"
-          value={summary ? formatBalance(summary.totalActiveBalance) : "—"}
-          sub={summary ? `会員数: ${summary.totalMembers.toLocaleString("ja-JP")}` : ""}
-          color="#8b5cf6"
-          loading={loading}
-        />
-        <SummaryCard
-          label="来月失効予定"
-          value={summary ? formatBalance(summary.expiringNextMonth) : "—"}
-          sub={summary ? `今月失効: ${formatBalance(summary.thisMonthExpired)}` : ""}
-          color="#f59e0b"
-          loading={loading}
-        />
+        <div className="pt-kpi">
+          <div className="pt-kpi-label">付与ポイント合計</div>
+          <div className="pt-kpi-value earned">{cur ? formatBalance(cur.granted) : "—"}</div>
+          <div className="pt-kpi-deltas">
+            <DeltaBadge label="前月比" value={cmp?.grantedMoM ?? null} />
+            <DeltaBadge label="昨年比" value={cmp?.grantedYoY ?? null} />
+          </div>
+          <div className="pt-kpi-sub">{cur ? `${cur.grantedCount.toLocaleString("ja-JP")}件` : ""}</div>
+        </div>
+        <div className="pt-kpi">
+          <div className="pt-kpi-label">使用ポイント合計</div>
+          <div className="pt-kpi-value used">{cur ? formatBalance(cur.used) : "—"}</div>
+          <div className="pt-kpi-deltas">
+            <DeltaBadge label="前月比" value={cmp?.usedMoM ?? null} />
+            <DeltaBadge label="昨年比" value={cmp?.usedYoY ?? null} />
+          </div>
+          <div className="pt-kpi-sub">{cur ? `${cur.usedCount.toLocaleString("ja-JP")}件` : ""}</div>
+        </div>
+        <div className="pt-kpi">
+          <div className="pt-kpi-label">対象会員数</div>
+          <div className="pt-kpi-value">{cur ? cur.memberCount.toLocaleString("ja-JP") : "—"}</div>
+          <div className="pt-kpi-sub">当月にポイント変動のあった会員</div>
+        </div>
+        {isFit365 && (
+          <div className="pt-kpi">
+            <div className="pt-kpi-label">平均継続ヶ月</div>
+            <div className="pt-kpi-value">{cur?.avgTenureMonths != null ? `${cur.avgTenureMonths}ヶ月` : "—"}</div>
+            <div className="pt-kpi-sub">
+              {cur?.avgEarnToUseDays != null ? `取得→使用まで 平均${cur.avgEarnToUseDays}日 (${cur.earnToUseSamples}件)` : "取得→使用データなし"}
+            </div>
+          </div>
+        )}
       </section>
 
-      {/* トレンドチャート */}
+      {/* 月次サマリー */}
       <section className="pt-trend-card">
-        <h3 className="pt-section-title">過去14日間のポイント変動</h3>
-        {summary && summary.dailyTrend.length > 0 ? (
-          <div className="pt-trend-chart">
-            {summary.dailyTrend.map((d, i) => (
-              <div key={i} className="pt-trend-day">
-                <div className="pt-trend-bars">
-                  <div
-                    className="pt-trend-bar earned"
-                    style={{ height: `${(d.earned / maxTrend) * 100}%` }}
-                    title={`付与: ${d.earned}pt`}
-                  />
-                  <div
-                    className="pt-trend-bar used"
-                    style={{ height: `${(d.used / maxTrend) * 100}%` }}
-                    title={`利用: ${d.used}pt`}
-                  />
-                </div>
-                <div className="pt-trend-date">{d.date}</div>
+        <h3 className="pt-section-title">月次サマリー（直近12ヶ月）</h3>
+        <div className="pt-trend-chart">
+          {monthly.map((m) => (
+            <div key={m.ym} className="pt-trend-day">
+              <div className="pt-trend-bars">
+                <div className="pt-trend-bar earned" style={{ height: `${(m.granted / maxMonthly) * 100}%` }} title={`付与 ${m.granted.toLocaleString("ja-JP")}pt`} />
+                <div className="pt-trend-bar used" style={{ height: `${(m.used / maxMonthly) * 100}%` }} title={`使用 ${m.used.toLocaleString("ja-JP")}pt`} />
               </div>
-            ))}
-          </div>
-        ) : (
-          <div className="pt-mini-empty">データがありません</div>
-        )}
+              <div className="pt-trend-date">{m.ym.slice(5)}月</div>
+            </div>
+          ))}
+        </div>
         <div className="pt-trend-legend">
-          <span className="pt-legend-item">
-            <span className="pt-legend-dot earned" />
-            付与
-          </span>
-          <span className="pt-legend-item">
-            <span className="pt-legend-dot used" />
-            利用
-          </span>
+          <span className="pt-legend-item"><span className="pt-legend-dot earned" />付与</span>
+          <span className="pt-legend-item"><span className="pt-legend-dot used" />使用</span>
         </div>
       </section>
 
-      {/* 内訳 + トップ会員 */}
+      {/* 男女別 / 年代別 */}
       <section className="pt-breakdown-grid">
         <div className="pt-breakdown-card">
-          <h3 className="pt-section-title">種別内訳 (今月)</h3>
-          {summary && summary.byType.length > 0 ? (
+          <h3 className="pt-section-title">男女別（付与ポイント）</h3>
+          <div className="pt-bd-list">
+            {genderKeys.map((k) => {
+              const v = cur?.byGender?.[k] ?? { granted: 0, used: 0, members: 0 };
+              return (
+                <div key={k} className="pt-bd-row">
+                  <span className="pt-type-chip" style={{ color: "#fff", background: GENDER_COLOR[k] }}>{GENDER_LABEL[k]}</span>
+                  <div className="pt-bd-track"><div className="pt-bd-fill" style={{ width: `${(v.granted / maxGender) * 100}%`, background: GENDER_COLOR[k] }} /></div>
+                  <span className="pt-bd-value">{v.granted.toLocaleString("ja-JP")}pt / {v.members}名</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="pt-breakdown-card">
+          <h3 className="pt-section-title">年代別（付与ポイント）</h3>
+          <div className="pt-bd-list">
+            {ageKeys.filter((k) => (cur?.byAge?.[k]?.members ?? 0) > 0).map((k) => {
+              const v = cur!.byAge[k];
+              return (
+                <div key={k} className="pt-bd-row">
+                  <span className="pt-type-chip" style={{ color: "#0369a1", background: "#e0f2fe", minWidth: 64, textAlign: "center" }}>{ageLabel(k)}</span>
+                  <div className="pt-bd-track"><div className="pt-bd-fill" style={{ width: `${(v.granted / maxAge) * 100}%`, background: "#0ea5e9" }} /></div>
+                  <span className="pt-bd-value">{v.granted.toLocaleString("ja-JP")}pt / {v.members}名</span>
+                </div>
+              );
+            })}
+            {cur && !ageKeys.some((k) => (cur.byAge?.[k]?.members ?? 0) > 0) && <div className="pt-mini-empty">データがありません</div>}
+          </div>
+        </div>
+      </section>
+
+      {/* FIT365: ランク内訳 */}
+      {isFit365 && (
+        <section className="pt-breakdown-card" style={{ marginBottom: 20 }}>
+          <h3 className="pt-section-title">ランク内訳（FIT365 / 付与ポイント）</h3>
+          {rankRows.length > 0 ? (
             <div className="pt-bd-list">
-              {summary.byType.map((b) => {
-                const max = Math.max(...summary.byType.map((x) => x.total), 1);
-                const w = (b.total / max) * 100;
-                return (
-                  <div key={b.type} className="pt-bd-row">
-                    <span
-                      className="pt-type-chip"
-                      style={{ color: TX_META[b.type].color, background: TX_META[b.type].bg }}
-                    >
-                      {TX_META[b.type].label}
-                    </span>
-                    <div className="pt-bd-track">
-                      <div
-                        className="pt-bd-fill"
-                        style={{ width: `${w}%`, background: TX_META[b.type].color }}
-                      />
-                    </div>
-                    <span className="pt-bd-value">
-                      {b.count}件 / {b.total.toLocaleString("ja-JP")}pt
-                    </span>
-                  </div>
-                );
-              })}
+              {rankRows.map(([rk, v]) => (
+                <div key={rk} className="pt-bd-row">
+                  <span className="pt-type-chip" style={{ color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", minWidth: 64, textAlign: "center" }}>ランク{rk}</span>
+                  <div className="pt-bd-track"><div className="pt-bd-fill" style={{ width: `${(v.granted / maxRank) * 100}%`, background: "#f59e0b" }} /></div>
+                  <span className="pt-bd-value">{v.granted.toLocaleString("ja-JP")}pt / {v.members}名</span>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="pt-mini-empty">データがありません</div>
+            <div className="pt-mini-empty">ランク別データがありません</div>
           )}
-        </div>
-
-        <div className="pt-breakdown-card">
-          <h3 className="pt-section-title">保有ポイント TOP 5</h3>
-          {summary && summary.topMembers.length > 0 ? (
-            <ol className="pt-top-list">
-              {summary.topMembers.map((m, idx) => (
-                <li key={m.memberCode} className="pt-top-row">
-                  <span className={`pt-top-rank rank-${idx + 1}`}>{idx + 1}</span>
-                  <div className="pt-top-info">
-                    <div className="pt-top-name">{m.memberName}</div>
-                    <code className="pt-top-code">{m.memberCode}</code>
-                  </div>
-                  <span className="pt-top-balance">{formatBalance(m.balance)}</span>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <div className="pt-mini-empty">データがありません</div>
-          )}
-        </div>
-      </section>
-
-      {/* 直近トランザクション */}
-      <section className="pt-list-card">
-        <div className="pt-list-header">
-          <h2 className="pt-list-title">
-            直近のポイント変動
-            <span className="pt-count">{summary?.recentTransactions.length ?? 0}</span>
-          </h2>
-        </div>
-
-        {summary && summary.recentTransactions.length > 0 ? (
-          <div className="pt-table-wrap">
-            <table className="pt-table">
-              <thead>
-                <tr>
-                  <th>日時</th>
-                  <th>会員</th>
-                  <th>種別</th>
-                  <th style={{ textAlign: "right" }}>変動</th>
-                  <th>取得元</th>
-                </tr>
-              </thead>
-              <tbody>
-                {summary.recentTransactions.map((t) => (
-                  <tr key={t.id}>
-                    <td className="pt-date-cell">{formatDateTime(t.occurredAt)}</td>
-                    <td>
-                      <div className="pt-recent-member">
-                        <span className="pt-recent-name">{t.memberName}</span>
-                        <code className="pt-recent-code">{t.memberCode}</code>
-                      </div>
-                    </td>
-                    <td>
-                      <span
-                        className="pt-type-chip"
-                        style={{ color: TX_META[t.type].color, background: TX_META[t.type].bg }}
-                      >
-                        {TX_META[t.type].label}
-                      </span>
-                    </td>
-                    <td className={`pt-pts-cell ${t.points >= 0 ? "pos" : "neg"}`}>
-                      {formatPoints(t.points)}
-                    </td>
-                    <td className="pt-src-cell">{t.source}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="pt-empty-inline">
-            {loading ? "読み込み中..." : "ポイント変動データはまだありません。"}
-          </div>
-        )}
-      </section>
+        </section>
+      )}
     </>
-  );
-}
-
-function SummaryCard({
-  label,
-  value,
-  sub,
-  color,
-  loading,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  color: string;
-  loading: boolean;
-}) {
-  return (
-    <div className="pt-summary-card">
-      <div className="pt-summary-bar" style={{ background: color }} />
-      <div className="pt-summary-body">
-        <div className="pt-summary-label">{label}</div>
-        <div className="pt-summary-value">{loading ? "—" : value}</div>
-        {sub && <div className="pt-summary-sub">{sub}</div>}
-      </div>
-    </div>
   );
 }
 
@@ -949,7 +1027,7 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         {tab === "member" ? (
           <MemberSearchTab clubCode={clubCode} />
         ) : (
-          <DashboardTab clubCode={clubCode} />
+          <DashboardTab clubCode={clubCode} brand={store?.brand} />
         )}
       </main>
 
@@ -1093,6 +1171,23 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .pt-filter-chip:hover { background: #e2e8f0; color: #334155; }
         .pt-filter-chip.active { background: #d1fae5; color: #047857; border-color: #6ee7b7; }
 
+        /* 期間セレクタ */
+        .pt-period-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+        .pt-period-label { font-size: 11px; font-weight: 700; color: #64748b; }
+        .pt-period-input { padding: 7px 10px; border: 1.5px solid #cbd5e1; border-radius: 8px; font-size: 13px; font-family: inherit; color: #0f172a; background: #fff; }
+        .pt-period-input:disabled { background: #f1f5f9; color: #94a3b8; cursor: not-allowed; }
+        .pt-period-tilde { color: #94a3b8; font-weight: 700; }
+        .pt-period-apply { padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; cursor: pointer; box-shadow: 0 2px 6px rgba(16,185,129,0.3); }
+        .pt-period-apply:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+        .pt-period-note { font-size: 11px; color: #94a3b8; }
+
+        /* ページ送り */
+        .pt-pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
+        .pt-pager-btn { padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; background: #fff; color: #047857; border: 1.5px solid #a7f3d0; cursor: pointer; transition: 0.15s; }
+        .pt-pager-btn:hover:not(:disabled) { background: #ecfdf5; }
+        .pt-pager-btn:disabled { opacity: 0.4; cursor: not-allowed; color: #94a3b8; border-color: #e2e8f0; }
+        .pt-pager-page { font-size: 13px; font-weight: 700; color: #475569; font-variant-numeric: tabular-nums; }
+
         .pt-table-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
         .pt-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 900px; }
         .pt-table th { background: #f8fafc; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
@@ -1115,6 +1210,21 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .pt-recent-code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-family: "SF Mono", monospace; color: #64748b; font-weight: 600; width: fit-content; }
 
         /* ダッシュボード */
+        .pt-dash-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+        .pt-dash-period { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+        .pt-dash-meta { font-size: 12px; color: #94a3b8; font-weight: 600; }
+        .pt-kpi { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 8px; }
+        .pt-kpi-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; }
+        .pt-kpi-value { font-size: 26px; font-weight: 800; color: #0f172a; font-variant-numeric: tabular-nums; line-height: 1.1; }
+        .pt-kpi-value.earned { color: #047857; }
+        .pt-kpi-value.used { color: #1d4ed8; }
+        .pt-kpi-deltas { display: flex; gap: 8px; flex-wrap: wrap; }
+        .pt-kpi-sub { font-size: 12px; color: #64748b; }
+        .pt-delta { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 99px; white-space: nowrap; }
+        .pt-delta.up { background: #dcfce7; color: #15803d; }
+        .pt-delta.down { background: #fee2e2; color: #b91c1c; }
+        .pt-delta.flat { background: #f1f5f9; color: #475569; }
+        .pt-delta.na { background: #f8fafc; color: #cbd5e1; }
         .pt-dash-actions { display: flex; justify-content: flex-end; gap: 10px; align-items: center; margin-bottom: 16px; }
         .pt-demo-badge { font-size: 11px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #93c5fd; padding: 4px 10px; border-radius: 99px; }
         .pt-demo-btn { background: #fff; border: 1.5px solid #e2e8f0; color: #475569; padding: 7px 14px; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; transition: 0.15s; }

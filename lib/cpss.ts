@@ -123,6 +123,32 @@ export async function getMemberForApp(brand: CpssBrand, env: CpssEnv, args: {
   });
 }
 
+// 店舗の指定期間ポイント履歴 (CSPM。店舗単位で全会員の加算/減算を返す。result.pages に総ページ数)。
+// 各行: direction(ADD/SUB), point, rank(会員ランク), effective/operate(日時), hid, scode, status, 対向アカウントID(会員)。
+export async function getHistoryShopTimeSpan(brand: CpssBrand, env: CpssEnv, args: {
+  shopid: string; sdate: string; edate: string; ptypes?: string;
+  lines?: number; page?: number; order?: "asc" | "desc";
+}): Promise<any> {
+  return call(brand, env, "cspm", "get_history_shop_time_span", {
+    shopid: args.shopid, sdate: args.sdate, edate: args.edate,
+    ptypes: args.ptypes || "point",
+    lines: args.lines, page: args.page, order: args.order || "desc",
+  });
+}
+
+// 会員の指定期間ポイント履歴 (CSPM。sdate/edate は YmdHis, edate は非包含。lines/page でページング)。
+// order=desc(既定)で新しい順。result.history[] を返す。
+export async function getHistoryTimeSpan(brand: CpssBrand, env: CpssEnv, args: {
+  aid: string; sdate: string; edate: string; ptypes?: string;
+  lines?: number; page?: number; order?: "asc" | "desc";
+}): Promise<any> {
+  return call(brand, env, "cspm", "get_history_time_span", {
+    aid: args.aid, sdate: args.sdate, edate: args.edate,
+    ptypes: args.ptypes || "point",
+    lines: args.lines, page: args.page, order: args.order || "desc",
+  });
+}
+
 // 店舗からの手動ポイント付与 (固定ポイント)。返り値に hid(履歴ID)。
 export async function givePoint(brand: CpssBrand, env: CpssEnv, args: {
   aid: string; shopid: string; point: number; reqid: string; ptype?: string; hid?: string;

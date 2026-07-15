@@ -101,6 +101,28 @@ async function getMemberForApp(brand, env, args) {
     expires: args.expires ? "true" : void 0
   });
 }
+async function getHistoryShopTimeSpan(brand, env, args) {
+  return call(brand, env, "cspm", "get_history_shop_time_span", {
+    shopid: args.shopid,
+    sdate: args.sdate,
+    edate: args.edate,
+    ptypes: args.ptypes || "point",
+    lines: args.lines,
+    page: args.page,
+    order: args.order || "desc"
+  });
+}
+async function getHistoryTimeSpan(brand, env, args) {
+  return call(brand, env, "cspm", "get_history_time_span", {
+    aid: args.aid,
+    sdate: args.sdate,
+    edate: args.edate,
+    ptypes: args.ptypes || "point",
+    lines: args.lines,
+    page: args.page,
+    order: args.order || "desc"
+  });
+}
 async function givePoint(brand, env, args) {
   return call(brand, env, "cspm", "give_point", {
     aid: args.aid,
@@ -203,6 +225,12 @@ var handler = async (event) => {
         break;
       case "getMemberForApp":
         result = await getMemberForApp(brand, env, a);
+        break;
+      case "getHistoryTimeSpan":
+        result = await getHistoryTimeSpan(brand, env, a);
+        break;
+      case "getHistoryShopTimeSpan":
+        result = await getHistoryShopTimeSpan(brand, env, a);
         break;
       case "givePoint":
         result = await givePoint(brand, env, a);

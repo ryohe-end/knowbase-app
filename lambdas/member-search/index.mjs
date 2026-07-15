@@ -1185,6 +1185,51 @@ export const handler = async (event) => {
     } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
 
+  // ポイント集計用: 会員番号リスト → 性別/生年月日/入会日 を一括取得
+  //   POST body(base64 payload) { memberNos: ["5110001234", ...] }  (最大1000件)
+  if (type === "demographics") {
+    let body = {};
+    try {
+      if (params.payload) body = JSON.parse(Buffer.from(params.payload, "base64").toString("utf-8"));
+      else if (event.body) body = JSON.parse(event.body);
+    } catch (_) { body = {}; }
+    const nos = (Array.isArray(body.memberNos) ? body.memberNos : [])
+      .map((s) => String(s).trim()).filter((s) => /^\d+$/.test(s)).slice(0, 1000);
+    if (nos.length === 0) return resp(400, { error: "missing_params", required: ["memberNos"] });
+    const binds = {};
+    const inList = nos.map((v, i) => { binds[`m${i}`] = v; return `:m${i}`; }).join(",");
+    const sql = `
+      SELECT
+        b.会員番号 AS MEMBER_NO,
+        a.性別コード AS GENDER_CODE,
+        CASE WHEN a.生年月日 BETWEEN 18000101 AND 30000101
+             THEN SUBSTR(TO_CHAR(a.生年月日),1,4)||'-'||SUBSTR(TO_CHAR(a.生年月日),5,2)||'-'||SUBSTR(TO_CHAR(a.生年月日),7,2) END AS BIRTHDAY,
+        (SELECT TO_CHAR(MIN(c.入会届出日)) FROM FIT_ADMIN."会員契約" c WHERE c.契約者SEQ = b.契約者SEQ) AS JOIN_DATE
+      FROM FIT_ADMIN."会員番号" b
+      JOIN FIT_ADMIN."個人" a ON a.個人SEQ = b.個人SEQ
+      WHERE b.会員番号 IN (${inList})`;
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const results = (r.rows || []).map((x) => {
+        const jr = x.JOIN_DATE != null ? String(x.JOIN_DATE) : null;
+        const joinDate = jr && jr.length === 8 ? `${jr.slice(0,4)}-${jr.slice(4,6)}-${jr.slice(6,8)}` : null;
+        return {
+          memberNo: String(x.MEMBER_NO),
+          genderCode: x.GENDER_CODE != null ? Number(x.GENDER_CODE) : null, // 1=男 2=女
+          birthday: x.BIRTHDAY || null,
+          joinDate,
+        };
+      });
+      return resp(200, { results, totalCount: results.length });
+    } catch (err) {
+      console.error("demographics error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // クラブ住所一括取得は q 不要なので別経路
   if (type === "club_addresses") {
     let conn;

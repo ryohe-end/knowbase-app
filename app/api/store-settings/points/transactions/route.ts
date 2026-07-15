@@ -20,6 +20,7 @@ import { randomUUID } from "crypto";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
 import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
 import { cpssCall } from "@/lib/cpssProxy";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import { POINT_REASONS, type PointReason, type PointTransaction } from "@/types/pointTransaction";
 
 export const runtime = "nodejs";
@@ -134,6 +135,13 @@ export async function POST(req: Request) {
         svalue: body.reason,
       });
       if (!cp.ok) {
+        void writeAudit({
+          userId: user.email || user.userId, userName: user.name,
+          action: "points.grant", resource: `member:${body.memberCode}`,
+          clubCodes: [club], targetCount: points, result: "error",
+          detail: { brand, points, reason: body.reason, code: cp.code, error: cp.cpssMsg || cp.error },
+          ip: clientIp(req),
+        });
         return NextResponse.json(
           { ok: false, error: `ポイント付与に失敗しました: ${cp.cpssMsg || cp.error}`, code: cp.code },
           { status: 502 }
@@ -166,6 +174,13 @@ export async function POST(req: Request) {
       } catch (e) {
         console.error("[points transactions] grant CPSS ok but DDB write failed", e);
       }
+      void writeAudit({
+        userId: user.email || user.userId, userName: user.name,
+        action: "points.grant", resource: `member:${body.memberCode}`,
+        clubCodes: [club], targetCount: points, result: "ok",
+        detail: { brand, points, reason: body.reason, note: body.note, hid: tx.hid, balanceAfter: tx.cpssBalanceAfter, transactionId },
+        ip: clientIp(req),
+      });
       return NextResponse.json({ ok: true, transaction: tx });
     }
 
@@ -201,6 +216,13 @@ export async function POST(req: Request) {
           reqid: `${source.transactionId}-C`,
         });
         if (!cp.ok) {
+          void writeAudit({
+            userId: user.email || user.userId, userName: user.name,
+            action: "points.cancel", resource: `member:${body.memberCode}`,
+            clubCodes: [club], targetCount: source.points, result: "error",
+            detail: { brand, sourceTransactionId: source.transactionId, hid: source.hid, points: source.points, code: cp.code, error: cp.cpssMsg || cp.error },
+            ip: clientIp(req),
+          });
           return NextResponse.json(
             { ok: false, error: `ポイント取消に失敗しました: ${cp.cpssMsg || cp.error}`, code: cp.code },
             { status: 502 }
@@ -243,6 +265,13 @@ export async function POST(req: Request) {
       };
       await ddb.send(new PutCommand({ TableName: TABLE, Item: updated }));
 
+      void writeAudit({
+        userId: user.email || user.userId, userName: user.name,
+        action: "points.cancel", resource: `member:${body.memberCode}`,
+        clubCodes: [club], targetCount: source.points, result: "ok",
+        detail: { brand, sourceTransactionId: source.transactionId, hid: source.hid, points: source.points, balanceAfter: cancelBalance, note: body.note },
+        ip: clientIp(req),
+      });
       return NextResponse.json({ ok: true, transaction: tx, source: updated });
     }
 

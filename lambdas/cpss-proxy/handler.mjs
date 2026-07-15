@@ -16,6 +16,8 @@ export const handler = async (event) => {
       case "addMember": result = await cpss.addMember(brand, env, a); break;
       case "updateMember": result = await cpss.updateMember(brand, env, a); break;
       case "getMemberForApp": result = await cpss.getMemberForApp(brand, env, a); break;
+      case "getHistoryTimeSpan": result = await cpss.getHistoryTimeSpan(brand, env, a); break;
+      case "getHistoryShopTimeSpan": result = await cpss.getHistoryShopTimeSpan(brand, env, a); break;
       case "givePoint": result = await cpss.givePoint(brand, env, a); break;
       case "usePoint": result = await cpss.usePoint(brand, env, a); break;
       case "removePoint": result = await cpss.removePoint(brand, env, a); break;
