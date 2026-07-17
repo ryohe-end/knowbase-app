@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { RefundApplication as ApiApplication } from "@/types/refundApplication";
 import { useRefundGuard } from "@/lib/useRefundGuard";
+import Encoding from "encoding-japanese";
 
 type RefundApp = {
   id: string;
@@ -154,6 +155,28 @@ function csvField(v: string | number): string {
 function downloadFile(filename: string, content: string, mime = "text/csv;charset=utf-8") {
   const bom = "﻿"; // Excelで文字化け回避
   const blob = new Blob([bom + content], { type: mime });
+  triggerDownload(filename, blob);
+}
+
+// 全銀データ用: Shift_JIS(CP932)・BOM無しでダウンロードする。
+// 銀行取込ツールが Shift_JIS を前提とするため、UTF-8ではなくSJISバイト列で出力する。
+function downloadSjis(filename: string, content: string) {
+  const sjis = Encoding.convert(Encoding.stringToCode(content), { to: "SJIS", from: "UNICODE" });
+  const blob = new Blob([new Uint8Array(sjis)], { type: "text/csv" });
+  triggerDownload(filename, blob);
+}
+
+// 口座名義を半角(カナ・英数・スペース)へ変換する。全銀データは半角前提。
+function toHankakuKana(s: string | undefined): string {
+  let c = Encoding.stringToCode(String(s ?? ""));
+  c = Encoding.toKatakanaCase(c); // ひらがな→カタカナ
+  c = Encoding.toHankanaCase(c);  // 全角カナ→半角カナ
+  c = Encoding.toHankakuCase(c);  // 全角英数記号→半角
+  c = Encoding.toHankakuSpace(c); // 全角スペース→半角
+  return Encoding.codeToString(c);
+}
+
+function triggerDownload(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -417,47 +440,22 @@ export default function RefundFinancePage() {
     const hhmm = `${String(stamp.getHours()).padStart(2, "0")}${String(stamp.getMinutes()).padStart(2, "0")}`;
     const rand = Math.random().toString(36).slice(2, 7).toUpperCase();
     const batchId = `BATCH-${stampShort}-${hhmm}-${rand}`;
-    const total = selectedApps.reduce((s, a) => s + a.totalAmount, 0);
 
-    // 全銀協 総合振込フォーマット（CSV版）
-    // レコード区分 1=ヘッダ, 2=データ, 8=トレーラ, 9=エンド
-    const yymmdd = stampShort.slice(2);                          // YYMMDD
-    const scheduledYmd = scheduled.replace(/-/g, "").slice(2);   // YYMMDD
-    const senderCode = "0000001234";                              // 委託者コード（仮）
-    const senderKana = "ｵｶﾓﾄｸﾞﾙｰﾌﾟ";
-    const senderBankCode = "0009";                                // 委託元銀行（仮：三井住友）
-    const senderBankName = "ﾐﾂｲｽﾐﾄﾓ";
-    const senderBranchCode = "001";
-    const senderBranchName = "ﾎﾝﾃﾝ";
-    const senderAcctType = "1";                                   // 普通
-    const senderAcct = "0000001";
-
-    const header = [
-      "1", "21", senderCode, senderKana, yymmdd, scheduledYmd,
-      senderBankCode, senderBankName, senderBranchCode, senderBranchName,
-      senderAcctType, senderAcct, "",
-    ];
-    const data = selectedApps.map((a) => [
-      "2",
-      a.account.bankCode,
-      a.account.bankName,
-      a.account.branchCode,
-      a.account.branchName,
-      "",                                  // 手形交換所番号
-      a.account.accountType,               // 1=普通, 2=当座
-      a.account.accountNumber,
-      a.account.holderName,
+    // 全銀データ (見本「全銀データ作成見本.csv」準拠)
+    //   6列: 銀行コード, 支店コード, 預金種別(1=普通/2=当座), 口座番号, 口座名義(半角カナ), 金額
+    //   文字コード: Shift_JIS(CP932) / 改行: CRLF / BOM無し / 末尾にも改行
+    const zenginHeader = ["銀行コード", "支店コード", "預金種別", "口座番号", "口座名義", "金額"];
+    const zenginRows = selectedApps.map((a) => [
+      a.account.bankCode ?? "",             // 保存値そのまま(ゼロ除去なし)
+      a.account.branchCode ?? "",           // 保存値そのまま(ゼロ除去なし)
+      "1",                                   // 預金種別は 1(普通) 固定
+      a.account.accountNumber ?? "",
+      toHankakuKana(a.account.holderName),  // 口座名義は半角
       String(a.totalAmount),
-      "7",                                  // 新規コード（7=テレ振込）
-      a.memberId,                           // 顧客コード1
-      a.id,                                 // 顧客コード2
-      "",                                   // EDI情報
     ]);
-    const trailer = ["8", String(selectedApps.length), String(total), "", ""];
-    const end = ["9", "", "", ""];
-
-    const csv = [header, ...data, trailer, end].map((r) => r.map(csvField).join(",")).join("\r\n");
-    downloadFile(`zengin_refund_${stampShort}.csv`, csv);
+    const csv =
+      [zenginHeader, ...zenginRows].map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+    downloadSjis(`zengin_data_${stampShort}.csv`, csv);
 
     // 銀行別内訳サマリ CSV (社内管理用)
     const summaryHeaders = ["バッチID", "申請ID", "会員ID", "会員名", "銀行コード", "銀行名", "支店", "種別", "口座番号", "名義人", "金額", "申請理由"];
@@ -967,7 +965,7 @@ export default function RefundFinancePage() {
             <h3><FileSpreadsheet size={20} /> 全銀協 振込CSVを出力</h3>
             <p>
               選択された <strong>{selectedIds.size} 件</strong> の返金申請を、
-              全銀協データ伝送方式に準じた <strong>1ファイル</strong> に統合して出力します。
+              全銀データ形式（Shift_JIS）の <strong>1ファイル</strong> に統合して出力します。
               社内管理用の内訳サマリCSVも同時にダウンロードされます。
             </p>
 
@@ -975,14 +973,15 @@ export default function RefundFinancePage() {
               <div className="rff-modal-summary-row"><span>選択件数</span><strong>{selectedIds.size} 件</strong></div>
               <div className="rff-modal-summary-row"><span>振込金額合計</span><strong style={{ color: "#6d28d9" }}>¥{selectedTotal.toLocaleString()}</strong></div>
               <div className="rff-modal-summary-row"><span>対象銀行</span><strong>{selectedBanks.length} 行</strong></div>
+              <div className="rff-modal-summary-row"><span>形式</span><strong>全銀データ（Shift_JIS）</strong></div>
             </div>
 
             <div className="rff-modal-banks">
               <div className="rff-modal-banks-h">出力ファイル</div>
               <div className="rff-modal-bank-row">
                 <div>
-                  <div className="rff-modal-bank-name"><FileSpreadsheet size={14} /> 全銀協 総合振込CSV</div>
-                  <div className="rff-modal-bank-file mono">zengin_refund_{today.replace(/-/g, "")}.csv</div>
+                  <div className="rff-modal-bank-name"><FileSpreadsheet size={14} /> 全銀データ（Shift_JIS）</div>
+                  <div className="rff-modal-bank-file mono">zengin_data_{today.replace(/-/g, "")}.csv</div>
                 </div>
                 <div className="rff-modal-bank-amount">{selectedIds.size}件 / ¥{selectedTotal.toLocaleString()}</div>
               </div>

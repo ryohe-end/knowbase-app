@@ -349,7 +349,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       action: `refund.${action}`,
       clubCodes: app.clubCode ? [String(app.clubCode)] : undefined,
       resource: `refundApplication:${app.applicationId ?? id}`,
-      detail: { toStatus: app.status, memberNo: app.memberNo, amount: app.totalAmount ?? (app as any).amount },
+      detail: {
+        toStatus: app.status,
+        memberNo: app.memberNo,
+        amount: app.totalAmount ?? (app as any).amount,
+        batchId: (app as any).transferBatchId ?? undefined,
+        transferResult: (app as any).transferResult ?? undefined,
+        failureReason: (app as any).failureReason ?? undefined,
+      },
       ip: clientIp(req),
     });
     return NextResponse.json({ ok: true, application: app });

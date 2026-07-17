@@ -29,6 +29,7 @@
     "@sendgrid/mail": "^8.1.6",
     "@smithy/node-http-handler": "^4.4.7",
     "@types/uuid": "^10.0.0",
+    "encoding-japanese": "^2.2.0",
     "firebase": "^11.10.0",
     "googleapis": "^168.0.0",
     "html-pdf-node": "^1.0.8",
