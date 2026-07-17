@@ -115,6 +115,17 @@ export default function StoreSettingsMenu() {
             icon: <ShieldIcon />,
             color: "#64748b",
           },
+          {
+            title: "法人ウェルネスパス（全社）",
+            desc: "福利厚生の外部販売（BenefitOne/ReloClub 等）の全社売上・提供元別実績・AI分析を参照します（本部/全社）。",
+            href: "/wellness-pass",
+            icon: (
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z" />
+              </svg>
+            ),
+            color: "#2563eb",
+          },
         ]
       : []),
   ];

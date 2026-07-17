@@ -1641,10 +1641,9 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
     },
     {
       title: "オプション都度利用",
-      desc: "オプションの都度利用設定、料金、利用条件を管理します。",
+      desc: "各オプションの都度利用料金・提供状況・販売実績を参照します（読み取り専用）。",
       href: `/store-settings/basic/option-usage?clubCode=${clubCode}`,
       color: "#8b5cf6",
-      comingSoon: true,
       iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
     },
     {

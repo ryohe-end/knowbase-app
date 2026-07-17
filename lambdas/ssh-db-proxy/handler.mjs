@@ -10,6 +10,7 @@ import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-sec
 import net from "node:net";
 import ssh2 from "ssh2";
 import pg from "pg";
+import mysql from "mysql2/promise";
 
 const TARGETS = (() => { try { return JSON.parse(process.env.SSHDB_TARGETS || "{}"); } catch { return {}; } })();
 const sm = new SecretsManagerClient({});
@@ -25,8 +26,46 @@ async function getConfig(target) {
   return cfgCache[target];
 }
 
-// SSH ローカルフォワード: 127.0.0.1:<ephemeral> → bastion → RDS。pg は通常ソケットで接続する。
-// queries: [{text, params}] を1接続で順次実行し、結果配列を返す(踏み台SSHを1本で済ませる)。
+// host:port に pg/mysql で接続し queries を順次実行して結果配列を返す。
+async function runQueries(host, port, cfg, queries) {
+  if ((cfg.dbType || "postgres").toLowerCase() === "mysql") {
+    let conn;
+    try {
+      conn = await mysql.createConnection({
+        host, port, user: cfg.dbUser, password: cfg.dbPassword, database: cfg.dbName,
+        connectTimeout: 15000, ...(cfg.ssl === false ? {} : { ssl: { rejectUnauthorized: false } }),
+      });
+      const results = [];
+      for (const q of queries) {
+        const [rows] = await conn.query(q.text, Array.isArray(q.params) ? q.params : []);
+        if (Array.isArray(rows)) results.push({ rows, rowCount: rows.length });
+        else results.push({ rows: [], rowCount: rows?.affectedRows ?? 0, insertId: rows?.insertId });
+      }
+      return results;
+    } finally { try { conn && await conn.end(); } catch {} }
+  }
+  const client = new pg.Client({
+    host, port, user: cfg.dbUser, password: cfg.dbPassword, database: cfg.dbName,
+    ssl: cfg.ssl === false ? false : { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000, statement_timeout: 60000,
+  });
+  try {
+    await client.connect();
+    const results = [];
+    for (const q of queries) {
+      const res = await client.query(q.text, Array.isArray(q.params) ? q.params : []);
+      results.push({ rows: res.rows, rowCount: res.rowCount });
+    }
+    return results;
+  } finally { try { await client.end(); } catch {} }
+}
+
+// 踏み台なし直結 (DBが固定egress 34.199.173.5 から直接到達可能な場合。さくら等)。
+function directExec(cfg, queries) {
+  return runQueries(cfg.dbHost, Number(cfg.dbPort), cfg, queries);
+}
+
+// SSH ローカルフォワード: 127.0.0.1:<ephemeral> → bastion → RDS。踏み台越しでしか届かないDB用。
 function tunnelExec(cfg, queries) {
   return new Promise((resolve, reject) => {
     const ssh = new ssh2.Client();
@@ -47,28 +86,10 @@ function tunnelExec(cfg, queries) {
       });
       server.on("error", (e) => { clearTimeout(timer); done(reject, e); });
       server.listen(0, "127.0.0.1", async () => {
-        const port = server.address().port;
-        const client = new pg.Client({
-          host: "127.0.0.1", port,
-          user: cfg.dbUser, password: cfg.dbPassword, database: cfg.dbName,
-          ssl: cfg.ssl === false ? false : { rejectUnauthorized: false },
-          connectionTimeoutMillis: 15000, statement_timeout: 60000,
-        });
         try {
-          await client.connect();
-          const results = [];
-          for (const q of queries) {
-            const res = await client.query(q.text, Array.isArray(q.params) ? q.params : []);
-            results.push({ rows: res.rows, rowCount: res.rowCount });
-          }
-          try { await client.end(); } catch {}
-          clearTimeout(timer);
-          done(resolve, results);
-        } catch (e) {
-          try { await client.end(); } catch {}
-          clearTimeout(timer);
-          done(reject, e);
-        }
+          const results = await runQueries("127.0.0.1", server.address().port, cfg, queries);
+          clearTimeout(timer); done(resolve, results);
+        } catch (e) { clearTimeout(timer); done(reject, e); }
       });
     });
     ssh.on("error", (e) => { clearTimeout(timer); done(reject, e); });
@@ -84,7 +105,8 @@ export const handler = async (event) => {
   if (!queries || queries.length === 0) return { ok: false, error: "text or queries required" };
   try {
     const cfg = await getConfig(target);
-    const results = await tunnelExec(cfg, queries);
+    // bastionHost があれば踏み台トンネル、無ければ固定egressから直結
+    const results = cfg.bastionHost ? await tunnelExec(cfg, queries) : await directExec(cfg, queries);
     if (batch) return { ok: true, results };
     return { ok: true, rows: results[0].rows, rowCount: results[0].rowCount };
   } catch (e) {

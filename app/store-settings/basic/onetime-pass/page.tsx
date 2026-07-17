@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { v4 as uuidv4 } from "uuid";
 import StoreSelector from "@/components/StoreSelector";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
+import { runAiAnalysis } from "@/lib/aiPoll";
+import AiSpinner from "@/components/AiSpinner";
 import { ToastProvider, useToast } from "@/components/Toast";
 
 // --- 型 ---
@@ -172,9 +174,9 @@ type PurchaseSummary = {
   byDuration: { durationMinutes: number; count: number; sales: number }[];
   byStatus: { status: PurchaseStatus; count: number }[];
   byGender: { gender: Gender; count: number; sales: number }[];
-  byAgeGroup: { ageGroup: AgeGroup; count: number; sales: number; averageAge: number }[];
+  byAgeGroup: { ageGroup: AgeGroup; count: number; sales: number; averageAge: number; male: number; female: number; other: number; unknown: number }[];
   byHour: { hour: number; count: number; sales: number }[];
-  byDayOfWeek: { dayOfWeek: number; label: string; count: number; sales: number }[];
+  byDayOfWeek: { dayOfWeek: number; label: string; count: number; sales: number; usedCount: number }[];
   topCustomers: { memberCode: string | null; memberName: string; purchaseCount: number; totalSales: number; lastPurchasedAt: string }[];
 };
 
@@ -203,6 +205,32 @@ const AGE_GROUP_META: Record<AgeGroup, { label: string; color: string }> = {
   "40s": { label: "40代", color: "#f59e0b" },
   "50s": { label: "50代", color: "#f97316" },
   "60plus": { label: "60歳〜", color: "#ef4444" },
+};
+
+// チケット操作 (t1pass への書き込み)
+type TicketOp = "use" | "unuse" | "cancel";
+const OP_META: Record<TicketOp, { label: string; title: string; desc: string; confirm: string; tone: "green" | "blue" | "amber" }> = {
+  use: {
+    label: "利用済み",
+    title: "チケットを利用済みにする",
+    desc: "このチケットを利用済（消し込み）にします。EnjoyTimePass の実データを更新します。",
+    confirm: "利用済みにする",
+    tone: "green",
+  },
+  unuse: {
+    label: "未使用に戻す",
+    title: "チケットを未使用に戻す",
+    desc: "消し込み（利用済）を取り消し、未使用の状態に戻します。EnjoyTimePass の実データを更新します。",
+    confirm: "未使用に戻す",
+    tone: "blue",
+  },
+  cancel: {
+    label: "取り消し",
+    title: "チケットを取り消す",
+    desc: "このチケットを返金ステータスにして無効化します。※実際の返金（入金処理）は行いません。EnjoyTimePass の実データを更新します。",
+    confirm: "取り消す",
+    tone: "amber",
+  },
 };
 
 // --- ヘルパー ---
@@ -608,6 +636,7 @@ function ForecastChart({
 }
 
 function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) {
+  const { showToast } = useToast();
   const def = defaultDateRange();
   const [from, setFrom] = useState(def.from);
   const [to, setTo] = useState(def.to);
@@ -616,8 +645,11 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [summary, setSummary] = useState<PurchaseSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
   const [search, setSearch] = useState("");
+
+  // チケット操作 (利用済み / 未使用に戻す / 取り消し)
+  const [opTarget, setOpTarget] = useState<{ p: Purchase; op: TicketOp } | null>(null);
+  const [opBusy, setOpBusy] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | PurchaseStatus>("all");
   const [durationFilter, setDurationFilter] = useState<number | "all">("all");
   const [genderFilter, setGenderFilter] = useState<"all" | Gender>("all");
@@ -632,30 +664,24 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   const [aiForecast, setAiForecast] = useState<{ ym: string; sales: number; count: number; low: number; high: number }[]>([]);
   const [aiTrend, setAiTrend] = useState<string | null>(null);
   const genAi = useCallback(async () => {
-    setAiLoading(true); setAiErr(null);
-    try {
-      const res = await fetch(`/api/store-settings/onetime-pass/ai-analysis?clubCode=${clubCode}`);
-      const d = await res.json();
-      if (res.ok && d.ok) {
-        setAiText(d.analysis); setAiMonth(d.month);
-        setAiMonthly(d.monthly || []); setAiForecast(d.forecast || []); setAiTrend(d.trend || null);
-      } else setAiErr(d?.error || "AI分析の生成に失敗しました");
-    } catch { setAiErr("AI分析の生成に失敗しました"); }
-    finally { setAiLoading(false); }
+    setAiLoading(true); setAiErr(null); setAiText(null);
+    const r = await runAiAnalysis(`/api/store-settings/onetime-pass/ai-analysis?clubCode=${clubCode}`, (d) => {
+      setAiMonth(d.month); setAiMonthly(d.monthly || []); setAiForecast(d.forecast || []); setAiTrend(d.trend || null);
+    });
+    if (r.analysis) setAiText(r.analysis); else setAiErr(r.error || "AI分析の生成に失敗しました");
+    setAiLoading(false);
   }, [clubCode]);
 
   const fetchData = useCallback(
-    async (demo: boolean, rangeFrom: string, rangeTo: string) => {
+    async (rangeFrom: string, rangeTo: string) => {
       setLoading(true);
       try {
         const q = new URLSearchParams({ clubCode, brand, from: rangeFrom, to: rangeTo });
-        if (demo) q.set("demo", "1");
         const res = await fetch(`/api/store-settings/onetime-pass/purchases?${q}`);
         if (res.ok) {
           const data = await res.json();
           setPurchases(data.purchases || []);
           setSummary(data.summary || null);
-          setIsDemo(!!data.isDemo);
         }
       } catch (e) {
         console.error(e);
@@ -667,9 +693,43 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   );
 
   useEffect(() => {
-    fetchData(isDemo, from, to);
+    fetchData(from, to);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clubCode, brand, from, to]);
+
+  // チケット操作の実行 (t1pass への書き込み)
+  const runOp = useCallback(async () => {
+    if (!opTarget) return;
+    const { p, op } = opTarget;
+    setOpBusy(true);
+    try {
+      const res = await fetch("/api/store-settings/onetime-pass/checkoff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clubCode, ticketId: p.id, action: op }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "操作に失敗しました");
+      setPurchases((prev) =>
+        prev.map((x) =>
+          x.id === p.id
+            ? { ...x, status: data.status ?? x.status, usedAt: data.usedAt !== undefined ? data.usedAt : x.usedAt }
+            : x
+        )
+      );
+      showToast(`${p.purchaserName} さんのチケットを「${OP_META[op].label}」しました。`, "success");
+      setOpTarget(null);
+    } catch (e: any) {
+      showToast(e?.message || "操作に失敗しました。", "error");
+    } finally {
+      setOpBusy(false);
+    }
+  }, [opTarget, clubCode, showToast]);
+
+  // 返金 (入金処理の繋ぎこみは後日 — 現状はボタンのみ)
+  const handleRefundClick = useCallback(() => {
+    showToast("返金（入金処理）は現在準備中です（後日連携予定）。", "info");
+  }, [showToast]);
 
   const applyPreset = (p: RangePreset) => {
     setPreset(p);
@@ -705,6 +765,8 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
 
   return (
     <>
+      <AdminLoadingOverlay visible={loading} text="購入データを読み込み中..." />
+
       {/* AI売上分析 (店舗単位・事前集計ベース / 相手DB負荷なし) */}
       <section className="otp-ai-card">
         <div className="otp-ai-head">
@@ -742,10 +804,12 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
           </div>
         )}
 
-        {aiText ? (
+        {aiLoading ? (
+          <AiSpinner />
+        ) : aiText ? (
           <AiMarkdown text={aiText} />
         ) : (
-          !aiErr && <div className="otp-ai-empty">{aiLoading ? "集計データをもとに、移動平均・売上予測とAIの見立てを作成しています…" : "夜間集計データをもとに、移動平均・売上予測とAIの推測（傾向・需要・客層・施策）を組み合わせて分析します。"}</div>
+          !aiErr && <div className="otp-ai-empty">夜間集計データをもとに、移動平均・売上予測とAIの推測（傾向・需要・客層・施策）を組み合わせて分析します。</div>
         )}
       </section>
 
@@ -796,16 +860,6 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
             />
             <span className="otp-range-days">{days}日間</span>
           </div>
-        </div>
-        <div className="otp-range-right">
-          {isDemo && <span className="otp-demo-badge">サンプルデータ</span>}
-          <button
-            type="button"
-            className="otp-demo-btn"
-            onClick={() => fetchData(!isDemo, from, to)}
-          >
-            {isDemo ? "実データに戻す" : "サンプルを表示"}
-          </button>
         </div>
       </section>
 
@@ -885,26 +939,38 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
         </div>
 
         <div className="otp-demo-card">
-          <h3 className="otp-section-title">年代内訳</h3>
+          <div className="otp-section-title-row">
+            <h3 className="otp-section-title">年代内訳（男女別）</h3>
+            <div className="otp-agender-legend">
+              <span><i style={{ background: GENDER_META.male.color }} />男性</span>
+              <span><i style={{ background: GENDER_META.female.color }} />女性</span>
+              <span><i style={{ background: GENDER_META.unknown.color }} />その他</span>
+            </div>
+          </div>
           {summary && summary.byAgeGroup.length > 0 ? (
             <div className="otp-age-grid">
               {summary.byAgeGroup.map((a) => {
                 const max = Math.max(...summary.byAgeGroup.map((x) => x.count), 1);
-                const h = (a.count / max) * 100;
+                const totalH = (a.count / max) * 100;
+                const otherCnt = a.other + a.unknown;
                 return (
                   <div key={a.ageGroup} className="otp-age-col">
                     <div className="otp-age-bar-wrap">
                       <span className="otp-age-count">{a.count}</span>
-                      <div
-                        className="otp-age-bar"
-                        style={{
-                          height: `${h}%`,
-                          background: AGE_GROUP_META[a.ageGroup].color,
-                        }}
-                      />
+                      <div className="otp-age-stack" style={{ height: `${totalH}%` }}>
+                        {a.male > 0 && (
+                          <div className="otp-age-seg" style={{ flex: a.male, background: GENDER_META.male.color }} title={`男性 ${a.male}件`} />
+                        )}
+                        {a.female > 0 && (
+                          <div className="otp-age-seg" style={{ flex: a.female, background: GENDER_META.female.color }} title={`女性 ${a.female}件`} />
+                        )}
+                        {otherCnt > 0 && (
+                          <div className="otp-age-seg" style={{ flex: otherCnt, background: GENDER_META.unknown.color }} title={`その他 ${otherCnt}件`} />
+                        )}
+                      </div>
                     </div>
                     <span className="otp-age-label">{AGE_GROUP_META[a.ageGroup].label}</span>
-                    <span className="otp-age-sub">平均{a.averageAge}歳</span>
+                    <span className="otp-age-gsplit">♂{a.male}・♀{a.female}</span>
                     <span className="otp-age-sales">{formatYen(a.sales)}</span>
                   </div>
                 );
@@ -916,54 +982,78 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
         </div>
       </section>
 
-      {/* 時間帯 + 曜日 */}
-      <section className="otp-demo-grid otp-demo-grid-wide">
-        <div className="otp-demo-card">
+      {/* 時間帯別 購入数 (視認性強化: 件数ラベル + ピーク強調 + 2時間毎軸) */}
+      <section className="otp-demo-card otp-hour-section">
+        <div className="otp-section-title-row">
           <h3 className="otp-section-title">時間帯別 購入数</h3>
-          {summary && summary.byHour.length > 0 ? (
-            <div className="otp-hour-chart">
-              {summary.byHour.map((h) => {
+          {summary && summary.byHour.some((h) => h.count > 0) && (() => {
+            const peak = summary.byHour.reduce((a, b) => (b.count > a.count ? b : a));
+            return <span className="otp-hour-peak-tag">ピーク {peak.hour}時台（{peak.count}件）</span>;
+          })()}
+        </div>
+        {summary && summary.byHour.some((h) => h.count > 0) ? (
+          <>
+            <div className="otp-hour-chart2">
+              {(() => {
                 const max = Math.max(...summary.byHour.map((x) => x.count), 1);
-                const heightPct = (h.count / max) * 100;
-                return (
-                  <div key={h.hour} className="otp-hour-bar" title={`${h.hour}時: ${h.count}件 / ${formatYen(h.sales)}`}>
-                    <div className="otp-hour-fill" style={{ height: `${heightPct}%` }} />
-                    <span className="otp-hour-label">{h.hour % 3 === 0 ? h.hour : ""}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="otp-mini-empty">データがありません</div>
-          )}
-        </div>
-
-        <div className="otp-demo-card">
-          <h3 className="otp-section-title">曜日別 購入数</h3>
-          {summary && summary.byDayOfWeek.length > 0 ? (
-            <div className="otp-dow-chart-v2">
-              {summary.byDayOfWeek.map((d) => {
-                const max = Math.max(...summary.byDayOfWeek.map((x) => x.count), 1);
-                const w = (d.count / max) * 100;
-                return (
-                  <div key={d.dayOfWeek} className="otp-dow-row-v2">
-                    <span
-                      className={`otp-dow-day ${d.dayOfWeek === 0 ? "sun" : d.dayOfWeek === 6 ? "sat" : ""}`}
-                    >
-                      {d.label}
-                    </span>
-                    <div className="otp-dow-track-v2">
-                      <div className="otp-dow-fill-v2" style={{ width: `${w}%` }} />
+                return summary.byHour.map((h) => {
+                  const heightPct = (h.count / max) * 100;
+                  const isPeak = h.count === max && h.count > 0;
+                  return (
+                    <div key={h.hour} className="otp-hour-col2" title={`${h.hour}時台: ${h.count}件 / ${formatYen(h.sales)}`}>
+                      <span className="otp-hour-num">{h.count > 0 ? h.count : ""}</span>
+                      <div className="otp-hour-track2">
+                        <div
+                          className={`otp-hour-fill2 ${isPeak ? "peak" : ""}`}
+                          style={{ height: `${h.count > 0 ? Math.max(heightPct, 5) : 0}%` }}
+                        />
+                      </div>
+                      <span className="otp-hour-hr">{h.hour % 2 === 0 ? h.hour : ""}</span>
                     </div>
-                    <span className="otp-dow-val">{d.count}件</span>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
-          ) : (
-            <div className="otp-mini-empty">データがありません</div>
-          )}
+            <div className="otp-hour-axis-note">時間帯（0〜23時）</div>
+          </>
+        ) : (
+          <div className="otp-mini-empty">データがありません</div>
+        )}
+      </section>
+
+      {/* 曜日別 購入数 + 利用数 */}
+      <section className="otp-demo-card">
+        <div className="otp-section-title-row">
+          <h3 className="otp-section-title">曜日別 購入数・利用数</h3>
+          <div className="otp-agender-legend">
+            <span><i style={{ background: "#f59e0b" }} />購入</span>
+            <span><i style={{ background: "#10b981" }} />利用</span>
+          </div>
         </div>
+        {summary && summary.byDayOfWeek.some((d) => d.count > 0 || d.usedCount > 0) ? (
+          <div className="otp-dow-dual">
+            {(() => {
+              const max = Math.max(...summary.byDayOfWeek.flatMap((x) => [x.count, x.usedCount]), 1);
+              return summary.byDayOfWeek.map((d) => (
+                <div key={d.dayOfWeek} className="otp-dow-dual-row">
+                  <span className={`otp-dow-day ${d.dayOfWeek === 0 ? "sun" : d.dayOfWeek === 6 ? "sat" : ""}`}>{d.label}</span>
+                  <div className="otp-dow-dual-bars">
+                    <div className="otp-dow-dual-line">
+                      <div className="otp-dow-dual-track"><div className="otp-dow-dual-fill buy" style={{ width: `${(d.count / max) * 100}%` }} /></div>
+                      <span className="otp-dow-dual-val">{d.count}<small>購入</small></span>
+                    </div>
+                    <div className="otp-dow-dual-line">
+                      <div className="otp-dow-dual-track"><div className="otp-dow-dual-fill use" style={{ width: `${(d.usedCount / max) * 100}%` }} /></div>
+                      <span className="otp-dow-dual-val">{d.usedCount}<small>利用</small></span>
+                    </div>
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+        ) : (
+          <div className="otp-mini-empty">データがありません</div>
+        )}
       </section>
 
       {/* 新規 vs リピーター + トップ顧客 */}
@@ -1177,11 +1267,6 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
                 ? "この期間の購入データはありません。"
                 : "条件に一致する購入データがありません。"}
             </div>
-            {!loading && purchases.length === 0 && (
-              <button type="button" className="otp-empty-btn" onClick={() => fetchData(true, from, to)}>
-                サンプルデータを表示
-              </button>
-            )}
           </div>
         ) : (
           <div className="otp-table-wrap">
@@ -1189,27 +1274,29 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
               <thead>
                 <tr>
                   <th>購入者</th>
-                  <th>性別</th>
+                  <th className="otp-th-center">性別</th>
                   <th>年齢</th>
                   <th>連絡先</th>
                   <th>会員番号</th>
                   <th>利用時間</th>
                   <th>金額</th>
                   <th>購入日時</th>
+                  <th>利用日時</th>
                   <th>新規/既存</th>
                   <th>ステータス</th>
+                  <th className="otp-th-center">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((p) => (
                   <tr key={p.id}>
                     <td className="otp-name-cell">{p.purchaserName}</td>
-                    <td>
+                    <td className="otp-gender-td">
                       <span
-                        className="otp-status-chip"
+                        className="otp-gender-chip"
                         style={{ color: GENDER_META[p.gender].color, background: GENDER_META[p.gender].bg }}
                       >
-                        {GENDER_META[p.gender].label}
+                        {p.gender === "male" ? "♂" : p.gender === "female" ? "♀" : "•"} {GENDER_META[p.gender].label}
                       </span>
                     </td>
                     <td className="otp-age-cell">
@@ -1232,6 +1319,9 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
                     <td className="otp-dur-cell">{formatDuration(p.durationMinutes)}</td>
                     <td className="otp-price-cell">{formatYen(p.price)}</td>
                     <td className="otp-date-cell">{formatDateTime(p.purchasedAt)}</td>
+                    <td className="otp-date-cell">
+                      {p.usedAt ? formatDateTime(p.usedAt) : <span className="otp-na">—</span>}
+                    </td>
                     <td>
                       {p.isFirstPurchase ? (
                         <span className="otp-status-chip" style={{ color: "#047857", background: "#d1fae5" }}>新規</span>
@@ -1247,6 +1337,32 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
                         {STATUS_META[p.status].label}
                       </span>
                     </td>
+                    <td className="otp-actions-td">
+                      <div className="otp-row-actions">
+                        {p.status === "purchased" && (
+                          <button type="button" className="otp-act-btn use" title="このチケットを利用済にする（消し込み）"
+                            onClick={() => setOpTarget({ p, op: "use" })}>
+                            利用済み
+                          </button>
+                        )}
+                        {p.status === "used" && (
+                          <button type="button" className="otp-act-btn unuse" title="消し込みを取り消して未使用に戻す"
+                            onClick={() => setOpTarget({ p, op: "unuse" })}>
+                            未使用に戻す
+                          </button>
+                        )}
+                        {p.status !== "refunded" && (
+                          <button type="button" className="otp-act-btn cancel" title="チケットを取り消す（返金ステータス化・入金処理なし）"
+                            onClick={() => setOpTarget({ p, op: "cancel" })}>
+                            取り消し
+                          </button>
+                        )}
+                        <button type="button" className="otp-act-btn refund" disabled={p.status === "refunded"}
+                          title="返金（入金処理・準備中）" onClick={handleRefundClick}>
+                          返金
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1254,6 +1370,31 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
           </div>
         )}
       </section>
+
+      {/* チケット操作 確認モーダル */}
+      {opTarget && (
+        <div className="otp-modal-overlay" onClick={() => !opBusy && setOpTarget(null)}>
+          <div className="otp-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="otp-modal-title">{OP_META[opTarget.op].title}</h3>
+            <p className="otp-modal-desc">{OP_META[opTarget.op].desc}</p>
+            <dl className="otp-modal-detail">
+              <div><dt>購入者</dt><dd>{opTarget.p.purchaserName}</dd></div>
+              <div><dt>会員番号</dt><dd>{opTarget.p.memberCode || "ゲスト"}</dd></div>
+              <div><dt>利用時間</dt><dd>{formatDuration(opTarget.p.durationMinutes)}</dd></div>
+              <div><dt>金額</dt><dd>{formatYen(opTarget.p.price)}</dd></div>
+              <div><dt>購入日時</dt><dd>{formatDateTime(opTarget.p.purchasedAt)}</dd></div>
+            </dl>
+            <div className="otp-modal-actions">
+              <button type="button" className="otp-modal-cancel" disabled={opBusy} onClick={() => setOpTarget(null)}>
+                キャンセル
+              </button>
+              <button type="button" className={`otp-modal-confirm tone-${OP_META[opTarget.op].tone}`} disabled={opBusy} onClick={runOp}>
+                {opBusy ? "処理中…" : OP_META[opTarget.op].confirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
@@ -1302,7 +1443,6 @@ function PricingTab({
   const { showToast } = useToast();
   const [analysis, setAnalysis] = useState<PricingAnalysis | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(false);
 
   // 各 duration の「現価格」(適用中の期間があればその金額、なければ未設定)
   const currentPriceMap = useMemo(() => {
@@ -1335,7 +1475,6 @@ function PricingTab({
         if (!res.ok) throw new Error("analysis failed");
         const data = await res.json();
         setAnalysis(data.analysis || null);
-        setIsDemo(!!data.analysis?.isDemo);
       } catch (e) {
         console.error(e);
         showToast("分析の取得に失敗しました。", "error");
@@ -1362,13 +1501,6 @@ function PricingTab({
 
   return (
     <>
-      <div className="otp-dash-actions">
-        {isDemo && <span className="otp-demo-badge">サンプルデータ表示中</span>}
-        <button type="button" className="otp-demo-btn" onClick={() => runAnalysis(!isDemo)}>
-          {isDemo ? "実データに戻す" : "サンプル分析を実行"}
-        </button>
-      </div>
-
       {/* インサイト */}
       <section className="otp-insight-card">
         <div className="otp-insight-header">
@@ -1392,9 +1524,7 @@ function PricingTab({
           </ul>
         ) : (
           <div className="otp-mini-empty">
-            {loading
-              ? "分析中..."
-              : "売上データがありません。「サンプル分析を実行」で動作を確認できます。"}
+            {loading ? "分析中..." : "売上データがありません。"}
           </div>
         )}
 
@@ -2752,6 +2882,81 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
         /* 年齢セル */
         .otp-age-cell { font-size: 13px; font-weight: 600; color: #1e293b; white-space: nowrap; }
         .otp-age-group-sub { font-size: 11px; color: #94a3b8; font-weight: 500; margin-left: 2px; }
+
+        /* === v3 追加: セクション見出し行 / 凡例 === */
+        .otp-section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+        .otp-section-title-row .otp-section-title { margin: 0; }
+        .otp-agender-legend { display: flex; gap: 12px; align-items: center; }
+        .otp-agender-legend span { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: #64748b; }
+        .otp-agender-legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+        /* 年代内訳 (男女別スタック) */
+        .otp-age-stack { width: 100%; display: flex; flex-direction: column-reverse; min-height: 4px; border-radius: 4px 4px 0 0; overflow: hidden; transition: height 0.3s; }
+        .otp-age-seg { width: 100%; transition: flex 0.3s, opacity 0.15s; }
+        .otp-age-stack:hover .otp-age-seg { opacity: 0.85; }
+        .otp-age-gsplit { font-size: 9px; color: #64748b; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+        /* 時間帯 (視認性強化 v2) */
+        .otp-hour-section { margin-bottom: 18px; }
+        .otp-hour-peak-tag { font-size: 11px; font-weight: 800; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; padding: 4px 12px; border-radius: 99px; }
+        .otp-hour-chart2 { display: flex; align-items: flex-end; gap: 4px; height: 200px; padding: 12px 2px 4px; }
+        .otp-hour-col2 { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; cursor: default; }
+        .otp-hour-num { font-size: 10px; font-weight: 800; color: #334155; height: 14px; font-variant-numeric: tabular-nums; }
+        .otp-hour-track2 { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+        .otp-hour-fill2 { width: 100%; background: linear-gradient(180deg, #93c5fd, #3b82f6); min-height: 2px; border-radius: 4px 4px 0 0; transition: height 0.3s, opacity 0.15s; }
+        .otp-hour-col2:hover .otp-hour-fill2 { opacity: 0.78; }
+        .otp-hour-fill2.peak { background: linear-gradient(180deg, #fbbf24, #d97706); box-shadow: 0 0 0 2px rgba(217,119,6,0.18); }
+        .otp-hour-hr { font-size: 10px; color: #94a3b8; font-weight: 700; height: 13px; }
+        .otp-hour-axis-note { text-align: center; font-size: 10px; color: #94a3b8; font-weight: 600; margin-top: 2px; }
+
+        /* 曜日別 購入数 + 利用数 (二段バー) */
+        .otp-dow-dual { display: flex; flex-direction: column; gap: 12px; }
+        .otp-dow-dual-row { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: center; }
+        .otp-dow-dual-bars { display: flex; flex-direction: column; gap: 4px; }
+        .otp-dow-dual-line { display: grid; grid-template-columns: 1fr 64px; gap: 8px; align-items: center; }
+        .otp-dow-dual-track { height: 11px; background: #f1f5f9; border-radius: 99px; overflow: hidden; }
+        .otp-dow-dual-fill { height: 100%; border-radius: 99px; transition: width 0.3s; min-width: 2px; }
+        .otp-dow-dual-fill.buy { background: linear-gradient(90deg, #fcd34d, #f59e0b); }
+        .otp-dow-dual-fill.use { background: linear-gradient(90deg, #34d399, #10b981); }
+        .otp-dow-dual-val { font-size: 12px; font-weight: 800; color: #334155; text-align: right; font-variant-numeric: tabular-nums; }
+        .otp-dow-dual-val small { font-size: 9px; font-weight: 700; color: #94a3b8; margin-left: 3px; }
+
+        /* 購入者一覧: 性別チップ (ずれ修正) + 操作列 */
+        .otp-th-center { text-align: center !important; }
+        .otp-gender-td { text-align: center; white-space: nowrap; }
+        .otp-gender-chip { display: inline-flex; align-items: center; justify-content: center; gap: 2px; min-width: 62px; font-size: 11px; font-weight: 800; padding: 4px 10px; border-radius: 99px; line-height: 1; }
+        .otp-actions-td { text-align: center; }
+        .otp-row-actions { display: inline-flex; gap: 6px; }
+        .otp-act-btn { font-size: 11px; font-weight: 800; padding: 5px 10px; border-radius: 7px; border: 1.5px solid transparent; cursor: pointer; transition: 0.15s; white-space: nowrap; }
+        .otp-act-btn.use { color: #047857; background: #ecfdf5; border-color: #a7f3d0; }
+        .otp-act-btn.use:hover:not(:disabled) { background: #d1fae5; border-color: #6ee7b7; }
+        .otp-act-btn.unuse { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+        .otp-act-btn.unuse:hover:not(:disabled) { background: #dbeafe; border-color: #93c5fd; }
+        .otp-act-btn.cancel { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+        .otp-act-btn.cancel:hover:not(:disabled) { background: #fef3c7; border-color: #fcd34d; }
+        .otp-act-btn.refund { color: #64748b; background: #f8fafc; border-color: #e2e8f0; }
+        .otp-act-btn.refund:hover:not(:disabled) { background: #f1f5f9; border-color: #cbd5e1; }
+        .otp-act-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* 消し込み確認モーダル */
+        .otp-modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .otp-modal { background: #fff; border-radius: 16px; padding: 26px 28px; width: 100%; max-width: 440px; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+        .otp-modal-title { font-size: 18px; font-weight: 800; color: #0f172a; margin: 0 0 8px; }
+        .otp-modal-desc { font-size: 13px; color: #475569; line-height: 1.7; margin: 0 0 16px; }
+        .otp-modal-desc strong { color: #047857; }
+        .otp-modal-detail { display: flex; flex-direction: column; gap: 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin: 0 0 20px; }
+        .otp-modal-detail > div { display: flex; justify-content: space-between; gap: 12px; }
+        .otp-modal-detail dt { font-size: 12px; color: #64748b; font-weight: 600; margin: 0; }
+        .otp-modal-detail dd { font-size: 13px; color: #0f172a; font-weight: 700; margin: 0; text-align: right; }
+        .otp-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+        .otp-modal-cancel { font-size: 13px; font-weight: 700; padding: 9px 18px; border-radius: 9px; border: 1.5px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; }
+        .otp-modal-cancel:hover:not(:disabled) { background: #f8fafc; }
+        .otp-modal-confirm { font-size: 13px; font-weight: 800; padding: 9px 20px; border-radius: 9px; border: none; color: #fff; cursor: pointer; }
+        .otp-modal-confirm.tone-green { background: linear-gradient(135deg, #10b981, #047857); box-shadow: 0 2px 6px rgba(4,120,87,0.3); }
+        .otp-modal-confirm.tone-blue { background: linear-gradient(135deg, #3b82f6, #1d4ed8); box-shadow: 0 2px 6px rgba(29,78,216,0.3); }
+        .otp-modal-confirm.tone-amber { background: linear-gradient(135deg, #f59e0b, #b45309); box-shadow: 0 2px 6px rgba(180,83,9,0.3); }
+        .otp-modal-confirm:hover:not(:disabled) { filter: brightness(1.05); }
+        .otp-modal-cancel:disabled, .otp-modal-confirm:disabled { opacity: 0.55; cursor: not-allowed; }
       `}</style>
     </div>
   );

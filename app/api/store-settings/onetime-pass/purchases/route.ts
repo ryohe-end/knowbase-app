@@ -48,9 +48,14 @@ export type Purchase = {
 export type DurationBreakdown = { durationMinutes: number; count: number; sales: number };
 export type StatusBreakdown = { status: PurchaseStatus; count: number };
 export type GenderBreakdown = { gender: Gender; count: number; sales: number };
-export type AgeBreakdown = { ageGroup: AgeGroup; count: number; sales: number; averageAge: number };
+// 年代内訳は男女別サブカウントを持つ (積み上げ表示用)
+export type AgeBreakdown = {
+  ageGroup: AgeGroup; count: number; sales: number; averageAge: number;
+  male: number; female: number; other: number; unknown: number;
+};
 export type HourlyBreakdown = { hour: number; count: number; sales: number };
-export type DayOfWeekBreakdown = { dayOfWeek: number; label: string; count: number; sales: number };
+// 曜日別は購入数(count)に加えて利用数(usedCount = 実際に使われた日ベース)を持つ
+export type DayOfWeekBreakdown = { dayOfWeek: number; label: string; count: number; sales: number; usedCount: number };
 export type TopCustomer = {
   memberCode: string | null;
   memberName: string;
@@ -267,14 +272,15 @@ function buildSummary(purchases: Purchase[], rangeFrom: string, rangeTo: string)
     .filter((g) => byGenderMap.has(g))
     .map((gender) => ({ gender, ...byGenderMap.get(gender)! }));
 
-  // 年代
+  // 年代 (男女別サブカウントも集計)
   const ageGroupOrder: AgeGroup[] = ["u20", "20s", "30s", "40s", "50s", "60plus"];
-  const byAgeMap = new Map<AgeGroup, { count: number; sales: number; ageSum: number }>();
+  const byAgeMap = new Map<AgeGroup, { count: number; sales: number; ageSum: number; male: number; female: number; other: number; unknown: number }>();
   purchases.forEach((p) => {
-    const cur = byAgeMap.get(p.ageGroup) ?? { count: 0, sales: 0, ageSum: 0 };
+    const cur = byAgeMap.get(p.ageGroup) ?? { count: 0, sales: 0, ageSum: 0, male: 0, female: 0, other: 0, unknown: 0 };
     cur.count += 1;
     cur.sales += p.price;
     cur.ageSum += p.age;
+    cur[p.gender] += 1;
     byAgeMap.set(p.ageGroup, cur);
   });
   const byAgeGroup: AgeBreakdown[] = ageGroupOrder
@@ -286,6 +292,7 @@ function buildSummary(purchases: Purchase[], rangeFrom: string, rangeTo: string)
         count: v.count,
         sales: v.sales,
         averageAge: v.count > 0 ? Math.round(v.ageSum / v.count) : 0,
+        male: v.male, female: v.female, other: v.other, unknown: v.unknown,
       };
     });
 
@@ -297,12 +304,16 @@ function buildSummary(purchases: Purchase[], rangeFrom: string, rangeTo: string)
     byHour[h].sales += p.price;
   });
 
-  // 曜日
-  const byDayOfWeek: DayOfWeekBreakdown[] = DAY_LABELS.map((label, dayOfWeek) => ({ dayOfWeek, label, count: 0, sales: 0 }));
+  // 曜日 (購入は purchasedAt ベース / 利用は usedAt ベース)
+  const byDayOfWeek: DayOfWeekBreakdown[] = DAY_LABELS.map((label, dayOfWeek) => ({ dayOfWeek, label, count: 0, sales: 0, usedCount: 0 }));
   purchases.forEach((p) => {
     const d = new Date(p.purchasedAt).getDay();
     byDayOfWeek[d].count += 1;
     byDayOfWeek[d].sales += p.price;
+    if (p.usedAt) {
+      const ud = new Date(p.usedAt).getDay();
+      if (ud >= 0 && ud <= 6) byDayOfWeek[ud].usedCount += 1;
+    }
   });
 
   // 顧客分析
@@ -419,6 +430,7 @@ export async function GET(req: Request) {
       coalesce(u.name,'') as name, u.mail_address as mail, u.tel as tel,
       u.cust_code as member_code, u.sex as sex, u.birthday as birthday,
       t.max_hour as dur, t.amount as amount, t.insert_dt as purchased_at,
+      t.start_dt as used_at,
       t.ticket_stat as stat, t.res_pay_method as pay,
       coalesce(t.order_id, t.seq::text) as id,
       (t.insert_dt = (select min(t2.insert_dt) from t1pass.ticket_tbl t2 where t2.access_key = t.access_key)) as is_first
@@ -447,7 +459,7 @@ export async function GET(req: Request) {
       durationMinutes: Number(r.dur) || 0,
       price: Number(r.amount) || 0,
       purchasedAt: r.purchased_at ? new Date(r.purchased_at).toISOString() : "",
-      usedAt: null,
+      usedAt: r.used_at ? new Date(r.used_at).toISOString() : null,
       status: mapTicketStatus(r.stat),
       paymentMethod: r.pay || "—",
     };

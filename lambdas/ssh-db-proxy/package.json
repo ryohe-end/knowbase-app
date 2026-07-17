@@ -1,2 +1,1 @@
-{ "name": "knowbie-ssh-db-proxy", "type": "module", "private": true,
-  "dependencies": { "ssh2": "^1.15.0", "pg": "^8.11.5" } }
+{"name":"knowbie-ssh-db-proxy","type":"module","private":true,"dependencies":{"mysql2":"^3.23.0","pg":"^8.11.5","ssh2":"^1.15.0"}}

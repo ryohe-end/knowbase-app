@@ -7,18 +7,16 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { startAiJob, getAiJob } from "@/lib/aiJob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const SUMMARY_TABLE = process.env.OTP_SUMMARY_TABLE || "yamauchi-OneTimePassSummary";
-// SSR(~28s制限)内に収めるため、分析は高速な Sonnet を既定にする。
 const MODEL_ID = process.env.OTP_ANALYSIS_MODEL_ID || "us.anthropic.claude-sonnet-4-6";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
-const bedrock = new BedrockRuntimeClient({ region: REGION });
 
 const DUR_LABEL = (m: string) => `${m}分`;
 const DOW = ["日", "月", "火", "水", "木", "金", "土"];
@@ -109,6 +107,14 @@ function analytics(monthly: { ym: string; count: number; sales: number }[]) {
 export async function GET(req: Request) {
   const user = await getRefundUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+  const poll = new URL(req.url).searchParams.get("poll");
+  if (poll) {
+    const job = await getAiJob(poll);
+    if (!job) return NextResponse.json({ ok: true, status: "pending" });
+    return NextResponse.json({ ok: true, ...job });
+  }
+
   const clubCode = (new URL(req.url).searchParams.get("clubCode") || "").trim();
   if (!/^\d+$/.test(clubCode)) return NextResponse.json({ ok: false, error: "clubCode required" }, { status: 400 });
   if (!isClubInScope(user, clubCode)) return NextResponse.json({ ok: false, error: "この店舗は担当外です" }, { status: 403 });
@@ -171,23 +177,14 @@ export async function GET(req: Request) {
     `## 施策提案（3つ、利用時間の品揃え/価格/販促の具体案）`,
   ].join("\n");
 
-  try {
-    const res = await bedrock.send(new InvokeModelCommand({
-      modelId: MODEL_ID, contentType: "application/json", accept: "application/json",
-      body: JSON.stringify({ anthropic_version: "bedrock-2023-05-31", max_tokens: 1150, system, messages: [{ role: "user", content: [{ type: "text", text: userText }] }] }),
-    }));
-    const decoded = JSON.parse(new TextDecoder().decode(res.body)) as { content?: Array<{ type: string; text?: string }> };
-    const analysis = (decoded.content ?? []).filter((b) => b.type === "text" && b.text).map((b) => b.text as string).join("").trim();
-    return NextResponse.json({
-      ok: true, clubCode, month: digest.month, analysis,
-      monthly: digest.monthly.map((m, i) => ({ ...m, ma: stat.ma3[i] })),
-      forecast: stat.forecast, trend: stat.trend, slopePerMonth: stat.slopePerMonth,
-      durationTrend: durTrend,
-      durationShareNow: curDur ? curDur.mix.map((x) => ({ min: x.min, count: x.c, pct: curDur.total ? Math.round((x.c / curDur.total) * 100) : 0 })) : [],
-      updatedAt: items[0]?.updatedAt ?? null,
-    });
-  } catch (e: any) {
-    console.error("[otp ai-analysis] bedrock error", e?.message);
-    return NextResponse.json({ ok: false, error: "AI分析の生成に失敗しました" }, { status: 502 });
-  }
+  // 重いBedrock生成は非同期Lambdaへ。即座に jobId + チャートデータ(高速)を返す。
+  const jobId = await startAiJob({ system, userText, maxTokens: 1150, modelId: MODEL_ID });
+  return NextResponse.json({
+    ok: true, pending: true, jobId, clubCode, month: digest.month,
+    monthly: digest.monthly.map((m, i) => ({ ...m, ma: stat.ma3[i] })),
+    forecast: stat.forecast, trend: stat.trend, slopePerMonth: stat.slopePerMonth,
+    durationTrend: durTrend,
+    durationShareNow: curDur ? curDur.mix.map((x) => ({ min: x.min, count: x.c, pct: curDur.total ? Math.round((x.c / curDur.total) * 100) : 0 })) : [],
+    updatedAt: items[0]?.updatedAt ?? null,
+  });
 }

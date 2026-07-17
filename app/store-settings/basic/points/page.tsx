@@ -367,13 +367,6 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
           <button type="submit" className="pt-search-btn" disabled={loading}>
             {loading ? "検索中..." : "検索"}
           </button>
-          <button
-            type="button"
-            className="pt-search-demo"
-            onClick={() => doSearch(memberCodeInput || "M012345", true)}
-          >
-            サンプル表示
-          </button>
         </form>
         <div className="pt-search-hint">
           会員番号を入力して、その会員のポイント変動履歴を確認できます。
@@ -409,13 +402,6 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
           <div className="pt-empty-text">
             会員番号「<strong>{memberCodeInput}</strong>」の情報は見つかりませんでした。
           </div>
-          <button
-            type="button"
-            className="pt-empty-btn"
-            onClick={() => doSearch(memberCodeInput || "M012345", true)}
-          >
-            サンプルデータで表示
-          </button>
         </section>
       )}
 
