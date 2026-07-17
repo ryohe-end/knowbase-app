@@ -1142,6 +1142,21 @@ export const handler = async (event) => {
     });
     const groupWhere = groups.length > 1 ? `(${groupSql.join(` ${groupOp} `)})` : groupSql[0];
 
+    // 契約形態名による除外 (家族会員/1DayPass 等を LIKE で除外)。在籍中の契約が対象。
+    const exFormsLike = Array.isArray(body.excludeContractFormsLike)
+      ? body.excludeContractFormsLike.map((s) => String(s).trim()).filter(Boolean) : [];
+    let excludeSql = "";
+    for (const pat of exFormsLike) {
+      const k = `ex${bi++}`; binds[k] = `%${pat}%`;
+      excludeSql += `
+          AND NOT EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" ce
+                            JOIN FIT_ADMIN."会員契約明細" de ON de.契約SEQ = ce.契約SEQ
+                            JOIN FIT_ADMIN."契約形態" ee ON ee.契約形態コード = de.契約形態コード
+                          WHERE ce.契約者SEQ = b.契約者SEQ AND ce.クラブコード IN (${clubIn})
+                            AND ee.契約形態名 LIKE :${k}
+                            AND (ce.退会日 IS NULL OR TO_CHAR(ce.退会日) >= TO_CHAR(SYSDATE, 'YYYYMMDD')))`;
+    }
+
     const sql = `
       SELECT * FROM (
         SELECT DISTINCT
@@ -1154,11 +1169,18 @@ export const handler = async (event) => {
           (SELECT MIN(c0b.クラブコード) FROM FIT_ADMIN."会員契約" c0b WHERE c0b.契約者SEQ = b.契約者SEQ AND c0b.クラブコード IN (${clubIn})) AS CLUB_CODE,
           (SELECT MIN(k9.会員区分名) FROM FIT_ADMIN."会員契約" c9 JOIN FIT_ADMIN."会員区分" k9 ON k9.会員区分コード = c9.会員区分コード
              WHERE c9.契約者SEQ = b.契約者SEQ AND c9.クラブコード IN (${clubIn})
-               AND (c9.退会日 IS NULL OR TO_CHAR(c9.退会日) = '99999999')) AS CONTRACT_NAME,
+               AND c9.会員区分コード IN (1, 60, 70)
+               AND (c9.退会日 IS NULL OR TO_CHAR(c9.退会日) >= TO_CHAR(SYSDATE, 'YYYYMMDD'))) AS CONTRACT_NAME,
           a.EMAIL AS EMAIL
         FROM FIT_ADMIN."会員番号" b
         JOIN FIT_ADMIN."個人" a ON a.個人SEQ = b.個人SEQ
         WHERE EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" c0 WHERE c0.契約者SEQ = b.契約者SEQ AND c0.クラブコード IN (${clubIn}))
+          -- 【絶対条件】DM/Push の会員参照は「在籍中の会員区分コード 1/60/70」のみ。
+          -- 在籍=退会日が未設定 or 今日以降 (99999999 も TO_CHAR比較で today 以上=在籍)。タイム会員=8 等は除外。
+          AND EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" ck
+                       WHERE ck.契約者SEQ = b.契約者SEQ AND ck.クラブコード IN (${clubIn})
+                         AND ck.会員区分コード IN (1, 60, 70)
+                         AND (ck.退会日 IS NULL OR TO_CHAR(ck.退会日) >= TO_CHAR(SYSDATE, 'YYYYMMDD')))${excludeSql}
           AND ${groupWhere}
       ) WHERE ROWNUM <= ${limit}`;
 

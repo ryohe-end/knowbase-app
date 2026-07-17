@@ -125,8 +125,9 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-app-icon { width: 18px; height: 18px; background: linear-gradient(135deg, #f97316, #ef4444); border-radius: 4px; }
         .push-app-name { font-size: 11px; font-weight: 700; color: #475569; }
         .push-now { font-size: 10px; color: #94a3b8; }
-        .push-bubble-title { font-size: 13px; font-weight: 800; color: #0f172a; }
-        .push-bubble-body { font-size: 11px; color: #334155; margin-top: 2px; line-height: 1.45; white-space: pre-wrap; }
+        .push-bubble-title { font-size: 13px; font-weight: 800; color: #0f172a; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        /* ロック画面バナーは実機同様に本文を折り畳む (3行で省略)。長文でも画面から溢れない。 */
+        .push-bubble-body { font-size: 11px; color: #334155; margin-top: 2px; line-height: 1.45; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 
         /* Dual preview (ロック画面 PUSH / アプリ内お知らせ) */
         .push-preview-dual { flex-direction: column; gap: 22px; align-items: center; }
