@@ -38,10 +38,19 @@ function initSendGrid(): { ok: true; fromEmail: string } | { ok: false; reason: 
   return { ok: true, fromEmail };
 }
 
+// HTML属性値のエスケープ (imageUrl の src 属性インジェクション対策)
+function attrEscape(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+// NGワード判定用: HTMLタグを除去してタグ跨ぎの回避(例 死<b></b>ね)を防ぐ
+function stripTags(s: string): string {
+  return String(s).replace(/<[^>]*>/g, " ");
+}
+
 function buildHtml(subject: string, body: string, imageUrl?: string): string {
   const safeBody = body.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
   const img = imageUrl
-    ? `<img src="${imageUrl}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-bottom:16px;" />`
+    ? `<img src="${attrEscape(imageUrl)}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-bottom:16px;" />`
     : "";
   return `<div style="font-family:'Helvetica Neue',Arial,'Noto Sans JP',sans-serif;max-width:640px;margin:0 auto;padding:8px;">
     <div style="padding:24px;border:1px solid #e5e7eb;border-radius:14px;background:#fff;">
@@ -57,7 +66,7 @@ function buildHtml(subject: string, body: string, imageUrl?: string): string {
 function ensureImage(html: string, imageUrl?: string): string {
   if (!imageUrl) return html;
   if (html.includes(imageUrl)) return html; // 既に埋め込み済み
-  const img = `<img src="${imageUrl}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-bottom:16px;" />`;
+  const img = `<img src="${attrEscape(imageUrl)}" alt="" style="max-width:100%;height:auto;border-radius:8px;margin-bottom:16px;" />`;
   return img + html;
 }
 
@@ -156,7 +165,7 @@ export async function POST(req: Request) {
   // 送信ガード: NGワード / 配信時間帯 (8:00〜21:00 JST)。下書きは時間帯チェック免除。
   const guard = checkSendGuards({
     subject,
-    body: `${content}\n${body.bodyHtml || ""}`,
+    body: `${content}\n${stripTags(body.bodyHtml || "")}`,
     isDraft: !!body.isDraft,
     isImmediate: !!body.isImmediate,
     scheduledAt: body.scheduledAt,
@@ -184,10 +193,22 @@ export async function POST(req: Request) {
   if (!sg.ok) return NextResponse.json({ ok: false, error: sg.reason }, { status: 500 });
 
   // 予約送信 (JST → unix秒)。SendGrid は72時間先まで許容。
+  // 予約指定なのに不正/過去/範囲外なら 400 で弾く(サイレントに即時送信しない)。
   let sendAt: number | undefined;
   if (!body.isImmediate && body.scheduledAt) {
     const ms = Date.parse(body.scheduledAt.replace(" ", "T") + "+09:00");
-    if (Number.isFinite(ms)) sendAt = Math.floor(ms / 1000);
+    if (!Number.isFinite(ms)) {
+      return NextResponse.json({ ok: false, error: "予約日時の形式が不正です" }, { status: 400 });
+    }
+    const secs = Math.floor(ms / 1000);
+    const nowSecs = Math.floor(Date.now() / 1000);
+    if (secs < nowSecs - 120) {
+      return NextResponse.json({ ok: false, error: "予約日時が過去です" }, { status: 400 });
+    }
+    if (secs > nowSecs + 72 * 3600) {
+      return NextResponse.json({ ok: false, error: "予約はSendGridの制約で72時間先までです" }, { status: 400 });
+    }
+    sendAt = secs;
   }
 
   // 完成HTML(AI生成)があればそのまま、無ければ件名/本文/画像から組み立てる。
@@ -226,6 +247,7 @@ export async function POST(req: Request) {
 
   let sent = 0;
   const errors: string[] = [];
+  const failedEmails: string[] = [];
   for (const group of chunk(recipients, BATCH)) {
     try {
       await sgMail.sendMultiple({
@@ -246,8 +268,11 @@ export async function POST(req: Request) {
     } catch (e: any) {
       console.error("[dm POST] sendMultiple failed:", e?.message || e);
       errors.push(String(e?.message || e));
+      // 失敗バッチの宛先を記録し、誤送信/未送信の事後追跡を可能にする
+      for (const r of group) failedEmails.push(r.email);
     }
   }
+  const failedCount = failedEmails.length;
 
   // 送信結果をキャンペーンへ反映 (ベストエフォート)
   try {
@@ -267,7 +292,16 @@ export async function POST(req: Request) {
     clubCodes,
     targetCount: sent,
     resource: `dmCampaign:${campaignId}`,
-    detail: { subject, brand: body.brand, scheduled: !!sendAt, errorCount: recipients.length - sent },
+    detail: {
+      subject,
+      brand: body.brand,
+      scheduled: !!sendAt,
+      recipientCount: recipients.length,
+      failedCount,
+      allSucceeded: failedCount === 0,
+      // 失敗宛先は追跡用に先頭50件まで記録 (監査肥大化とPII配慮のため上限)
+      failedSample: failedEmails.slice(0, 50),
+    },
     ip: clientIp(req),
     result: sent === 0 ? "error" : "ok",
   });
@@ -280,6 +314,7 @@ export async function POST(req: Request) {
     targetCount: recipients.length,
     sentCount: sent,
     scheduled: !!sendAt,
-    errorCount: recipients.length - sent,
+    errorCount: failedCount,
+    partial: failedCount > 0,
   });
 }

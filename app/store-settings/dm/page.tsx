@@ -381,7 +381,15 @@ export default function DmSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "配信失敗");
-      alert(isDraft ? "下書きを保存しました（送信されていません）。" : data.scheduled ? "予約配信を登録しました。" : `${data.sentCount}件に送信しました。`);
+      alert(
+        isDraft
+          ? "下書きを保存しました（送信されていません）。"
+          : data.scheduled
+          ? "予約配信を登録しました。"
+          : data.partial
+          ? `${data.sentCount}件に送信しました。ただし ${data.errorCount}件は送信に失敗しました（監査ログに失敗宛先を記録）。時間をおいて再送してください。`
+          : `${data.sentCount}件に送信しました。`
+      );
       setIsModalOpen(false);
       setSending(false);
       resetForm();
@@ -456,7 +464,7 @@ export default function DmSettingsPage() {
                       <td><span className={`status-pill ${n.status.toLowerCase()}`}>{n.status === 'SENT' ? '完了' : '予約中'}</span></td>
                       <td>{n.stats?.targetCount || 0}</td>
                       <td>{n.stats?.deliveredCount || 0}</td>
-                      <td>{n.stats ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
+                      <td>{n.stats && n.stats.deliveredCount > 0 ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
                     </tr>
                   ))
                 )}

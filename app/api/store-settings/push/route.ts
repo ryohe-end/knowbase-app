@@ -24,6 +24,15 @@ import type { PushNotification, PushStatus } from "@/types/pushNotification";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// HTML属性値エスケープ (imageUrl の src 属性インジェクション対策)
+function attrEscape(s: string): string {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+// NGワード判定用: HTMLタグを除去してタグ跨ぎの回避を防ぐ
+function stripTags(s: string): string {
+  return String(s).replace(/<[^>]*>/g, " ");
+}
+
 function brandToAppType(brand?: string): AppType {
   const b = (brand || "").toUpperCase();
   if (b.startsWith("JOYFIT")) return "joyfit";
@@ -74,6 +83,21 @@ export async function GET(req: Request) {
     const infoId = Number(id);
     if (!Number.isFinite(infoId)) {
       return NextResponse.json({ ok: false, error: "invalid id" }, { status: 400 });
+    }
+    // 担当外の通知を閲覧できないようスコープ検査 (admin=clubCodes空は全件可)。
+    // 一覧GETと同じ判定 (宛先の club_code / app_user.club_code が担当内か)。
+    if (allowedClubs.length > 0) {
+      const scoped = await query<{ ok: number }>(
+        `SELECT 1 AS ok FROM information2_destination d
+           LEFT JOIN app_user au ON au.id = d.app_user_id
+          WHERE d.information2_id = $1
+            AND (d.club_code = ANY($2::text[]) OR au.club_code = ANY($2::text[]))
+          LIMIT 1`,
+        [infoId, allowedClubs]
+      );
+      if (scoped.rows.length === 0) {
+        return NextResponse.json({ notification: null });
+      }
     }
     const head = await query<any>(
       `SELECT i.id, i.title, i.content, i.link_url, i.is_private,
@@ -192,7 +216,7 @@ export async function POST(req: Request) {
   // 送信ガード: NGワード / 配信時間帯 (8:00〜21:00 JST)。下書きは時間帯チェック免除。
   const guard = checkSendGuards({
     subject: title,
-    body: `${content}\n${body.contentHtml || ""}`,
+    body: `${content}\n${stripTags(body.contentHtml || "")}`,
     isDraft: !!body.isDraft,
     isImmediate: !!body.isImmediate,
     scheduledAt: body.scheduledAt,
@@ -207,15 +231,39 @@ export async function POST(req: Request) {
   // 宛先
   let destinations: { appUserId?: number; clubCode?: string; appType: AppType }[];
   if (targetType === "ALL") {
-    destinations = [{ clubCode, appType }];
+    // 複数店舗の全体配信でも全クラブを宛先に含める(先頭1店舗のみのサイレント欠落を防ぐ)
+    destinations = clubCodes.map((c) => ({ clubCode: c, appType }));
   } else {
     const ids = Array.isArray(body.appUserIds) ? body.appUserIds.filter((n) => Number.isFinite(n)) : [];
     if (ids.length === 0) {
       return NextResponse.json({ ok: false, error: "appUserIds required for CONDITION" }, { status: 400 });
     }
+    // 担当外会員への配信を防ぐ: appUserIds のクラブが担当スコープ内かサーバ側で再検証
+    // (フロントは抽出済みIDを渡すが、API直叩き時の担当外混入を弾く。admin=clubCodes空は免除)
+    if (user.clubCodes.length > 0) {
+      const chk = await query<{ id: number }>(
+        `SELECT id FROM app_user WHERE id = ANY($1::int[]) AND club_code = ANY($2::text[])`,
+        [ids, user.clubCodes]
+      );
+      const allowed = new Set(chk.rows.map((r) => Number(r.id)));
+      const bad = ids.filter((n) => !allowed.has(Number(n)));
+      if (bad.length > 0) {
+        return NextResponse.json(
+          { ok: false, error: `担当外の会員が宛先に含まれています（${bad.length}件）` },
+          { status: 403 }
+        );
+      }
+    }
     destinations = ids.map((appUserId) => ({ appUserId, appType }));
   }
 
+  // 予約(掲載開始)日時の検証: 指定があるのに不正フォーマットなら 400 で弾く。
+  if (!body.isImmediate && body.scheduledAt) {
+    const ms = Date.parse(String(body.scheduledAt).replace(" ", "T") + "+09:00");
+    if (!Number.isFinite(ms)) {
+      return NextResponse.json({ ok: false, error: "予約日時の形式が不正です" }, { status: 400 });
+    }
+  }
   // 掲載期間
   const startAt = body.isImmediate || !body.scheduledAt ? toJstString(new Date()) : body.scheduledAt;
   const endAt = body.endAt || toJstString(new Date(Date.now() + 90 * 24 * 3600 * 1000)); // 既定90日表示
@@ -224,7 +272,7 @@ export async function POST(req: Request) {
   const finalContent = body.contentHtml && body.contentHtml.trim()
     ? body.contentHtml
     : body.imageUrl
-    ? `<p><img src="${body.imageUrl}" alt="" style="max-width:100%;height:auto;" /></p>\n${content}`
+    ? `<p><img src="${attrEscape(body.imageUrl)}" alt="" style="max-width:100%;height:auto;" /></p>\n${content}`
     : content;
 
   try {
