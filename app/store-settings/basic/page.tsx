@@ -1631,6 +1631,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}`,
       color: "#f59e0b",
       iconPath: "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z",
+      comingSoon: true,
     },
     {
       title: "ポイント管理",
@@ -1645,6 +1646,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       href: `/store-settings/basic/option-usage?clubCode=${clubCode}`,
       color: "#8b5cf6",
       iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5",
+      comingSoon: true,
     },
     {
       title: "未納金管理",
@@ -1739,9 +1741,10 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
         .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
         .kb-menu-disabled { cursor: not-allowed; }
-        .kb-card-soon { opacity: 0.6; filter: grayscale(0.5); }
+        .kb-card-soon { filter: grayscale(0.15); position: relative; }
+        .kb-card-soon::after { content: "準備中"; position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; letter-spacing: 0.2em; color: #b45309; background: rgba(255,247,237,0.62); pointer-events: none; }
         .kb-menu-disabled:hover .kb-card-soon { transform: none; box-shadow: none; }
-        .kb-soon-badge { position: absolute; top: 10px; right: 10px; z-index: 2; background: #64748b; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 20px; }
+        .kb-soon-badge { position: absolute; top: 12px; right: 12px; z-index: 3; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 11px; font-weight: 900; letter-spacing: 0.08em; padding: 5px 14px; border-radius: 20px; box-shadow: 0 4px 10px rgba(217,119,6,0.45); text-transform: uppercase; }
 
         .kb-modern-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; position: relative; height: 100%; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s; overflow: hidden; }
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }

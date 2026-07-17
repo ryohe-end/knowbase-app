@@ -105,6 +105,7 @@ export default function StoreSettingsMenu() {
       href: "/store-settings/refund-payment",
       icon: <BanknotesIcon />,
       color: "#0ea5e9",
+      comingSoon: true,
     },
     ...(isAdmin
       ? [
@@ -114,17 +115,6 @@ export default function StoreSettingsMenu() {
             href: "/store-settings/audit",
             icon: <ShieldIcon />,
             color: "#64748b",
-          },
-          {
-            title: "法人ウェルネスパス（全社）",
-            desc: "福利厚生の外部販売（BenefitOne/ReloClub 等）の全社売上・提供元別実績・AI分析を参照します（本部/全社）。",
-            href: "/wellness-pass",
-            icon: (
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z" />
-              </svg>
-            ),
-            color: "#2563eb",
           },
         ]
       : []),
@@ -205,9 +195,10 @@ export default function StoreSettingsMenu() {
         .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
         .kb-menu-disabled { cursor: not-allowed; }
-        .kb-card-soon { opacity: 0.6; filter: grayscale(0.5); }
+        .kb-card-soon { filter: grayscale(0.15); position: relative; }
+        .kb-card-soon::after { content: "準備中"; position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 900; letter-spacing: 0.2em; color: #b45309; background: rgba(255,247,237,0.62); pointer-events: none; }
         .kb-menu-disabled:hover .kb-card-soon { transform: none; box-shadow: none; }
-        .kb-soon-badge { position: absolute; top: 10px; right: 10px; z-index: 2; background: #64748b; color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 20px; }
+        .kb-soon-badge { position: absolute; top: 12px; right: 12px; z-index: 3; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 11px; font-weight: 900; letter-spacing: 0.08em; padding: 5px 14px; border-radius: 20px; box-shadow: 0 4px 10px rgba(217,119,6,0.45); text-transform: uppercase; }
 
         .kb-modern-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; position: relative; height: 100%; display: flex; flex-direction: column; transition: transform 0.2s, box-shadow 0.2s; overflow: hidden; }
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }
