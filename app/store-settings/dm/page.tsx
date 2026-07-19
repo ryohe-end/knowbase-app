@@ -142,6 +142,23 @@ function DmSettingsInner() {
   const [isImmediate, setIsImmediate] = useState(true);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+  // テスト送信
+  const [testTo, setTestTo] = useState("");
+  const [testing, setTesting] = useState(false);
+  const sendTestDm = async () => {
+    if (!subject || !bodyText) { showToast("件名・本文を入力してください", "error"); return; }
+    setTesting(true);
+    try {
+      const res = await fetch("/api/store-settings/dm/test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toEmails: testTo, subject, body: bodyText, bodyHtml: htmlBody || blocksHtml || undefined, brand: storeBrand }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || "テスト送信に失敗しました");
+      showToast(`テスト送信しました（${d.sent}件・差出人 ${d.from}）`, "success");
+    } catch (e: any) { showToast(e?.message || "テスト送信に失敗しました", "error"); }
+    finally { setTesting(false); }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -760,6 +777,15 @@ function DmSettingsInner() {
                         <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>
                           ※ 配信可能時間は 8:00〜21:00 です。NGワードを含む内容は送信できません。
                         </p>
+                      </div>
+                      <div className="dm-divider" />
+                      <div className="dm-step-group">
+                        <div className="dm-step-header"><div className="dm-step-badge" style={{ background: "#0ea5e9" }}>✓</div><h3>テスト送信</h3></div>
+                        <p style={{ margin: "0 0 8px", fontSize: 12, color: "#64748b" }}>本番前に、指定アドレスへ今の内容を送って確認できます（複数可・カンマ/改行区切り）。</p>
+                        <textarea className="dm-textarea" rows={2} placeholder="test@example.com, ..." value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+                        <button type="button" className="dm-extract-btn" style={{ marginTop: 6, background: "#0ea5e9" }} disabled={testing || !subject || !bodyText || !testTo.trim()} onClick={sendTestDm}>
+                          {testing ? "テスト送信中..." : "テスト送信"}
+                        </button>
                       </div>
                     </>
                   )}

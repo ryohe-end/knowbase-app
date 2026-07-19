@@ -84,6 +84,24 @@ export default function NewPushPage() {
   const [isImmediate, setIsImmediate] = useState(true);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+  // テスト送信
+  const [testMembers, setTestMembers] = useState("");
+  const [testingPush, setTestingPush] = useState(false);
+  const sendTestPush = async () => {
+    if (!clubCode) { alert("配信店舗を選択してください。"); return; }
+    if (!title || !bodyText) { alert("タイトル・本文を入力してください。"); return; }
+    setTestingPush(true);
+    try {
+      const res = await fetch("/api/store-settings/push/test", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberNos: testMembers, title, body: bodyText, contentHtml: contentHtml || undefined, brand, clubCode }),
+      });
+      const d = await res.json();
+      if (!res.ok || !d.ok) throw new Error(d.error || "テスト送信に失敗しました");
+      alert(`テスト送信しました（${d.sent}名）。${(d.notFound || []).length ? `\n見つからない会員番号: ${d.notFound.join(", ")}` : ""}\n数分後にアプリのお知らせ/PUSHに届きます。`);
+    } catch (e: any) { alert(e?.message || "テスト送信に失敗しました"); }
+    finally { setTestingPush(false); }
+  };
 
   // 履歴からの「編集して再送信」: sessionStorage の内容を初期値に反映
   useEffect(() => {
@@ -501,6 +519,16 @@ export default function NewPushPage() {
               <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>
                 ※ 配信可能時間は 8:00〜21:00 です。NGワードを含む内容は送信できません。
               </p>
+            </div>
+
+            <div className="push-step-group">
+              <div className="push-step-header"><div className="push-step-badge" style={{ background: "#0ea5e9" }}>✓</div><h3>テスト送信</h3></div>
+              <p style={{ margin: "0 0 8px", fontSize: 12, color: "#64748b" }}>本番前に、指定会員番号のアプリへ今の内容を即時送信して確認できます（複数可・カンマ/改行区切り）。</p>
+              <textarea className="push-textarea" rows={2} placeholder="1234567890, ..." value={testMembers} onChange={(e) => setTestMembers(e.target.value)} />
+              <button type="button" className="push-primary-btn" style={{ marginTop: 6, width: "100%", justifyContent: "center", background: "#0ea5e9" }}
+                disabled={testingPush || !title || !bodyText || !testMembers.trim()} onClick={sendTestPush}>
+                {testingPush ? "テスト送信中..." : "テスト送信"}
+              </button>
             </div>
           </aside>
 
