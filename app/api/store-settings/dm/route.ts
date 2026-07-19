@@ -37,6 +37,14 @@ const BATCH = 1000; // SendGrid personalizations 上限
 function sgKey(): string {
   return (process.env.SENDGRID_API_KEY ?? "").trim().replace(/^['"]|['"]$/g, "");
 }
+const cleanEnv = (v?: string) => (v ?? "").trim().replace(/^['"]|['"]$/g, "");
+// ブランド別の差出人メール。JOYFIT/FIT365 個別env(SendGridで送信者認証済のもの)を優先し、
+// 未設定なら共通の SENDGRID_FROM_EMAIL にフォールバック。
+function fromEmailForBrand(brand: string | undefined, fallback: string): string {
+  const isJoyfit = String(brand || "").toUpperCase().startsWith("JOYFIT");
+  const brandEmail = cleanEnv(isJoyfit ? process.env.SENDGRID_FROM_EMAIL_JOYFIT : process.env.SENDGRID_FROM_EMAIL_FIT365);
+  return brandEmail || fallback;
+}
 function initSendGrid(): { ok: true; fromEmail: string } | { ok: false; reason: string } {
   const key = sgKey();
   if (!key || !key.startsWith("SG.")) return { ok: false, reason: "SENDGRID_API_KEY 不正" };
@@ -270,6 +278,7 @@ export async function POST(req: Request) {
     body.imageUrl
   );
   const fromName = `${(body.brand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365"} サポート`;
+  const fromEmail = fromEmailForBrand(body.brand, sg.fromEmail); // ブランド別アドレス(env設定時)
 
   // キャンペーンを作成 (開封率集計の紐付けキー)。ベストエフォート:
   // DynamoDB 未整備でも送信自体は継続する。
@@ -305,7 +314,7 @@ export async function POST(req: Request) {
     try {
       await sgMail.sendMultiple({
         to: group.map((r) => r.email),
-        from: { email: sg.fromEmail, name: fromName },
+        from: { email: fromEmail, name: fromName },
         subject,
         html,
         ...(sendAt ? { sendAt } : {}),

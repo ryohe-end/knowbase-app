@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
 import { sshBatch, sshQuery } from "@/lib/sshDbProxy";
 import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,10 +83,11 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({
-    recipients,
-    counts: { total: recipients.length, oneday: recipients.filter((r) => r.source === "1day").length, onetime: recipients.filter((r) => r.source === "OneTimePass").length },
-    limited: recipients.length >= MAX,
-    warnings: errors.length ? errors : undefined,
+  const counts = { total: recipients.length, oneday: recipients.filter((r) => r.source === "1day").length, onetime: recipients.filter((r) => r.source === "OneTimePass").length };
+  // PII(メール)抽出は監査記録(会員抽出と同等)
+  void writeAudit({
+    userId: user.email, userName: user.name, action: "passBuyers.extract",
+    clubCodes, targetCount: counts.total, detail: { sources, ...counts }, ip: clientIp(req),
   });
+  return NextResponse.json({ recipients, counts, limited: recipients.length >= MAX, warnings: errors.length ? errors : undefined });
 }

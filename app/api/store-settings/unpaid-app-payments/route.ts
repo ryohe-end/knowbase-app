@@ -13,6 +13,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { sshBatch } from "@/lib/sshDbProxy";
 import { casioOf } from "@/lib/entryShopMap";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -100,6 +101,12 @@ export async function GET(req: Request) {
     // 実運用では店舗(=単一ブランド)で絞れば単一DBとなり正確。超過時はフラグで通知。
     const multiBrandActive = per.filter((p) => p.count > 0).length > 1;
     const deepUnreliable = multiBrandActive && page * pageSize > MAX_MERGE_FETCH;
+    // 会員別の支払明細(PII)閲覧を監査記録
+    void writeAudit({
+      userId: (user as any).email || (user as any).userId || "unknown", userName: (user as any).name,
+      action: "unpaidApp.detail.view", clubCodes: clubCode ? [clubCode] : (isAdmin ? [] : user.clubCodes),
+      targetCount: totalCount, detail: { clubCode: clubCode || null, memberNo: memberNo || null, from, to, page }, ip: clientIp(req),
+    });
     return NextResponse.json({ ok: true, page, pageSize, totalCount, totalAmount, rows: merged, deepPageUnreliable: deepUnreliable, warnings: errors.length ? errors : undefined });
   }
 

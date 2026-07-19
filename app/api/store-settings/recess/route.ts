@@ -8,6 +8,7 @@
 // アクセス: 管理者=全店 / 店舗ユーザー=自clubCode。
 import { NextResponse } from "next/server";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
@@ -55,6 +56,11 @@ export async function GET(req: Request) {
       ek = r.LastEvaluatedKey;
     } while (ek);
     out.sort((a, b) => String(a.clubName).localeCompare(String(b.clubName)) || String(a.memberno).localeCompare(String(b.memberno)));
+    // 会員別の休会一覧(PII: 氏名/会員番号)閲覧を監査記録
+    void writeAudit({
+      userId: user.email, userName: user.name, action: "recess.month.view",
+      clubCodes: isAdmin ? [] : user.clubCodes, targetCount: out.length, detail: { month }, ip: clientIp(req),
+    });
     return NextResponse.json({ month, count: out.length, members: out, updatedAt: meta.updatedAt });
   }
 
