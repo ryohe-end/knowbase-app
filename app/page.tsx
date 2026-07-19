@@ -1603,27 +1603,24 @@ export default function HomePage() {
               {externalLinks.filter((l) => l.isActive).length === 0 && <span className="kb-subnote">登録されたリンクはありません。</span>}
             </div>
 
-            {/* 直営店舗のみ: JOYFIT/FIT365 管理画面(店舗設定)へのボタン */}
+            {/* 直営店舗のみ: 店舗設定へのボタン(遷移先は共通なのでブランド別に分けず1つに集約) */}
             {directBrands.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
-                {["JOYFIT", "FIT365"].filter((b) => directBrands.includes(b)).map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => router.push("/store-settings")}
-                    className="kb-admin-brand-btn"
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between",
-                      padding: "12px 14px", borderRadius: "10px", cursor: "pointer",
-                      border: "none", color: "#fff", fontWeight: 800, fontSize: "13px",
-                      background: b === "JOYFIT" ? "linear-gradient(135deg,#1F2C5C,#3949ab)" : "linear-gradient(135deg,#E26E9D,#d6336c)",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
-                    }}
-                  >
-                    <span>{b} 管理画面（店舗設定）</span>
-                    <span style={{ fontSize: "14px" }}>→</span>
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => router.push("/store-settings")}
+                  className="kb-admin-brand-btn"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "12px 14px", borderRadius: "10px", cursor: "pointer",
+                    border: "none", color: "#fff", fontWeight: 800, fontSize: "13px",
+                    background: "linear-gradient(135deg,#334155,#0f172a)",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                  }}
+                >
+                  <span>管理画面（店舗設定）</span>
+                  <span style={{ fontSize: "14px" }}>→</span>
+                </button>
               </div>
             )}
           </div>
