@@ -108,6 +108,7 @@ export async function POST(req: Request) {
   const used = t.use_date != null && String(t.use_date) !== "";
 
   let setClause: string;
+  let setParams: any[] = [];
   let usedAtIso: string | null | undefined;
   if (action === "use") {
     if (used) return NextResponse.json({ error: "既に使用済みのチケットです" }, { status: 409 });
@@ -116,7 +117,8 @@ export async function POST(req: Request) {
     }
     const parts = jstParts(String(body?.useDt ?? ""));
     if (!parts) return NextResponse.json({ error: "利用日時(useDt)を指定してください" }, { status: 400 });
-    setClause = `use_date='${parts.date}', use_time='${parts.time}'`;
+    setClause = "use_date=?, use_time=?"; // パラメータ化(値はjstPartsで数字のみに検証済だが安全側)
+    setParams = [parts.date, parts.time];
     usedAtIso = new Date(Date.parse(String(body.useDt).replace(" ", "T") + "+09:00")).toISOString();
   } else {
     if (!used) return NextResponse.json({ error: "未使用のチケットです（戻す必要はありません）" }, { status: 409 });
@@ -129,7 +131,7 @@ export async function POST(req: Request) {
   const upd = await sshQuery(
     TARGET,
     `UPDATE one_day_ticket SET ${setClause} WHERE token=? AND serial_number=? ${guard}`,
-    [token, serialNumber]
+    [...setParams, token, serialNumber]
   );
   if (!upd.ok) {
     await writeAudit({ userId: user.email, userName: user.name, action: `oneday.ticket.${action}`, resource: `token:${token}`, clubCodes: [clubCandidate], detail: { serialNumber, error: upd.error }, ip: clientIp(req), result: "error" });

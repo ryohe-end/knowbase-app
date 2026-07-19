@@ -293,7 +293,7 @@ export async function POST(req: Request) {
     // 複数店舗の全体配信でも全クラブを宛先に含める(先頭1店舗のみのサイレント欠落を防ぐ)
     destinations = clubCodes.map((c) => ({ clubCode: c, appType }));
   } else {
-    const ids = Array.isArray(body.appUserIds) ? body.appUserIds.filter((n) => Number.isFinite(n)) : [];
+    const ids = Array.isArray(body.appUserIds) ? body.appUserIds.map((n) => Number(n)).filter((n) => Number.isInteger(n)) : [];
     if (ids.length === 0) {
       return NextResponse.json({ ok: false, error: "appUserIds required for CONDITION" }, { status: 400 });
     }

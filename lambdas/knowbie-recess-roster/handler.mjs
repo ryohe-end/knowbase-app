@@ -41,9 +41,10 @@ async function collectCurrentRecess(target) {
   for (let offset = 0; ; offset += PAGE) {
     const rows = await proxy(
       target,
+      // history_id を第2キーにして全順序を確定(request_dt は非ユニークで OFFSET ページ境界の取りこぼし防止)
       `SELECT response FROM recess_api_history
         WHERE rw='a' AND INSTR(response, 'apply_flg\":true') > 0
-        ORDER BY request_dt DESC LIMIT ? OFFSET ?`,
+        ORDER BY request_dt DESC, history_id DESC LIMIT ? OFFSET ?`,
       [PAGE, offset]
     );
     if (rows.length === 0) break;

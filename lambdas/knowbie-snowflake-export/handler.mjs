@@ -80,6 +80,9 @@ async function exportOneday(dt) {
   for (const [brand, target] of [["fit365", "fit365entry"], ["joyfit", "ecojoy"]]) {
     const source = `oneday#${brand}`;
     const hw = await getHighWater(source);
+    // insert_date は char8(日単位)。同日内の後続行の取りこぼしを防ぐため境界日を「再取込」する
+    // (>= で当日を再取得)。Snowflake側は主キー(token+serial_number)で MERGE=冪等前提。
+    // ※ 1日で 100000 行超が見込まれる場合はページング化(LIMIT/OFFSET でループ)すること。
     const rows = await proxy(
       target,
       `SELECT t.token, t.serial_number, t.uuid, t.shop_id, spv.casio_shop_id, t.member_no, t.cmember_no,
@@ -87,7 +90,7 @@ async function exportOneday(dt) {
               t.is_expired, t.payment_flg, t.del_flg, t.insert_date, t.insert_time
          FROM one_day_ticket t
          LEFT JOIN shop_convert_view spv ON spv.town_shop_id = t.shop_id
-        WHERE t.insert_date > ?
+        WHERE t.insert_date >= ?
         ORDER BY t.insert_date, t.insert_time
         LIMIT 100000`,
       [hw || "00000000"]

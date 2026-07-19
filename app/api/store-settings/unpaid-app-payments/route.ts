@@ -96,7 +96,11 @@ export async function GET(req: Request) {
     const merged = per.flatMap((p) => p.rows)
       .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
       .slice((page - 1) * pageSize, page * pageSize);
-    return NextResponse.json({ ok: true, page, pageSize, totalCount, totalAmount, rows: merged, warnings: errors.length ? errors : undefined });
+    // 2DB横断マージのため、page*pageSize が取得上限を超える深いページは正確性を保証できない。
+    // 実運用では店舗(=単一ブランド)で絞れば単一DBとなり正確。超過時はフラグで通知。
+    const multiBrandActive = per.filter((p) => p.count > 0).length > 1;
+    const deepUnreliable = multiBrandActive && page * pageSize > MAX_MERGE_FETCH;
+    return NextResponse.json({ ok: true, page, pageSize, totalCount, totalAmount, rows: merged, deepPageUnreliable: deepUnreliable, warnings: errors.length ? errors : undefined });
   }
 
   // ── サマリー ──

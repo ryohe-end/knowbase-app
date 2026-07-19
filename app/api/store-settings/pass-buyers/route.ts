@@ -9,6 +9,7 @@
 import { NextResponse } from "next/server";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
 import { sshBatch, sshQuery } from "@/lib/sshDbProxy";
+import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -59,9 +60,12 @@ export async function POST(req: Request) {
     else for (const r of res.results[0].rows) push(r.email, "", String(r.member_no || ""), String(r.shop_name || ""), "1day");
   }
 
-  // OneTimePass (JOYFIT / t1pass)
+  // OneTimePass (JOYFIT / t1pass)。t1pass の club_cd は clubCode と同値だが JOYFIT 採番のため、
+  // FIT365 の clubCode が別ブランドの club_cd と数値衝突しないよう、JOYFITクラブのみ対象にする。
   if (sources.includes("onetime")) {
-    const nums = clubCodes.map((c) => Number(c)).filter((n) => Number.isFinite(n));
+    const brandPairs = await Promise.all(clubCodes.map(async (c) => ({ c, brand: cpssBrandForBusinessType(await getClubBusinessType(c)) })));
+    const joyfitCodes = brandPairs.filter((p) => p.brand === "JOYFIT").map((p) => p.c);
+    const nums = joyfitCodes.map((c) => Number(c)).filter((n) => Number.isFinite(n));
     if (nums.length > 0) {
       const res = await sshQuery(
         "onetimepass",

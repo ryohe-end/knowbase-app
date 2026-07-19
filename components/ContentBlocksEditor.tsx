@@ -32,8 +32,11 @@ export function blocksToHtml(blocks: ContentBlock[]): string {
         const t = b.text.trim();
         return t ? `<div style="margin:0 0 12px;line-height:1.7;">${escapeHtml(b.text).replace(/\n/g, "<br>")}</div>` : "";
       }
+      // 画像URLは http(s) のみ許可(javascript: 等のスキーム混入を防ぐ)。幅も数値に丸める。
+      if (!/^https?:\/\//i.test(b.url)) return "";
       const justify = b.align === "left" ? "flex-start" : b.align === "right" ? "flex-end" : "center";
-      return `<div style="display:flex;justify-content:${justify};margin:0 0 12px;"><img src="${attrEscape(b.url)}" alt="" style="max-width:${b.width}%;height:auto;border-radius:8px;" /></div>`;
+      const w = Math.max(10, Math.min(100, Number(b.width) || 100));
+      return `<div style="display:flex;justify-content:${justify};margin:0 0 12px;"><img src="${attrEscape(b.url)}" alt="" style="max-width:${w}%;height:auto;border-radius:8px;" /></div>`;
     })
     .filter(Boolean)
     .join("\n");

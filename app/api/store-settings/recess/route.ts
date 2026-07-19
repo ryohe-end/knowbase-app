@@ -105,23 +105,22 @@ async function aggregate(runId: string, user: any) {
     const prev = i > 0 ? byMonth[sortedMonths[i - 1]] : null;
     return { month: m, count: byMonth[m], mom: prev != null ? byMonth[m] - prev : null, momPct: prev ? Math.round(((byMonth[m] - prev) / prev) * 1000) / 10 : null };
   });
-  // 新規/継続/復帰(前月休会→当月非休会)。連続する YYYYMM 同士で比較。
+  // 暦月の前月/翌月(YYYYMM)
   const nextYm = (ym: string) => { let y = +ym.slice(0, 4), mo = +ym.slice(4); mo++; if (mo > 12) { y++; mo = 1; } return `${y}${String(mo).padStart(2, "0")}`; };
-  const flow = sortedMonths.map((m, i) => {
-    const cur = monthMembers.get(m) || new Set();
-    const prevYm = i > 0 && sortedMonths[i - 1] === (() => { let y = +m.slice(0, 4), mo = +m.slice(4) - 1; if (mo < 1) { y--; mo = 12; } return `${y}${String(mo).padStart(2, "0")}`; })() ? sortedMonths[i - 1] : null;
-    const prev = prevYm ? (monthMembers.get(prevYm) || new Set()) : new Set<string>();
+  const prevYm = (ym: string) => { let y = +ym.slice(0, 4), mo = +ym.slice(4); mo--; if (mo < 1) { y--; mo = 12; } return `${y}${String(mo).padStart(2, "0")}`; };
+  // 新規=前月非休会→当月休会 / 継続=前月から継続 / 復帰=当月休会→翌月に外れた人数
+  // (暦月キーで直接参照。翌月データが無い=最新月は復帰を算出不能なので null)
+  const flow = sortedMonths.map((m) => {
+    const cur = monthMembers.get(m) || new Set<string>();
+    const prev = monthMembers.get(prevYm(m)) || new Set<string>();
+    const nm = nextYm(m);
+    const next = monthMembers.get(nm);
     let neu = 0, cont = 0;
     for (const mn of cur) (prev.has(mn) ? cont++ : neu++);
-    return { month: m, new: neu, continued: cont };
+    let returned: number | null = null;
+    if (next) { returned = 0; for (const mn of cur) if (!next.has(mn)) returned++; }
+    return { month: m, new: neu, continued: cont, returned };
   });
-  // 復帰(当月休会→翌月非休会)を別途
-  for (let i = 0; i < sortedMonths.length; i++) {
-    const m = sortedMonths[i]; const nm = nextYm(m);
-    const cur = monthMembers.get(m) || new Set(); const next = monthMembers.get(nm) || new Set();
-    let ret = 0; for (const mn of cur) if (!next.has(mn)) ret++;
-    (flow[i] as any).returned = ret;
-  }
   // 季節性(暦月1-12の平均)
   const seasonAgg: Record<string, { sum: number; n: number }> = {};
   for (const m of sortedMonths) { const mm = m.slice(4); (seasonAgg[mm] ||= { sum: 0, n: 0 }); seasonAgg[mm].sum += byMonth[m]; seasonAgg[mm].n++; }
