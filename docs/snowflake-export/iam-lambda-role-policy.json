@@ -1,0 +1,36 @@
+{
+  "_comment": "Lambda knowbie-snowflake-export の実行ロールにアタッチするインラインポリシー。ACCOUNT_ID を実値(340005228061)に置換。",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ScanClubs",
+      "Effect": "Allow",
+      "Action": ["dynamodb:Scan", "dynamodb:DescribeTable"],
+      "Resource": "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/knowbie-clubs"
+    },
+    {
+      "Sid": "ExportState",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:PutItem"],
+      "Resource": "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/knowbie-snowflake-export-state"
+    },
+    {
+      "Sid": "InvokeSshDbProxy",
+      "Effect": "Allow",
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": "arn:aws:lambda:us-east-1:ACCOUNT_ID:function:knowbie-ssh-db-proxy"
+    },
+    {
+      "Sid": "WriteStaging",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject"],
+      "Resource": "arn:aws:s3:::knowbie-snowflake-export/*"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:us-east-1:ACCOUNT_ID:*"
+    }
+  ]
+}

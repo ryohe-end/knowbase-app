@@ -1,0 +1,12 @@
+{
+  "name": "knowbie-snowflake-export",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "クラブ/1day/OneTimePass を Snowflake連携用に S3 へ出力する夜間バッチ",
+  "dependencies": {
+    "@aws-sdk/client-lambda": "^3.600.0",
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0"
+  }
+}

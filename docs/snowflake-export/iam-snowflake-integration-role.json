@@ -1,0 +1,33 @@
+{
+  "_comment": "Snowflake Storage Integration 用ロール(snowflake-s3-integration-role)。S3読み取り専用。",
+  "trust_policy": {
+    "_note": "作成順: 1)仮の信頼ポリシーでロール作成 2)Snowflakeで CREATE STORAGE INTEGRATION 3)DESC INTEGRATION で STORAGE_AWS_IAM_USER_ARN と STORAGE_AWS_EXTERNAL_ID を取得 4)下記に反映",
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Principal": { "AWS": "<STORAGE_AWS_IAM_USER_ARN (DESC INTEGRATIONで取得)>" },
+        "Action": "sts:AssumeRole",
+        "Condition": { "StringEquals": { "sts:ExternalId": "<STORAGE_AWS_EXTERNAL_ID (DESC INTEGRATIONで取得)>" } }
+      }
+    ]
+  },
+  "permission_policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "SnowflakeReadStaging",
+        "Effect": "Allow",
+        "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+        "Resource": "arn:aws:s3:::knowbie-snowflake-export/*"
+      },
+      {
+        "Sid": "SnowflakeListStaging",
+        "Effect": "Allow",
+        "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
+        "Resource": "arn:aws:s3:::knowbie-snowflake-export",
+        "Condition": { "StringLike": { "s3:prefix": ["clubs/*", "oneday/*", "onetimepass/*"] } }
+      }
+    ]
+  }
+}
