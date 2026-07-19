@@ -31,6 +31,7 @@ CREATE STAGE IF NOT EXISTS STG_KNOWBIE
 CREATE TABLE IF NOT EXISTS RAW_CLUBS       (v VARIANT, src_file STRING, loaded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP());
 CREATE TABLE IF NOT EXISTS RAW_ONEDAY      (v VARIANT, src_file STRING, loaded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP());
 CREATE TABLE IF NOT EXISTS RAW_ONETIMEPASS (v VARIANT, src_file STRING, loaded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP());
+CREATE TABLE IF NOT EXISTS RAW_RECESS      (v VARIANT, src_file STRING, loaded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP());
 
 -- 4) Snowpipe (S3 ObjectCreated 通知で自動取込)
 CREATE PIPE IF NOT EXISTS PIPE_CLUBS AUTO_INGEST = TRUE AS
@@ -39,6 +40,8 @@ CREATE PIPE IF NOT EXISTS PIPE_ONEDAY AUTO_INGEST = TRUE AS
   COPY INTO RAW_ONEDAY (v, src_file) FROM (SELECT $1, METADATA$FILENAME FROM @STG_KNOWBIE/oneday/);
 CREATE PIPE IF NOT EXISTS PIPE_ONETIMEPASS AUTO_INGEST = TRUE AS
   COPY INTO RAW_ONETIMEPASS (v, src_file) FROM (SELECT $1, METADATA$FILENAME FROM @STG_KNOWBIE/onetimepass/);
+CREATE PIPE IF NOT EXISTS PIPE_RECESS AUTO_INGEST = TRUE AS
+  COPY INTO RAW_RECESS (v, src_file) FROM (SELECT $1, METADATA$FILENAME FROM @STG_KNOWBIE/recess/);
 -- ↓各PIPEの notification_channel(SQS ARN) を S3の ObjectCreated 通知先に設定する
 SHOW PIPES;
 
@@ -64,3 +67,10 @@ SELECT v:access_key::STRING access_key, v:seq::NUMBER seq, v:club_cd::NUMBER clu
 FROM RAW_ONETIMEPASS QUALIFY ROW_NUMBER() OVER (PARTITION BY v:access_key, v:seq ORDER BY loaded_at DESC) = 1;
 
 -- ticket_stat: B/N=未使用, U=利用中, Z=使用済, E=期限切, D=削除済
+
+-- 休会ロスター(月×人)。recess_month=対象月(YYYYMM), applied_at=申請日時(FIT365のみ)
+CREATE OR REPLACE VIEW V_RECESS AS
+SELECT v:recess_month::STRING recess_month, v:memberno::STRING memberno, v:name::STRING name,
+       v:club_code::STRING club_code, v:club_name::STRING club_name, v:brand::STRING brand,
+       v:temp_flag::BOOLEAN temp_flag, v:applied_at::STRING applied_at, loaded_at
+FROM RAW_RECESS QUALIFY ROW_NUMBER() OVER (PARTITION BY v:club_code, v:memberno, v:recess_month ORDER BY loaded_at DESC) = 1;

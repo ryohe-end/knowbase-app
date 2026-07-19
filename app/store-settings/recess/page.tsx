@@ -4,8 +4,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
-type MonthCount = { month: string; count: number };
+type MonthCount = { month: string; count: number; mom?: number | null; momPct?: number | null };
 type ClubCount = { clubCode: string; clubName: string; count: number };
+type Flow = { month: string; new: number; continued: number; returned: number };
+type Season = { month: string; avg: number };
 type Member = { memberno: string; name: string; clubCode: string; clubName: string; brand: string; tempFlag: boolean; appliedAt: string | null };
 
 const fmtMonth = (m: string) => (/^\d{6}$/.test(m) ? `${m.slice(0, 4)}/${m.slice(4, 6)}` : m);
@@ -17,6 +19,8 @@ export default function RecessPage() {
   const [months, setMonths] = useState<MonthCount[]>([]);
   const [byBrand, setByBrand] = useState<Record<string, number>>({});
   const [byClub, setByClub] = useState<ClubCount[]>([]);
+  const [flow, setFlow] = useState<Flow[]>([]);
+  const [seasonality, setSeasonality] = useState<Season[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -32,7 +36,8 @@ export default function RecessPage() {
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "取得に失敗しました");
       setReady(d.ready !== false);
-      setMonths(d.months || []); setByBrand(d.byBrand || {}); setByClub(d.byClub || []); setUpdatedAt(d.updatedAt || null);
+      setMonths(d.months || []); setByBrand(d.byBrand || {}); setByClub(d.byClub || []);
+      setFlow(d.flow || []); setSeasonality(d.seasonality || []); setUpdatedAt(d.updatedAt || null);
       const latest = (d.months || []).slice(-1)[0]?.month || (d.months || [])[0]?.month || "";
       if (latest) setMonth(latest);
     } catch (e: any) { setError(e?.message || "取得に失敗しました"); }
@@ -98,11 +103,53 @@ export default function RecessPage() {
           </div>
         </section>
 
+        <div className="rc-grid2">
+          {/* 新規 / 継続 / 復帰 (直近) */}
+          <section className="rc-panel">
+            <div className="rc-panel-title">休会の流れ（新規 / 継続 / 復帰）</div>
+            <div className="rc-table-wrap" style={{ maxHeight: 260 }}>
+              <table className="rc-table">
+                <thead><tr><th>月</th><th className="r">休会</th><th className="r">新規</th><th className="r">継続</th><th className="r">復帰</th></tr></thead>
+                <tbody>
+                  {[...flow].reverse().slice(0, 14).map((f) => (
+                    <tr key={f.month}>
+                      <td>{fmtMonth(f.month)}</td>
+                      <td className="r">{(f.new + f.continued).toLocaleString("ja-JP")}</td>
+                      <td className="r"><span className="rc-pos">+{f.new}</span></td>
+                      <td className="r">{f.continued}</td>
+                      <td className="r"><span className="rc-neg">{f.returned}</span></td>
+                    </tr>
+                  ))}
+                  {flow.length === 0 && <tr><td colSpan={5} className="rc-empty">データなし</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div className="rc-note" style={{ marginTop: 8 }}>新規=前月非休会→当月休会 / 継続=前月から継続 / 復帰=当月休会→翌月に外れた人数</div>
+          </section>
+
+          {/* 季節性 */}
+          <section className="rc-panel">
+            <div className="rc-panel-title">季節性（暦月ごとの平均休会数）</div>
+            <div className="rc-season">
+              {seasonality.map((s) => {
+                const mx = Math.max(1, ...seasonality.map((x) => x.avg));
+                return (
+                  <div key={s.month} className="rc-scol" title={`${+s.month}月: 平均${s.avg}`}>
+                    <span className="rc-sfill" style={{ height: `${Math.round((s.avg / mx) * 100)}%` }} />
+                    <span className="rc-slbl">{+s.month}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+
         <div className="rc-grid">
           {/* 月別一覧 */}
           <section className="rc-panel">
             <div className="rc-panel-title">
               {fmtMonth(month)} の休会者 <span className="rc-badge">{filtered.length}人</span>
+              {(() => { const mm = months.find((x) => x.month === month)?.momPct; return mm != null ? <span className={mm >= 0 ? "rc-pos" : "rc-neg"}>前月比 {mm >= 0 ? "+" : ""}{mm}%</span> : null; })()}
               <input className="rc-search" placeholder="氏名・会員番号・店舗" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <div className="rc-table-wrap">
@@ -169,7 +216,14 @@ export default function RecessPage() {
         .rc-bar-cnt { font-size: 12px; font-weight: 800; color: #334155; }
         .rc-bar-lbl { font-size: 10px; color: #64748b; }
         .rc-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; }
-        @media (max-width: 900px) { .rc-grid { grid-template-columns: 1fr; } .rc-cards { grid-template-columns: 1fr 1fr; } }
+        .rc-grid2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+        @media (max-width: 900px) { .rc-grid, .rc-grid2 { grid-template-columns: 1fr; } .rc-cards { grid-template-columns: 1fr 1fr; } }
+        .rc-pos { font-size: 11px; font-weight: 800; color: #047857; background: #d1fae5; border-radius: 6px; padding: 1px 7px; }
+        .rc-neg { font-size: 11px; font-weight: 800; color: #b45309; }
+        .rc-season { display: flex; align-items: flex-end; gap: 6px; height: 130px; padding-top: 6px; }
+        .rc-scol { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; }
+        .rc-sfill { width: 70%; background: linear-gradient(#93c5fd, #2563eb); border-radius: 3px 3px 0 0; min-height: 2px; }
+        .rc-slbl { font-size: 10px; color: #64748b; }
         .rc-table-wrap { overflow: auto; max-height: 60vh; }
         .rc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .rc-table th { position: sticky; top: 0; text-align: left; padding: 9px 12px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: 800; color: #64748b; white-space: nowrap; }

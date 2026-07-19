@@ -3,10 +3,13 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ScanClubs",
+      "Sid": "ScanSources",
       "Effect": "Allow",
-      "Action": ["dynamodb:Scan", "dynamodb:DescribeTable"],
-      "Resource": "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/knowbie-clubs"
+      "Action": ["dynamodb:Scan", "dynamodb:GetItem", "dynamodb:DescribeTable"],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/knowbie-clubs",
+        "arn:aws:dynamodb:us-east-1:ACCOUNT_ID:table/knowbie-recess-roster"
+      ]
     },
     {
       "Sid": "ExportState",

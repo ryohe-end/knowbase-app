@@ -58,43 +58,74 @@ export async function GET(req: Request) {
     return NextResponse.json({ month, count: out.length, members: out, updatedAt: meta.updatedAt });
   }
 
-  // ── 分析サマリー ──
-  // 管理者は集計済み monthTotals を使える。店舗ユーザーはスコープ集計のため Scan(現行runのみ)。
-  if (isAdmin) {
-    const months = Object.entries(meta.monthTotals || {}).map(([m, c]) => ({ month: m, count: Number(c) })).sort((a, b) => a.month.localeCompare(b.month));
-    // ブランド別/店舗別は Scan で(小規模)
-    const { byBrand, byClub } = await aggregate(runId, user);
-    return NextResponse.json({ ready: true, isAdmin, months, byBrand, byClub, updatedAt: meta.updatedAt });
-  }
-  const { months, byBrand, byClub } = await aggregate(runId, user, true);
-  return NextResponse.json({ ready: true, isAdmin, months, byBrand, byClub, updatedAt: meta.updatedAt });
+  // ── 分析サマリー(月別・ブランド別・店舗別 + 前月比・新規/継続/復帰・季節性) ──
+  const cacheKey = `${runId}|${isAdmin ? "ALL" : user.clubCodes.join(",")}`;
+  const cached = summaryCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < SUMMARY_TTL) return NextResponse.json({ ...cached.data, updatedAt: meta.updatedAt });
+  const data = await aggregate(runId, user);
+  summaryCache.set(cacheKey, { at: Date.now(), data });
+  return NextResponse.json({ ready: true, isAdmin, ...data, updatedAt: meta.updatedAt });
 }
 
-// 現行runのロスターを Scan して ブランド別/店舗別(/月別) を集計(スコープ適用)
-async function aggregate(runId: string, user: any, withMonths = false) {
+const SUMMARY_TTL = 10 * 60 * 1000;
+const summaryCache = new Map<string, { at: number; data: any }>();
+
+// 現行runのロスターを Scan → 月別/ブランド別/店舗別 + 会員の月次遷移(新規/継続/復帰) + 季節性
+async function aggregate(runId: string, user: any) {
   const byBrand: Record<string, number> = {};
   const byClubMap = new Map<string, { clubCode: string; clubName: string; count: number }>();
   const byMonth: Record<string, number> = {};
+  const monthMembers = new Map<string, Set<string>>(); // month → member集合(新規/復帰算出用)
   let ek: any;
   do {
     const r = await ddb.send(new ScanCommand({
       TableName: TABLE,
       FilterExpression: "recessMonth <> :meta AND runId = :r",
       ExpressionAttributeValues: { ":meta": "__META__", ":r": runId },
-      ProjectionExpression: "recessMonth, clubCode, clubName, brand",
+      ProjectionExpression: "recessMonth, clubCode, clubName, brand, memberno",
       ExclusiveStartKey: ek,
     }));
     for (const it of r.Items || []) {
       if (!inScope(user, String(it.clubCode))) continue;
+      const m = String(it.recessMonth);
       byBrand[it.brand] = (byBrand[it.brand] || 0) + 1;
-      byMonth[String(it.recessMonth)] = (byMonth[String(it.recessMonth)] || 0) + 1;
+      byMonth[m] = (byMonth[m] || 0) + 1;
       const k = String(it.clubCode);
       const e = byClubMap.get(k) || { clubCode: k, clubName: String(it.clubName || k), count: 0 };
       e.count++; byClubMap.set(k, e);
+      (monthMembers.get(m) || monthMembers.set(m, new Set()).get(m)!).add(String(it.memberno));
     }
     ek = r.LastEvaluatedKey;
   } while (ek);
+
   const byClub = [...byClubMap.values()].sort((a, b) => b.count - a.count).slice(0, 30);
-  const months = Object.entries(byMonth).map(([m, c]) => ({ month: m, count: c })).sort((a, b) => a.month.localeCompare(b.month));
-  return { byBrand, byClub, months };
+  const sortedMonths = Object.keys(byMonth).sort();
+  // 月別 + 前月比
+  const months = sortedMonths.map((m, i) => {
+    const prev = i > 0 ? byMonth[sortedMonths[i - 1]] : null;
+    return { month: m, count: byMonth[m], mom: prev != null ? byMonth[m] - prev : null, momPct: prev ? Math.round(((byMonth[m] - prev) / prev) * 1000) / 10 : null };
+  });
+  // 新規/継続/復帰(前月休会→当月非休会)。連続する YYYYMM 同士で比較。
+  const nextYm = (ym: string) => { let y = +ym.slice(0, 4), mo = +ym.slice(4); mo++; if (mo > 12) { y++; mo = 1; } return `${y}${String(mo).padStart(2, "0")}`; };
+  const flow = sortedMonths.map((m, i) => {
+    const cur = monthMembers.get(m) || new Set();
+    const prevYm = i > 0 && sortedMonths[i - 1] === (() => { let y = +m.slice(0, 4), mo = +m.slice(4) - 1; if (mo < 1) { y--; mo = 12; } return `${y}${String(mo).padStart(2, "0")}`; })() ? sortedMonths[i - 1] : null;
+    const prev = prevYm ? (monthMembers.get(prevYm) || new Set()) : new Set<string>();
+    let neu = 0, cont = 0;
+    for (const mn of cur) (prev.has(mn) ? cont++ : neu++);
+    return { month: m, new: neu, continued: cont };
+  });
+  // 復帰(当月休会→翌月非休会)を別途
+  for (let i = 0; i < sortedMonths.length; i++) {
+    const m = sortedMonths[i]; const nm = nextYm(m);
+    const cur = monthMembers.get(m) || new Set(); const next = monthMembers.get(nm) || new Set();
+    let ret = 0; for (const mn of cur) if (!next.has(mn)) ret++;
+    (flow[i] as any).returned = ret;
+  }
+  // 季節性(暦月1-12の平均)
+  const seasonAgg: Record<string, { sum: number; n: number }> = {};
+  for (const m of sortedMonths) { const mm = m.slice(4); (seasonAgg[mm] ||= { sum: 0, n: 0 }); seasonAgg[mm].sum += byMonth[m]; seasonAgg[mm].n++; }
+  const seasonality = Array.from({ length: 12 }, (_, i) => { const mm = String(i + 1).padStart(2, "0"); const a = seasonAgg[mm]; return { month: mm, avg: a ? Math.round(a.sum / a.n) : 0 }; });
+
+  return { byBrand, byClub, months, flow, seasonality };
 }

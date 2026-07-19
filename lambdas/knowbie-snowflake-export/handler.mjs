@@ -22,6 +22,7 @@ const REGION = process.env.AWS_REGION || "us-east-1";
 const BUCKET = process.env.EXPORT_BUCKET || "knowbie-snowflake-export";
 const PROXY_FN = process.env.SSH_DB_PROXY_FN || "knowbie-ssh-db-proxy";
 const CLUBS_TABLE = process.env.CLUBS_TABLE || "knowbie-clubs";
+const RECESS_TABLE = process.env.RECESS_TABLE || "knowbie-recess-roster";
 const STATE_TABLE = process.env.STATE_TABLE || "knowbie-snowflake-export-state";
 
 const lambda = new LambdaClient({ region: REGION });
@@ -120,12 +121,33 @@ async function exportOnetimepass(dt) {
   return out;
 }
 
+// E) 休会ロスター: DDB(knowbie-recess-roster)の現行runを全件(月×人)エクスポート
+async function exportRecess(dt) {
+  const meta = await ddb.send(new GetCommand({ TableName: RECESS_TABLE, Key: { recessMonth: "__META__", memberKey: "current" } }));
+  const runId = meta.Item?.runId;
+  if (!runId) return { source: "recess", count: 0, key: null };
+  const rows = [];
+  let ek;
+  do {
+    const r = await ddb.send(new ScanCommand({
+      TableName: RECESS_TABLE,
+      FilterExpression: "recessMonth <> :meta AND runId = :r",
+      ExpressionAttributeValues: { ":meta": "__META__", ":r": runId },
+      ExclusiveStartKey: ek,
+    }));
+    for (const it of r.Items || []) rows.push({ recess_month: it.recessMonth, memberno: it.memberno, name: it.name, club_code: it.clubCode, club_name: it.clubName, brand: it.brand, temp_flag: it.tempFlag, applied_at: it.appliedAt || null });
+    ek = r.LastEvaluatedKey;
+  } while (ek);
+  return putNdjson("recess", dt, rows);
+}
+
 export const handler = async (event = {}) => {
   const dt = event.date || jstDate();
   const out = [];
   out.push(await exportClubs(dt));
   out.push(...(await exportOneday(dt)));
   out.push(await exportOnetimepass(dt));
+  out.push(await exportRecess(dt));
   console.log("[snowflake-export]", JSON.stringify({ dt, out }));
   return { ok: true, dt, results: out };
 };
