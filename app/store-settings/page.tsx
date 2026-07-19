@@ -108,50 +108,6 @@ export default function StoreSettingsMenu() {
       comingSoon: true,
     },
     {
-      title: "FIT365 1dayパス金額設定",
-      desc: "FIT365の1dayパス通常価格・キャンペーン価格を設定します（管理者=全店／店舗=自店舗のみ）。",
-      href: "/store-settings/fit365-onedaypass",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z" />
-        </svg>
-      ),
-      color: "#f59e0b",
-    },
-    {
-      title: "JOYFIT OneTimePass金額設定",
-      desc: "JOYFITの時間別(30〜210分)通常価格・予約価格を設定します（管理者=全店／店舗=自店舗のみ）。",
-      href: "/store-settings/joyfit-onetimepass",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      color: "#7c3aed",
-    },
-    {
-      title: "APP未納金支払い実績",
-      desc: "FIT365・JOYFITアプリで支払われた未納金の実績を確認します（サマリー・明細／管理者=全店・店舗=自店舗）。",
-      href: "/store-settings/unpaid-app-payments",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
-        </svg>
-      ),
-      color: "#0ea5e9",
-    },
-    {
-      title: "1dayパス チケット消し込み",
-      desc: "FIT365の1dayパス（未使用チケット）を消し込み（使用済に）します。管理者=全店・店舗=自店舗。",
-      href: "/store-settings/oneday-checkoff",
-      icon: (
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.6} stroke="currentColor" style={{ width: 24, height: 24 }}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      color: "#10b981",
-    },
-    {
       title: "休会申請 一覧・分析",
       desc: "月別の休会申請者一覧と分析（店舗別・ブランド別・推移）。管理者=全店・店舗=自店舗。",
       href: "/store-settings/recess",
