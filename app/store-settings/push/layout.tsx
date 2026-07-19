@@ -44,7 +44,35 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-history-table .empty-row { text-align: center; color: #94a3b8; padding: 40px; }
         .date-cell { white-space: nowrap; color: #475569; }
         .subj-cell { font-weight: 600; color: #0f172a; }
+        .club-cell { color: #334155; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sender-cell { color: #64748b; white-space: nowrap; }
+        .row-actions { white-space: nowrap; text-align: right; }
+        .row-act { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 4px 10px; cursor: pointer; margin-left: 4px; border: 1px solid #e2e8f0; background: #fff; }
+        .row-act.edit { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+        .row-act.del { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+        .push-hist-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .push-hist-search { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 13px; }
+        .push-hist-tabs { display: flex; gap: 4px; }
+        .push-hist-tabs button { padding: 7px 14px; border: 1px solid #e2e8f0; background: #fff; border-radius: 99px; font-size: 12px; font-weight: 700; color: #64748b; cursor: pointer; }
+        .push-hist-tabs button.on { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .push-hist-count { font-size: 12px; color: #94a3b8; font-weight: 700; }
         .status-pill { display: inline-block; padding: 3px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; }
+
+        /* 会員別 開封状況 (detail) */
+        .push-people-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+        .push-people-tab { flex: 1; padding: 10px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 10px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .push-people-tab.active { background: #fff; color: #0f172a; border-color: #0ea5e9; box-shadow: 0 0 0 2px rgba(14,165,233,0.15); }
+        .push-people-badge { font-size: 12px; font-weight: 800; background: #e2e8f0; color: #475569; border-radius: 99px; padding: 1px 9px; }
+        .push-people-badge.open { background: #d1fae5; color: #047857; }
+        .push-people-list { max-height: 420px; overflow-y: auto; border: 1px solid #f1f5f9; border-radius: 10px; }
+        .push-person-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        .push-person-row:last-child { border-bottom: none; }
+        .push-person-name { font-weight: 700; color: #0f172a; min-width: 120px; }
+        .push-person-meta { display: flex; gap: 8px; flex: 1; flex-wrap: wrap; }
+        .push-person-no { color: #94a3b8; font-family: monospace; font-size: 12px; }
+        .push-person-club { color: #475569; background: #f1f5f9; border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+        .push-person-time { color: #64748b; white-space: nowrap; font-size: 12px; }
+        .push-people-note { font-size: 11px; color: #94a3b8; margin-top: 10px; line-height: 1.6; }
         .status-pill.sent { background: #ecfdf5; color: #047857; }
         .status-pill.scheduled { background: #eff6ff; color: #1d4ed8; }
         .status-pill.draft { background: #f1f5f9; color: #475569; }

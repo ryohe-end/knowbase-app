@@ -7,11 +7,50 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/ConditionGroupForm";
 import { type ContractTypeOption } from "@/components/ContractTypePicker";
 import StorePicker from "@/components/StorePicker";
-import type { DmNotification } from "@/types/dmNotification";
+import type { DmNotification, DmPeople } from "@/types/dmNotification";
+import ContentBlocksEditor, { type ContentBlock, newTextBlock, blocksToHtml, blocksToText } from "@/components/ContentBlocksEditor";
+import { ToastProvider, useToast } from "@/components/Toast";
 
 // 契約種別マスタ (実マスタ提供までの暫定。member-search 側 e.契約形態名 と突合予定)
 // 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
 const CONTRACT_TYPES: string[] = [];
+
+// DM詳細: 開いた人/開いてない人 (メール宛先単位)
+function DmPeoplePanel({ people }: { people?: DmPeople }) {
+  const [tab, setTab] = useState<"opened" | "unopened">("opened");
+  if (!people) return null;
+  const list = tab === "opened" ? people.opened : people.unopened;
+  return (
+    <div className="dm-people-card">
+      <div className="dm-people-title">宛先別の開封状況</div>
+      <div className="dm-people-tabs">
+        <button className={`dm-people-tab ${tab === "opened" ? "active" : ""}`} onClick={() => setTab("opened")}>
+          開いた人 <span className="dm-people-badge open">{people.opened.length}</span>
+        </button>
+        <button className={`dm-people-tab ${tab === "unopened" ? "active" : ""}`} onClick={() => setTab("unopened")} disabled={!people.recipientsCaptured}>
+          開いてない人 <span className="dm-people-badge">{people.recipientsCaptured ? people.unopened.length : "—"}</span>
+        </button>
+      </div>
+      {!people.recipientsCaptured && tab === "unopened" ? (
+        <div className="dm-people-empty">この配信は宛先を保存していないため、未開封者は特定できません（今後の配信から対応）。</div>
+      ) : (
+        <div className="dm-people-list">
+          {list.map((p, i) => (
+            <div className="dm-person-row" key={`${p.email}-${i}`}>
+              <span className="dm-person-name">{p.name || "(名前なし)"}</span>
+              <span className="dm-person-email">{p.email}</span>
+              <span className="dm-person-time">{p.at ? formatDate(p.at) : (tab === "opened" ? "" : "未開封")}</span>
+            </div>
+          ))}
+          {list.length === 0 && <div className="dm-people-empty">{tab === "opened" ? "まだ開封した宛先はありません" : "未開封の宛先はありません"}</div>}
+        </div>
+      )}
+      {!people.recipientsCaptured && (
+        <div className="dm-people-note">※ 過去の配信は開封者のみ表示できます。未開封者の特定には宛先保存が必要です。</div>
+      )}
+    </div>
+  );
+}
 
 type StoreItem = { clubCode: string; clubName: string; brand: string; brandGroup?: string; ownership?: string; area?: string };
 // DM 宛先の統一モデル (抽出 or CSV)
@@ -22,7 +61,7 @@ type DmRecipient = {
   email: string | null;
   contractType: string;
   status: string; // 在籍中/退会済
-  source: "extract" | "csv";
+  source: "extract" | "csv" | "pass";
   deliverable: boolean; // メール保有=配信可能
 };
 
@@ -34,10 +73,21 @@ const formatDate = (iso: string) => {
   });
 };
 
-export default function DmSettingsPage() {
+function DmSettingsInner() {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [notifications, setNotifications] = useState<DmNotification[]>([]);
+  const [histSearch, setHistSearch] = useState("");
+  const [histStatus, setHistStatus] = useState<"all" | "SENT" | "SCHEDULED">("all");
+  const filteredNotifications = useMemo(() => {
+    const q = histSearch.trim().toLowerCase();
+    return notifications.filter((n) => {
+      if (histStatus !== "all" && n.status !== histStatus) return false;
+      if (!q) return true;
+      return [n.subject, n.senderName, n.clubName, n.clubCode].some((s) => String(s || "").toLowerCase().includes(q));
+    });
+  }, [notifications, histSearch, histStatus]);
   
   // 店舗コンテキスト (ログインユーザーの担当クラブ)
   const [stores, setStores] = useState<StoreItem[]>([]);
@@ -55,10 +105,10 @@ export default function DmSettingsPage() {
 
   // フォームState
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
-  const [imageUrl, setImageUrl] = useState(""); // S3 公開URL (メール内 <img> で表示)
-  const [imgUploading, setImgUploading] = useState(false);
-  const [imgError, setImgError] = useState("");
+  // 本文はブロック(テキスト/画像)で構成。画像は任意の位置に挿入・配置指定できる。
+  const [blocks, setBlocks] = useState<ContentBlock[]>([newTextBlock("")]);
+  const bodyText = useMemo(() => blocksToText(blocks), [blocks]);
+  const blocksHtml = useMemo(() => blocksToHtml(blocks), [blocks]);
   // AI(Claude on Bedrock) による HTML 生成
   const [htmlBody, setHtmlBody] = useState(""); // 生成済み完成HTML(空=通常のテキストメール)
   const [aiPrompt, setAiPrompt] = useState("");
@@ -171,13 +221,51 @@ export default function DmSettingsPage() {
     setIsModalOpen(true);
   };
 
+  // 過去の配信内容を引き継いで新規作成(繰り返し配信・編集)
+  const reuseFromHistory = (n: DmNotification) => {
+    setViewMode("create");
+    setSelectedHistory(null);
+    setSubject(n.subject);
+    setBlocks([newTextBlock(n.body || "")]);
+    setHtmlBody("");
+    setExtractedMembers([]); setSelectedMemberIds(new Set());
+    setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
+    setIsModalOpen(true);
+  };
+  // 予約配信の取り消し (SendGrid scheduled send をキャンセル)
+  const cancelScheduledDm = async (n: DmNotification) => {
+    if (!window.confirm("この予約配信を削除（取り消し）しますか？\n送信前のため取り消せます。")) return;
+    try {
+      const res = await fetch(`/api/store-settings/dm?campaignId=${encodeURIComponent(n.id)}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || "取り消しに失敗しました");
+      fetchData();
+    } catch (e: any) { showToast(e?.message || "取り消しに失敗しました", "error"); }
+  };
+  // 予約配信の編集: 元の予約を取り消し、内容を編集フォームに読み込む
+  const editScheduledDm = async (n: DmNotification) => {
+    if (!window.confirm("この予約を編集します。\n元の予約は取り消され、内容を編集フォームに読み込みます。")) return;
+    await fetch(`/api/store-settings/dm?campaignId=${encodeURIComponent(n.id)}`, { method: "DELETE" }).catch(() => {});
+    reuseFromHistory(n);
+    fetchData();
+  };
+
   const openDetailModal = (n: DmNotification) => {
     setViewMode("detail");
     setSelectedHistory(n);
     setSubject(n.subject);
-    setBody(n.body);
-    setImageUrl(n.imageUrl || "");
+    setBlocks([newTextBlock(n.body || "")]);
     setIsModalOpen(true);
+    // 開いた人/開いてない人 を詳細取得でマージ
+    (async () => {
+      try {
+        const res = await fetch(`/api/store-settings/dm?id=${encodeURIComponent(n.id)}`, { cache: "no-store" });
+        const data = await res.json();
+        if (data?.notification) {
+          setSelectedHistory((cur) => (cur && cur.id === n.id ? { ...cur, ...data.notification } : cur));
+        }
+      } catch (e) { console.error(e); }
+    })();
   };
 
   const handleExtract = async () => {
@@ -242,6 +330,28 @@ export default function DmSettingsPage() {
     });
   };
 
+  // 1day / OneTimePass 利用者のアドレスを店舗フィルタで引用
+  const [passImporting, setPassImporting] = useState(false);
+  const importPassBuyers = async () => {
+    if (selectedClubs.length === 0) { setExtractError("担当店舗を選択してください。"); return; }
+    setPassImporting(true); setExtractError("");
+    try {
+      const res = await fetch("/api/store-settings/pass-buyers", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clubCodes: selectedClubs, sources: ["oneday", "onetime"] }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "引用に失敗しました");
+      const recs: DmRecipient[] = (d.recipients || []).map((r: any) => ({
+        key: `pass:${r.email}`, memberNo: r.memberNo || "", name: r.name || `(${r.source}利用者)`,
+        email: r.email, contractType: r.source, status: r.source, source: "pass" as const, deliverable: true,
+      }));
+      mergeRecipients(recs);
+      if (recs.length === 0) setExtractError("引用できるメール宛先がありませんでした（対象店舗の1day/OneTimePass利用者なし）。");
+    } catch (e: any) { setExtractError(e?.message || "引用に失敗しました"); }
+    finally { setPassImporting(false); }
+  };
+
   // CSV アップロード (会員番号,メールアドレス,氏名)
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -300,7 +410,7 @@ export default function DmSettingsPage() {
   );
 
   const generateHtml = async () => {
-    if (!aiPrompt.trim() && !body.trim()) {
+    if (!aiPrompt.trim() && !bodyText.trim()) {
       setAiError("作りたいメールの指示、または下書き本文を入力してください。");
       return;
     }
@@ -310,7 +420,7 @@ export default function DmSettingsPage() {
       const res = await fetch("/api/store-settings/dm/generate-html", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt, subject, body, imageUrl: imageUrl || undefined, brand: storeBrand }),
+        body: JSON.stringify({ prompt: aiPrompt, subject, body: bodyText, brand: storeBrand }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -320,7 +430,7 @@ export default function DmSettingsPage() {
       setHtmlBody(data.html);
       // AIが生成した件名・本文を入力欄へ反映 (Push と同じ挙動)
       if (data.subject) setSubject(data.subject);
-      if (data.body) setBody(data.body);
+      if (data.body) setBlocks([newTextBlock(data.body)]);
     } catch {
       setAiError("AI生成リクエストに失敗しました。");
     } finally {
@@ -328,36 +438,17 @@ export default function DmSettingsPage() {
     }
   };
 
-  // ヘッダー画像: S3 へアップロードして公開URLを imageUrl にセット (SendGridメール内で表示)
-  const handleImageUpload = async (file: File | null) => {
-    if (!file) return;
-    setImgError("");
-    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-    if (!allowed.includes(file.type)) { setImgError("PNG / JPEG / WebP / GIF のみアップロードできます。"); return; }
-    if (file.size > 10 * 1024 * 1024) { setImgError("ファイルサイズは 10MB 以内にしてください。"); return; }
-    setImgUploading(true);
-    try {
-      const initRes = await fetch("/api/store-settings/media/upload-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
-      });
-      const init = await initRes.json();
-      if (!initRes.ok || !init.ok) throw new Error(init?.error || "アップロード準備に失敗しました");
-      const putRes = await fetch(init.presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!putRes.ok) throw new Error("S3 へのアップロードに失敗しました");
-      setImageUrl(init.publicUrl);
-    } catch (e: any) {
-      setImgError(e?.message || "アップロードに失敗しました");
-    } finally {
-      setImgUploading(false);
-    }
-  };
-
   const submit = async (isDraft: boolean) => {
-    if (selectedClubs.length === 0) return alert("担当店舗を選択してください。");
-    if (!subject || !body) return alert("件名と本文は必須です。");
-    if (targetRecipients.length === 0) return alert("配信可能な宛先(メール)がありません。");
+    if (selectedClubs.length === 0) { showToast("担当店舗を選択してください。", "error"); return; }
+    if (!subject || !bodyText) { showToast("件名と本文は必須です。", "error"); return; }
+    if (targetRecipients.length === 0) { showToast("配信可能な宛先(メール)がありません。", "error"); return; }
+    // 送信前の確認 (下書きは除く)
+    if (!isDraft) {
+      const msg = isImmediate
+        ? `${targetRecipients.length}件へ「今すぐ」配信します。\n\n⚠️ 即時配信は送信後に取り消せません。よろしいですか？`
+        : `${targetRecipients.length}件へ予約配信します（${scheduledDate} ${scheduledTime}）。\n\n予約配信は送信前なら履歴の「予約」から編集・削除できます。よろしいですか？`;
+      if (!window.confirm(msg)) return;
+    }
     setSending(true);
     try {
       const scheduledAt =
@@ -370,9 +461,8 @@ export default function DmSettingsPage() {
           clubCodes: selectedClubs,
           brand: storeBrand,
           subject,
-          body,
-          imageUrl: imageUrl || undefined,
-          bodyHtml: htmlBody || undefined,
+          body: bodyText,
+          bodyHtml: htmlBody || blocksHtml || undefined, // AI生成HTML優先、無ければブロック本文HTML(画像位置指定)
           recipients: targetRecipients,
           isImmediate,
           scheduledAt,
@@ -381,21 +471,22 @@ export default function DmSettingsPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "配信失敗");
-      alert(
+      showToast(
         isDraft
           ? "下書きを保存しました（送信されていません）。"
           : data.scheduled
           ? "予約配信を登録しました。"
           : data.partial
           ? `${data.sentCount}件に送信しました。ただし ${data.errorCount}件は送信に失敗しました（監査ログに失敗宛先を記録）。時間をおいて再送してください。`
-          : `${data.sentCount}件に送信しました。`
+          : `${data.sentCount}件に送信しました。`,
+        "success"
       );
       setIsModalOpen(false);
       setSending(false);
       resetForm();
       fetchData();
     } catch (e: any) {
-      alert(e?.message || "送信エラー");
+      showToast(e?.message || "送信エラー", "error");
       setSending(false);
     }
   };
@@ -405,7 +496,7 @@ export default function DmSettingsPage() {
   };
 
   const resetForm = () => {
-    setSubject(""); setBody(""); setImageUrl("");
+    setSubject(""); setBlocks([newTextBlock("")]);
     setHtmlBody(""); setAiPrompt(""); setAiError("");
     setGroups([newCondGroup(CONTRACT_TYPES)]); setGroupOp("OR");
     setExtractedMembers([]); setSelectedMemberIds(new Set());
@@ -441,30 +532,52 @@ export default function DmSettingsPage() {
 
       <main className="dm-main-content">
         <section className="dm-history-section">
+          <div className="dm-hist-toolbar">
+            <input className="dm-hist-search" placeholder="件名・クラブ・配信者で検索" value={histSearch} onChange={(e) => setHistSearch(e.target.value)} />
+            <div className="dm-hist-tabs">
+              {([["all","すべて"],["SENT","完了"],["SCHEDULED","予約中"]] as const).map(([k, label]) => (
+                <button key={k} className={histStatus === k ? "on" : ""} onClick={() => setHistStatus(k)}>{label}</button>
+              ))}
+            </div>
+            <span className="dm-hist-count">{filteredNotifications.length}件</span>
+          </div>
           <div className="dm-table-container">
             <table className="dm-history-table">
               <thead>
                 <tr>
                   <th>送信日時</th>
                   <th>メール件名</th>
+                  <th>クラブ</th>
+                  <th>配信者</th>
                   <th>ステータス</th>
                   <th>対象件数</th>
                   <th>到達</th>
                   <th>開封率</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {notifications.length === 0 ? (
-                  <tr><td colSpan={6} className="empty-row">配信履歴はありません</td></tr>
+                {filteredNotifications.length === 0 ? (
+                  <tr><td colSpan={9} className="empty-row">{notifications.length === 0 ? "配信履歴はありません" : "該当する配信はありません"}</td></tr>
                 ) : (
-                  notifications.map((n) => (
+                  filteredNotifications.map((n) => (
                     <tr key={n.id} onClick={() => openDetailModal(n)} className="clickable-row">
                       <td className="date-cell">{formatDate(n.scheduledAt)}</td>
                       <td className="subj-cell">{n.subject}</td>
+                      <td className="club-cell" title={n.clubName || n.clubCode || ""}>{n.clubName || n.clubCode || "-"}</td>
+                      <td className="sender-cell">{n.senderName || "-"}</td>
                       <td><span className={`status-pill ${n.status.toLowerCase()}`}>{n.status === 'SENT' ? '完了' : '予約中'}</span></td>
                       <td>{n.stats?.targetCount || 0}</td>
                       <td>{n.stats?.deliveredCount || 0}</td>
                       <td>{n.stats && n.stats.deliveredCount > 0 ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
+                      <td className="row-actions" onClick={(e) => e.stopPropagation()}>
+                        {n.status === 'SCHEDULED' && (
+                          <>
+                            <button type="button" className="row-act edit" onClick={() => editScheduledDm(n)}>編集</button>
+                            <button type="button" className="row-act del" onClick={() => cancelScheduledDm(n)}>削除</button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
@@ -518,52 +631,13 @@ export default function DmSettingsPage() {
                     </div>
                     <div className="dm-field">
                       <label>本文 <span className="req">*</span></label>
-                      <textarea 
-                        className="dm-textarea" rows={6} value={body} 
-                        onChange={e=>setBody(e.target.value)} 
-                        disabled={viewMode === 'detail'}
-                        placeholder="本文を入力..." 
-                      />
+                      {viewMode === 'detail' ? (
+                        <textarea className="dm-textarea" rows={6} value={bodyText} disabled placeholder="本文" />
+                      ) : (
+                        <ContentBlocksEditor value={blocks} onChange={setBlocks} disabled={sending} />
+                      )}
+                      {viewMode === 'create' && <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>※ 画像は挿入した位置・配置でメールに表示されます。</div>}
                     </div>
-                    {viewMode === 'create' && (
-                      <div className="dm-field">
-                        <label>ヘッダー画像（任意）</label>
-                        {imageUrl ? (
-                          <div className="dm-img-uploaded">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={imageUrl} alt="ヘッダー画像" className="dm-img-thumb" />
-                            <div className="dm-img-actions">
-                              <span className="dm-img-ok">✓ アップロード済み（メールに表示されます）</span>
-                              <button type="button" className="dm-img-remove" onClick={() => { setImageUrl(""); setImgError(""); }}>削除</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <label className={`dm-img-drop${imgUploading ? " uploading" : ""}`}>
-                            <input
-                              type="file"
-                              accept="image/png,image/jpeg,image/webp,image/gif"
-                              style={{ display: "none" }}
-                              disabled={imgUploading}
-                              onChange={(e) => { handleImageUpload(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }}
-                            />
-                            {imgUploading ? (
-                              <span>アップロード中…</span>
-                            ) : (
-                              <>
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                                  <path d="M17 8l-5-5-5 5" />
-                                  <path d="M12 3v12" />
-                                </svg>
-                                <span>クリックして画像を選択</span>
-                                <small>PNG / JPEG / WebP / GIF・10MBまで</small>
-                              </>
-                            )}
-                          </label>
-                        )}
-                        {imgError && <div style={{ color: "#dc2626", fontSize: 11, marginTop: 6 }}>{imgError}</div>}
-                      </div>
-                    )}
                     {viewMode === 'create' && (
                       <div className="dm-field" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12 }}>
                         <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIでおしゃれなHTMLメールを作成</label>
@@ -630,6 +704,15 @@ export default function DmSettingsPage() {
                         <button type="button" onClick={addGroup} style={{ width: "100%", border: "1px dashed #cbd5e1", background: "#f8fafc", color: "#0f172a", padding: "8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}>＋ 条件グループを追加（{groupOp}）</button>
 
                         <button className="dm-extract-btn" onClick={handleExtract} disabled={isExtracting || !clubCode}>{isExtracting ? "検索中..." : "条件で名簿を作成"}</button>
+
+                        <div className="dm-divider" />
+                        <div className="dm-label-row">
+                          <label style={{ fontSize: 11, fontWeight: 700, color: "#64748b" }}>1day / OneTimePass 利用者を引用</label>
+                        </div>
+                        <button type="button" className="dm-extract-btn" style={{ marginTop: 4, background: "#7c3aed" }} onClick={importPassBuyers} disabled={passImporting || selectedClubs.length === 0}>
+                          {passImporting ? "取得中..." : "パス利用者のアドレスを引用"}
+                        </button>
+                        <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>選択店舗の1dayパス／OneTimePass購入者のメールを宛先に追加（店舗フィルタ済み・重複排除）</div>
 
                         <div className="dm-divider" />
                         <div className="dm-label-row">
@@ -743,6 +826,10 @@ export default function DmSettingsPage() {
                   <>
                     <div className="dm-panel-header-sticky">配信結果レポート</div>
                     <div className="dm-report-container">
+                      <div className="dm-detail-meta">
+                        <span><b>クラブ</b>{selectedHistory?.clubName || selectedHistory?.clubCode || "-"}</span>
+                        <span><b>配信者</b>{selectedHistory?.senderName || "-"}</span>
+                      </div>
                       <div className="dm-report-card">
                         <div className="dm-report-grid">
                           <div className="kpi-item">
@@ -801,6 +888,7 @@ export default function DmSettingsPage() {
                           実エンゲージメントはクリック率を併せてご確認ください。
                         </p>
                       </div>
+                      <DmPeoplePanel people={selectedHistory?.people} />
                     </div>
                   </>
                 )}
@@ -819,11 +907,13 @@ export default function DmSettingsPage() {
                       {htmlBody ? (
                         // AI生成HTMLをそのままプレビュー
                         <div className="mock-text-area" dangerouslySetInnerHTML={{ __html: htmlBody }} />
+                      ) : blocksHtml ? (
+                        // ブロック本文(画像位置指定)をプレビュー
+                        <div className="mock-text-area" dangerouslySetInnerHTML={{ __html: blocksHtml }} />
                       ) : (
                         <>
-                          {imageUrl && <img src={imageUrl} className="mock-banner" alt="" />}
                           <div className="mock-text-area">
-                            {body ? body.split('\n').map((l, i) => <p key={i}>{l}</p>) : <p className="placeholder">本文プレビュー</p>}
+                            <p className="placeholder">本文プレビュー</p>
                           </div>
                         </>
                       )}
@@ -838,12 +928,25 @@ export default function DmSettingsPage() {
 
             </div>
             <footer className="dm-modal-footer">
+              {viewMode === 'create' && (
+                <span className="dm-ready-hint">
+                  {selectedClubs.length === 0 ? "① 店舗を選択してください"
+                    : !subject || !bodyText ? "② 件名・本文を入力してください"
+                    : targetRecipients.length === 0 ? "③ 宛先を選択してください"
+                    : `✓ ${targetRecipients.length}件に${isImmediate ? "即時" : "予約"}配信できます`}
+                </span>
+              )}
               <button className="dm-modal-cancel" onClick={()=>setIsModalOpen(false)}>
                 {viewMode === 'create' ? 'キャンセル' : '閉じる'}
               </button>
+              {viewMode === 'detail' && selectedHistory && (
+                <button className="dm-modal-submit" onClick={() => reuseFromHistory(selectedHistory)} title="この配信の件名・本文を引き継いで編集・再送信します">
+                  編集して再送信
+                </button>
+              )}
               {viewMode === 'create' && (
                 <>
-                  <button className="dm-modal-cancel" onClick={() => submit(true)} disabled={!clubCode || !subject || !body || sending} title="送信せず下書き保存">
+                  <button className="dm-modal-cancel" onClick={() => submit(true)} disabled={!clubCode || !subject || !bodyText || sending} title="送信せず下書き保存">
                     下書き保存
                   </button>
                   <button className="dm-modal-submit" onClick={() => submit(false)} disabled={targetRecipients.length === 0 || !subject || sending}>
@@ -882,11 +985,21 @@ export default function DmSettingsPage() {
         /* LIST VIEW */
         .dm-main-content { max-width: 1400px; margin: 32px auto; padding: 0 24px; }
         .dm-history-container { background: #fff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .dm-hist-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .dm-hist-search { flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 13px; }
+        .dm-hist-tabs { display: flex; gap: 4px; }
+        .dm-hist-tabs button { padding: 7px 14px; border: 1px solid #e2e8f0; background: #fff; border-radius: 99px; font-size: 12px; font-weight: 700; color: #64748b; cursor: pointer; }
+        .dm-hist-tabs button.on { background: #0f172a; color: #fff; border-color: #0f172a; }
+        .dm-hist-count { font-size: 12px; color: #94a3b8; font-weight: 700; }
         .dm-history-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .dm-history-table th { background: #f8fafc; padding: 14px 16px; text-align: left; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0; }
         .dm-history-table td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
         .clickable-row { cursor: pointer; transition: background 0.1s; }
         .clickable-row:hover { background: #f8fafc; }
+        .row-actions { white-space: nowrap; text-align: right; }
+        .row-act { font-size: 11px; font-weight: 700; border-radius: 6px; padding: 4px 10px; cursor: pointer; margin-left: 4px; border: 1px solid #e2e8f0; background: #fff; }
+        .row-act.edit { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+        .row-act.del { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
         .subj-cell { font-weight: 700; color: #334155; }
         .status-pill { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .status-pill.sent { background: #dcfce7; color: #166534; }
@@ -985,6 +1098,27 @@ export default function DmSettingsPage() {
         .text-blue { color: #3b82f6; } .text-green { color: #10b981; } .text-red { color: #ef4444; }
         .error-bar { background: #fef2f2; padding: 12px; border-radius: 8px; border: 1px solid #fee2e2; display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700; }
         .err-val { color: #ef4444; }
+        .club-cell { color: #334155; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .sender-cell { color: #64748b; white-space: nowrap; }
+        /* DM詳細: クラブ/配信者 + 宛先別開封 */
+        .dm-detail-meta { display: flex; gap: 20px; margin-bottom: 14px; font-size: 13px; color: #334155; }
+        .dm-detail-meta b { font-weight: 700; color: #94a3b8; font-size: 11px; margin-right: 6px; }
+        .dm-people-card { background: #fff; border-radius: 12px; padding: 20px; border: 1px solid #e2e8f0; margin-top: 16px; }
+        .dm-people-title { font-size: 13px; font-weight: 800; color: #1e293b; margin-bottom: 12px; }
+        .dm-people-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+        .dm-people-tab { flex: 1; padding: 9px; border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 10px; font-size: 13px; font-weight: 700; color: #64748b; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .dm-people-tab.active { background: #fff; color: #0f172a; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.15); }
+        .dm-people-tab:disabled { opacity: 0.6; cursor: not-allowed; }
+        .dm-people-badge { font-size: 12px; font-weight: 800; background: #e2e8f0; color: #475569; border-radius: 99px; padding: 1px 9px; }
+        .dm-people-badge.open { background: #d1fae5; color: #047857; }
+        .dm-people-list { max-height: 340px; overflow-y: auto; border: 1px solid #f1f5f9; border-radius: 10px; }
+        .dm-person-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid #f1f5f9; font-size: 12px; }
+        .dm-person-row:last-child { border-bottom: none; }
+        .dm-person-name { font-weight: 700; color: #0f172a; min-width: 96px; }
+        .dm-person-email { flex: 1; color: #475569; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .dm-person-time { color: #64748b; white-space: nowrap; }
+        .dm-people-empty { text-align: center; color: #94a3b8; padding: 24px; font-size: 12px; }
+        .dm-people-note { font-size: 11px; color: #94a3b8; margin-top: 10px; line-height: 1.6; }
 
         /* COLUMN 3: PREVIEW */
         .dm-col-preview { display: flex; flex-direction: column; height: 100%; background: #cbd5e1; }
@@ -999,7 +1133,8 @@ export default function DmSettingsPage() {
         .mock-footer { padding: 20px; border-top: 1px dashed #e2e8f0; background: #fafafa; font-size: 10px; color: #94a3b8; text-align: center; line-height: 1.5; }
 
         /* FOOTER */
-        .dm-modal-footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; background: #fff; display: flex; justify-content: flex-end; gap: 12px; }
+        .dm-modal-footer { padding: 16px 24px; border-top: 1px solid #e2e8f0; background: #fff; display: flex; justify-content: flex-end; align-items: center; gap: 12px; }
+        .dm-ready-hint { margin-right: auto; font-size: 12px; font-weight: 700; color: #64748b; }
         .dm-modal-submit { background: #3b82f6; color: #fff; border: none; padding: 10px 24px; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: 0.2s; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.3); }
         .dm-modal-submit:hover:not(:disabled) { background: #2563eb; }
         .dm-modal-submit:disabled { background: #cbd5e1; cursor: not-allowed; box-shadow: none; }
@@ -1051,4 +1186,8 @@ export default function DmSettingsPage() {
       `}</style>
     </div>
   );
+}
+
+export default function DmSettingsPage() {
+  return (<ToastProvider><DmSettingsInner /></ToastProvider>);
 }

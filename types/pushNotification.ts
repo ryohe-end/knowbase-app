@@ -27,6 +27,15 @@ export type PushOpenTimeBucket = {
   opens: number;
 };
 
+// 会員単位の配信/開封状況 (詳細画面: 開いた人/開いてない人)
+export type PushPerson = {
+  name: string;
+  memberNo?: string;   // 会員番号 (app_user.member_id)
+  clubCode?: string;
+  clubName?: string;
+  readAt?: string;     // 開封日時 (ISO)。未開封は undefined
+};
+
 export type PushNotification = {
   id: string;
   title: string;
@@ -39,6 +48,12 @@ export type PushNotification = {
   scheduledAt: string;
   createdAt: string;
 
+  // 履歴一覧/詳細の付帯情報
+  clubCodes?: string[];   // 配信先クラブ
+  clubNames?: string[];   // 配信先クラブ名 (表示用)
+  senderName?: string;    // 配信者 (knowbie-push-meta 由来)
+
   stats?: PushStats;
   openTimeline?: PushOpenTimeBucket[];
+  people?: { opened: PushPerson[]; unopened: PushPerson[] }; // 詳細のみ
 };

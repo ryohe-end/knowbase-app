@@ -63,6 +63,13 @@ export type StoreAppConfig = {
   showUnpaidPayment: boolean;
   showWithdrawal: boolean;
 
+  // --- [表示サービス(shop_service_control) の本番連携メタ] ---
+  // 上記トグルのうち showAppEnableButton〜showWithdrawal(showUnpaidPayment除く) は
+  // 入会DB shop_service_control が本番SoT。解決できた場合のみ実データ・編集可。
+  serviceControlAvailable?: boolean;   // 入会DBの shop_id を自動特定でき、読み取れたか
+  serviceShopId?: string;              // 自動対応づけた入会DBの shop_id
+  serviceToggleKeys?: string[];        // 当該ブランドで有効なトグルキー(JOYFITはkiosk/family除外)
+
   // --- [解錠機器] ---
   unlockDevices: UnlockDeviceConfig[]; // ✅ 追加
 

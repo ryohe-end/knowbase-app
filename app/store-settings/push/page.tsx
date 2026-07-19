@@ -15,10 +15,27 @@ const formatDate = (iso: string) => {
   });
 };
 
+// クラブ名一覧を表示用に整形 (多い場合は "先頭 他N件")
+const clubLabel = (names?: string[]) => {
+  if (!names || names.length === 0) return "-";
+  if (names.length === 1) return names[0];
+  return `${names[0]} 他${names.length - 1}件`;
+};
+
 export default function PushSettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<PushNotification[]>([]);
+  const [histSearch, setHistSearch] = useState("");
+  const [histStatus, setHistStatus] = useState<"all" | "SENT" | "SCHEDULED" | "DRAFT">("all");
+  const filteredNotifications = useMemo(() => {
+    const q = histSearch.trim().toLowerCase();
+    return notifications.filter((n) => {
+      if (histStatus !== "all" && n.status !== histStatus) return false;
+      if (!q) return true;
+      return [n.title, n.senderName, ...(n.clubNames || [])].some((s) => String(s || "").toLowerCase().includes(q));
+    });
+  }, [notifications, histSearch, histStatus]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -36,6 +53,26 @@ export default function PushSettingsPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // 予約(未送信)の取り消し
+  const cancelScheduled = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("この予約配信を削除（取り消し）しますか？\n送信前のため取り消せます。")) return;
+    try {
+      const res = await fetch(`/api/store-settings/push?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || "取り消しに失敗しました");
+      fetchData();
+    } catch (err: any) { alert(err?.message || "取り消しに失敗しました"); }
+  };
+  // 予約の編集: 内容を引き継いで新規作成へ + 元の予約を取り消し
+  const editScheduled = async (n: PushNotification, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm("この予約配信を編集します。\n元の予約は取り消され、編集画面へ移動します。")) return;
+    try { sessionStorage.setItem("push_reuse", JSON.stringify({ title: n.title, body: n.body })); } catch {}
+    await fetch(`/api/store-settings/push?id=${encodeURIComponent(n.id)}`, { method: "DELETE" }).catch(() => {});
+    router.push("/store-settings/push/new");
+  };
 
   // KPI 計算
   const kpis = useMemo(() => {
@@ -114,23 +151,35 @@ export default function PushSettingsPage() {
         </section>
 
         <section className="push-history-section">
+          <div className="push-hist-toolbar">
+            <input className="push-hist-search" placeholder="タイトル・クラブ・配信者で検索" value={histSearch} onChange={(e) => setHistSearch(e.target.value)} />
+            <div className="push-hist-tabs">
+              {([["all","すべて"],["SENT","完了"],["SCHEDULED","予約中"],["DRAFT","下書き"]] as const).map(([k, label]) => (
+                <button key={k} className={histStatus === k ? "on" : ""} onClick={() => setHistStatus(k)}>{label}</button>
+              ))}
+            </div>
+            <span className="push-hist-count">{filteredNotifications.length}件</span>
+          </div>
           <div className="push-table-container">
             <table className="push-history-table">
               <thead>
                 <tr>
                   <th>送信日時</th>
                   <th>タイトル</th>
+                  <th>クラブ</th>
+                  <th>配信者</th>
                   <th>ステータス</th>
                   <th>対象件数</th>
                   <th>成功数</th>
                   <th>開封率</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {notifications.length === 0 ? (
-                  <tr><td colSpan={6} className="empty-row">配信履歴はありません</td></tr>
+                {filteredNotifications.length === 0 ? (
+                  <tr><td colSpan={9} className="empty-row">{notifications.length === 0 ? "配信履歴はありません" : "該当する配信はありません"}</td></tr>
                 ) : (
-                  notifications.map((n) => (
+                  filteredNotifications.map((n) => (
                     <tr
                       key={n.id}
                       onClick={() => router.push(`/store-settings/push/${encodeURIComponent(n.id)}`)}
@@ -138,6 +187,8 @@ export default function PushSettingsPage() {
                     >
                       <td className="date-cell">{formatDate(n.scheduledAt)}</td>
                       <td className="subj-cell">{n.title}</td>
+                      <td className="club-cell" title={(n.clubNames || []).join("、")}>{clubLabel(n.clubNames)}</td>
+                      <td className="sender-cell">{n.senderName || "-"}</td>
                       <td>
                         <span className={`status-pill ${n.status.toLowerCase()}`}>
                           {n.status === "SENT" ? "完了" : n.status === "SCHEDULED" ? "予約中" : "下書き"}
@@ -146,6 +197,14 @@ export default function PushSettingsPage() {
                       <td>{n.stats?.targetCount || 0}</td>
                       <td>{n.stats?.sentCount || 0}</td>
                       <td>{n.stats && n.stats.sentCount > 0 ? `${Math.round((n.stats.openCount / n.stats.sentCount) * 100)}%` : "-"}</td>
+                      <td className="row-actions" onClick={(e) => e.stopPropagation()}>
+                        {(n.status === "SCHEDULED" || n.status === "DRAFT") && (
+                          <>
+                            <button type="button" className="row-act edit" onClick={(e) => editScheduled(n, e)}>編集</button>
+                            <button type="button" className="row-act del" onClick={(e) => cancelScheduled(n.id, e)}>削除</button>
+                          </>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}

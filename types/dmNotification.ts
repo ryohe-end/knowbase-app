@@ -40,6 +40,20 @@ export type DmNotification = {
   status: DmStatus;
   scheduledAt: string;
   createdAt: string;
-  
+
+  // 履歴一覧/詳細の付帯情報
+  clubCode?: string;   // 配信先クラブ
+  clubName?: string;   // 配信先クラブ名 (表示用)
+  senderName?: string; // 配信者
+
   stats?: DmStats; // ✅ 統計情報を追加
+  people?: DmPeople; // 詳細のみ: 開いた人/開いてない人
+};
+
+// 詳細画面: メール宛先単位の開封状況
+export type DmPerson = { email: string; name?: string; at?: string };
+export type DmPeople = {
+  recipientsCaptured: boolean; // false=旧配信で宛先未保存 (未開封者を特定不可)
+  opened: DmPerson[];
+  unopened: DmPerson[];
 };

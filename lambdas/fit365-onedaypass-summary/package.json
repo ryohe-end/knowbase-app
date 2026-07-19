@@ -1,0 +1,6 @@
+{
+  "name": "knowbie-fit365-onedaypass-summary",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "FIT365 1dayパス金額の夜間事前集計 (相手DB負荷対策)"
+}

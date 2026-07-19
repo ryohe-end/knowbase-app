@@ -28,6 +28,7 @@ export default function PushDetailPage() {
   const id = params?.id;
   const [n, setN] = useState<(PushNotification & { appType?: string }) | null>(null);
   const [loading, setLoading] = useState(true);
+  const [peopleTab, setPeopleTab] = useState<"opened" | "unopened">("opened");
 
   useEffect(() => {
     if (!id) return;
@@ -63,6 +64,13 @@ export default function PushDetailPage() {
             </Link>
             <h1 className="push-header-title">配信詳細</h1>
           </div>
+          {n && (
+            <Link href="/store-settings/push/new" className="push-primary-btn"
+              onClick={() => { try { sessionStorage.setItem("push_reuse", JSON.stringify({ title: n.title, body: n.body })); } catch {} }}
+              title="この配信の内容を引き継いで編集・再送信します">
+              編集して再送信
+            </Link>
+          )}
         </div>
       </header>
 
@@ -179,6 +187,37 @@ export default function PushDetailPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+                </div>
+              )}
+
+              {/* 会員別の開封状況 (個人宛=CONDITION のみ。店舗トピック配信は対象外) */}
+              {n.people && (n.people.opened.length + n.people.unopened.length) > 0 && (
+                <div className="push-detail-card">
+                  <div className="push-detail-card-title">会員別の開封状況</div>
+                  <div className="push-people-tabs">
+                    <button className={`push-people-tab ${peopleTab === "opened" ? "active" : ""}`} onClick={() => setPeopleTab("opened")}>
+                      開いた人 <span className="push-people-badge open">{n.people.opened.length}</span>
+                    </button>
+                    <button className={`push-people-tab ${peopleTab === "unopened" ? "active" : ""}`} onClick={() => setPeopleTab("unopened")}>
+                      開いてない人 <span className="push-people-badge">{n.people.unopened.length}</span>
+                    </button>
+                  </div>
+                  <div className="push-people-list">
+                    {(peopleTab === "opened" ? n.people.opened : n.people.unopened).map((p, i) => (
+                      <div className="push-person-row" key={`${p.memberNo || p.name}-${i}`}>
+                        <span className="push-person-name">{p.name}</span>
+                        <span className="push-person-meta">
+                          {p.memberNo ? <span className="push-person-no">No.{p.memberNo}</span> : null}
+                          {p.clubName ? <span className="push-person-club">{p.clubName}</span> : null}
+                        </span>
+                        <span className="push-person-time">{p.readAt ? formatDate(p.readAt) : "未開封"}</span>
+                      </div>
+                    ))}
+                    {(peopleTab === "opened" ? n.people.opened : n.people.unopened).length === 0 && (
+                      <div className="push-empty-state">{peopleTab === "opened" ? "まだ開封した会員はいません" : "未開封の会員はいません"}</div>
+                    )}
+                  </div>
+                  <div className="push-people-note">※ 個人指定(会員抽出)で配信した分のみ会員単位で表示されます。店舗全体(トピック)配信は集計のみ。</div>
                 </div>
               )}
             </section>

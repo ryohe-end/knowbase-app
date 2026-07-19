@@ -19,7 +19,9 @@ import { writeAudit, clientIp } from "@/lib/auditLog";
 import { checkSendGuards } from "@/lib/sendGuards";
 import { query } from "@/lib/memberDb";
 import { createInformation, type AppType } from "@/lib/information";
-import type { PushNotification, PushStatus } from "@/types/pushNotification";
+import { getClubNames } from "@/lib/clubScope";
+import { putPushMeta, batchGetPushMeta } from "@/lib/pushMeta";
+import type { PushNotification, PushStatus, PushPerson } from "@/types/pushNotification";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +51,7 @@ function deriveStatus(row: { is_private: boolean; start_at: string }): PushStatu
 
 // DB行 → PushNotification (+ appType: プレビューのブランド出し分け用)
 function toPush(r: any): PushNotification & { appType?: string } {
+  const clubCodes: string[] = Array.isArray(r.club_codes) ? r.club_codes.map(String).filter(Boolean) : [];
   return {
     id: String(r.id),
     title: r.title,
@@ -58,6 +61,7 @@ function toPush(r: any): PushNotification & { appType?: string } {
     scheduledAt: new Date(r.start_at).toISOString(),
     createdAt: new Date(r.created_at).toISOString(),
     appType: r.app_type ?? undefined,
+    clubCodes,
     stats: {
       targetCount: Number(r.target_count),
       sentCount: Number(r.sent_count),
@@ -65,6 +69,28 @@ function toPush(r: any): PushNotification & { appType?: string } {
       errorCount: Number(r.error_count),
     },
   };
+}
+
+// 一覧/詳細に クラブ名 と 配信者名 を付与する (knowbie-clubs + knowbie-push-meta)。
+async function enrichPush(items: (PushNotification & { appType?: string })[]): Promise<void> {
+  const allCodes = new Set<string>();
+  for (const it of items) for (const c of it.clubCodes || []) allCodes.add(c);
+  const [nameMap, metaMap] = await Promise.all([
+    getClubNames([...allCodes]),
+    batchGetPushMeta(items.map((i) => i.id)),
+  ]);
+  for (const it of items) {
+    it.clubNames = (it.clubCodes || []).map((c) => nameMap[c] || c);
+    const meta = metaMap[it.id];
+    if (meta) {
+      it.senderName = meta.createdByName || meta.createdBy;
+      // メタに配信先が保存されていて、集計側にクラブが無い場合の補完
+      if ((!it.clubCodes || it.clubCodes.length === 0) && meta.clubCodes?.length) {
+        it.clubCodes = meta.clubCodes;
+        it.clubNames = meta.clubCodes.map((c) => nameMap[c] || c);
+      }
+    }
+  }
 }
 
 // ── GET: 一覧 (?clubCode=) / 単体 (?id=) ──
@@ -103,12 +129,14 @@ export async function GET(req: Request) {
       `SELECT i.id, i.title, i.content, i.link_url, i.is_private,
               i.start_at, i.end_at, i.created_at,
               min(d.app_type) AS app_type,
+              array_remove(array_agg(DISTINCT coalesce(d.club_code, au.club_code)), NULL) AS club_codes,
               count(d.*) AS target_count,
               count(*) FILTER (WHERE d.status='done')  AS sent_count,
               count(*) FILTER (WHERE d.status='error') AS error_count,
               count(*) FILTER (WHERE d.read_at IS NOT NULL) AS open_count
        FROM information2 i
        JOIN information2_destination d ON d.information2_id = i.id
+       LEFT JOIN app_user au ON au.id = d.app_user_id
        WHERE i.id = $1
        GROUP BY i.id`,
       [infoId]
@@ -126,8 +154,36 @@ export async function GET(req: Request) {
        GROUP BY 1 ORDER BY 1`,
       [infoId]
     );
+    // 会員単位の開封/未開封 (個人宛=CONDITION のみ enumerable。店舗トピック=ALL は宛先が個人でないため対象外)
+    // 店舗ユーザーは自店舗の会員に限定 (admin=clubCodes空は全件)。
+    const peopleRows = await query<any>(
+      `SELECT au.name, au.member_id, au.club_code, d.read_at, d.status
+         FROM information2_destination d
+         JOIN app_user au ON au.id = d.app_user_id
+        WHERE d.information2_id = $1 AND d.app_user_id IS NOT NULL
+          ${allowedClubs.length > 0 ? "AND au.club_code = ANY($2::text[])" : ""}
+        ORDER BY (d.read_at IS NOT NULL) DESC, d.read_at DESC, au.name
+        LIMIT 5000`,
+      allowedClubs.length > 0 ? [infoId, allowedClubs] : [infoId]
+    );
+    const pClubNames = await getClubNames(peopleRows.rows.map((r) => String(r.club_code || "")));
+    const opened: PushPerson[] = [];
+    const unopened: PushPerson[] = [];
+    for (const r of peopleRows.rows) {
+      const p: PushPerson = {
+        name: r.name || "(名称未設定)",
+        memberNo: r.member_id ? String(r.member_id) : undefined,
+        clubCode: r.club_code ? String(r.club_code) : undefined,
+        clubName: r.club_code ? (pClubNames[String(r.club_code)] || String(r.club_code)) : undefined,
+        readAt: r.read_at ? new Date(r.read_at).toISOString() : undefined,
+      };
+      (p.readAt ? opened : unopened).push(p);
+    }
+    const notification = toPush(head.rows[0]);
+    await enrichPush([notification]);
+    notification.people = { opened, unopened };
     return NextResponse.json({
-      notification: toPush(head.rows[0]),
+      notification,
       openTimeline: tl.rows.map((t) => ({ hourOffset: t.hour_offset, opens: t.opens })),
     });
   }
@@ -137,6 +193,7 @@ export async function GET(req: Request) {
   const selectCols = `SELECT i.id, i.title, i.content, i.link_url, i.is_private,
             i.start_at, i.end_at, i.created_at,
             min(d.app_type) AS app_type,
+            array_remove(array_agg(DISTINCT coalesce(d.club_code, au.club_code)), NULL) AS club_codes,
             count(d.*) AS target_count,
             count(*) FILTER (WHERE d.status='done')  AS sent_count,
             count(*) FILTER (WHERE d.status='error') AS error_count,
@@ -156,7 +213,9 @@ export async function GET(req: Request) {
           [allowedClubs]
         )
       : await query<any>(`${selectCols}${tail}`);
-  return NextResponse.json({ notifications: list.rows.map(toPush) });
+  const notifications = list.rows.map(toPush);
+  await enrichPush(notifications);
+  return NextResponse.json({ notifications });
 }
 
 // ── POST: お知らせ作成 (createInformation 経由) ──
@@ -285,6 +344,16 @@ export async function POST(req: Request) {
       isPrivate: !!body.isDraft, // 下書き=送信も表示もしない
       destinations,
     });
+    // 配信者メタ (information2 に配信者列が無いため別持ち。ベストエフォート)
+    void putPushMeta({
+      informationId: String(informationId),
+      createdBy: (user as any).email || (user as any).userId || "unknown",
+      createdByName: (user as any).name,
+      brand: body.brand,
+      clubCodes,
+      targetType,
+      createdAt: new Date().toISOString(),
+    });
     void writeAudit({
       userId: (user as any).email || (user as any).userId || "unknown",
       userName: (user as any).name,
@@ -300,4 +369,40 @@ export async function POST(req: Request) {
     console.error("[push POST] createInformation failed:", e);
     return NextResponse.json({ ok: false, error: "create_failed" }, { status: 500 });
   }
+}
+
+// ── DELETE: 予約(未送信)の取り消し ──
+// 送信は cron が start_at <= now AND is_private=false の時に行うため、start_at が未来のうちに
+// is_private=true にすれば送信・表示ともされない(＝キャンセル)。送信済みは取り消せない。
+export async function DELETE(req: Request) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const id = new URL(req.url).searchParams.get("id");
+  const infoId = Number(id);
+  if (!Number.isFinite(infoId)) return NextResponse.json({ ok: false, error: "invalid id" }, { status: 400 });
+  const allowedClubs = user.clubCodes;
+
+  // 担当スコープ検査 (一覧/詳細と同じ)
+  if (allowedClubs.length > 0) {
+    const scoped = await query<{ ok: number }>(
+      `SELECT 1 AS ok FROM information2_destination d LEFT JOIN app_user au ON au.id = d.app_user_id
+        WHERE d.information2_id = $1 AND (d.club_code = ANY($2::text[]) OR au.club_code = ANY($2::text[])) LIMIT 1`,
+      [infoId, allowedClubs]
+    );
+    if (scoped.rows.length === 0) return NextResponse.json({ ok: false, error: "担当外です" }, { status: 403 });
+  }
+  // 未送信(start_at が未来)のみ取り消し可
+  const upd = await query(
+    `UPDATE information2 SET is_private = true, updated_at = timezone('utc', now())
+      WHERE id = $1 AND start_at > timezone('utc', now())`,
+    [infoId]
+  );
+  if ((upd.rowCount ?? 0) === 0) {
+    return NextResponse.json({ ok: false, error: "既に送信済み、または取り消せる予約がありません" }, { status: 409 });
+  }
+  void writeAudit({
+    userId: (user as any).email || (user as any).userId || "unknown", userName: (user as any).name,
+    action: "push.cancel", clubCodes: allowedClubs, resource: `information:${infoId}`, ip: clientIp(req),
+  });
+  return NextResponse.json({ ok: true });
 }

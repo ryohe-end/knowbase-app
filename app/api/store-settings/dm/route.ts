@@ -18,9 +18,14 @@ import {
   createCampaign,
   updateCampaignSendResult,
   listCampaigns,
+  getCampaign,
+  markCampaignCancelled,
+  listCampaignPeople,
+  saveRecipients,
   newCampaignId,
   type DmCampaign,
 } from "@/lib/dmStore";
+import { getClubNames } from "@/lib/clubScope";
 import type { DmNotification } from "@/types/dmNotification";
 
 export const runtime = "nodejs";
@@ -29,8 +34,11 @@ export const dynamic = "force-dynamic";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BATCH = 1000; // SendGrid personalizations 上限
 
+function sgKey(): string {
+  return (process.env.SENDGRID_API_KEY ?? "").trim().replace(/^['"]|['"]$/g, "");
+}
 function initSendGrid(): { ok: true; fromEmail: string } | { ok: false; reason: string } {
-  const key = (process.env.SENDGRID_API_KEY ?? "").trim().replace(/^['"]|['"]$/g, "");
+  const key = sgKey();
   if (!key || !key.startsWith("SG.")) return { ok: false, reason: "SENDGRID_API_KEY 不正" };
   const fromEmail = (process.env.SENDGRID_FROM_EMAIL ?? "").trim().replace(/^['"]|['"]$/g, "");
   if (!fromEmail) return { ok: false, reason: "SENDGRID_FROM_EMAIL 未設定" };
@@ -88,6 +96,8 @@ function campaignToNotification(c: DmCampaign): DmNotification {
     status: c.status === "scheduled" ? "SCHEDULED" : "SENT",
     scheduledAt: c.scheduledAt || c.sentAt || c.createdAt,
     createdAt: c.createdAt,
+    clubCode: c.clubCode,
+    senderName: c.createdByName || c.createdBy,
     stats: {
       targetCount: c.targetCount,
       deliveredCount: c.delivered ?? 0,
@@ -106,9 +116,37 @@ function campaignToNotification(c: DmCampaign): DmNotification {
 export async function GET(req: Request) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const id = new URL(req.url).searchParams.get("id");
+
+  // 単体 (詳細): キャンペーン + 開いた人/開いてない人
+  if (id) {
+    try {
+      const c = await getCampaign(id);
+      if (!c) return NextResponse.json({ notification: null });
+      // 担当外キャンペーンの閲覧を禁止 (admin=clubCodes空は全件可)
+      if (user.clubCodes.length > 0 && !user.clubCodes.includes(c.clubCode)) {
+        return NextResponse.json({ notification: null });
+      }
+      const [people, nameMap] = await Promise.all([
+        listCampaignPeople(id),
+        getClubNames([c.clubCode]),
+      ]);
+      const notification = campaignToNotification(c);
+      notification.clubName = nameMap[c.clubCode] || c.clubCode;
+      notification.people = people;
+      return NextResponse.json({ notification });
+    } catch (e: any) {
+      console.error("[dm GET id] failed:", e?.message || e);
+      return NextResponse.json({ notification: null });
+    }
+  }
+
   try {
     const campaigns = await listCampaigns({ clubCodes: user.clubCodes });
-    return NextResponse.json({ notifications: campaigns.map(campaignToNotification) });
+    const notifications = campaigns.map(campaignToNotification);
+    const nameMap = await getClubNames(notifications.map((n) => n.clubCode || "").filter(Boolean));
+    for (const n of notifications) if (n.clubCode) n.clubName = nameMap[n.clubCode] || n.clubCode;
+    return NextResponse.json({ notifications });
   } catch (e: any) {
     // テーブル未作成などでも画面を落とさない (空一覧で返す)
     console.error("[dm GET] listCampaigns failed:", e?.message || e);
@@ -211,6 +249,18 @@ export async function POST(req: Request) {
     sendAt = secs;
   }
 
+  // 予約送信は後からキャンセルできるよう SendGrid の batch_id を発行する。
+  let batchId: string | undefined;
+  if (sendAt) {
+    try {
+      const r = await fetch("https://api.sendgrid.com/v3/mail/batch", {
+        method: "POST", headers: { Authorization: `Bearer ${sgKey()}` },
+      });
+      const j = await r.json();
+      if (r.ok && j?.batch_id) batchId = String(j.batch_id);
+    } catch (e: any) { console.error("[dm POST] batch_id 発行失敗(キャンセル不可で継続):", e?.message || e); }
+  }
+
   // 完成HTML(AI生成)があればそのまま、無ければ件名/本文/画像から組み立てる。
   // どちらの経路でもアップロード画像が必ずメールに載るよう ensureImage で保証する。
   const html = ensureImage(
@@ -239,11 +289,14 @@ export async function POST(req: Request) {
       sentCount: 0,
       status: sendAt ? "scheduled" : "sending",
       scheduledAt: sendAt ? body.scheduledAt : undefined,
+      batchId,
       createdAt: now.toISOString(),
     } as DmCampaign);
   } catch (e: any) {
     console.error("[dm POST] createCampaign failed (集計は無効化して送信継続):", e?.message || e);
   }
+  // 宛先を保存 (今後分の未開封者特定用。ベストエフォート)
+  await saveRecipients(campaignId, recipients);
 
   let sent = 0;
   const errors: string[] = [];
@@ -256,6 +309,7 @@ export async function POST(req: Request) {
         subject,
         html,
         ...(sendAt ? { sendAt } : {}),
+        ...(batchId ? { batchId } : {}),
         // 開封率集計用: イベントに campaign_id を echo させる + トラッキング有効化
         customArgs: { campaign_id: campaignId },
         categories: ["dm", clubCode],
@@ -317,4 +371,43 @@ export async function POST(req: Request) {
     errorCount: failedCount,
     partial: failedCount > 0,
   });
+}
+
+// ── DELETE: 予約配信のキャンセル ──
+// SendGrid の scheduled send を batch_id 単位でキャンセルし、キャンペーンを cancelled にする。
+//   DELETE ?campaignId=...
+export async function DELETE(req: Request) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const campaignId = new URL(req.url).searchParams.get("campaignId");
+  if (!campaignId) return NextResponse.json({ ok: false, error: "campaignId required" }, { status: 400 });
+
+  const c = await getCampaign(campaignId);
+  if (!c) return NextResponse.json({ ok: false, error: "対象が見つかりません" }, { status: 404 });
+  // 担当外クラブは不可 (admin=clubCodes空は全件)
+  if (user.clubCodes.length > 0 && !user.clubCodes.includes(c.clubCode)) {
+    return NextResponse.json({ ok: false, error: "担当外です" }, { status: 403 });
+  }
+  if (c.status !== "scheduled") {
+    return NextResponse.json({ ok: false, error: "予約中の配信のみ取り消せます（既に送信済み等）" }, { status: 409 });
+  }
+  if (!c.batchId) {
+    return NextResponse.json({ ok: false, error: "この予約は batch_id が無いためSendGrid側で取り消せません" }, { status: 409 });
+  }
+  // SendGrid: 予約送信をキャンセル
+  const r = await fetch("https://api.sendgrid.com/v3/user/scheduled_sends", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${sgKey()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ batch_id: c.batchId, status: "cancel" }),
+  });
+  if (!r.ok && r.status !== 201) {
+    const t = await r.text().catch(() => "");
+    return NextResponse.json({ ok: false, error: `SendGridでの取り消しに失敗しました (${r.status})`, detail: t.slice(0, 200) }, { status: 502 });
+  }
+  await markCampaignCancelled(campaignId).catch(() => {});
+  void writeAudit({
+    userId: (user as any).email || (user as any).userId || "unknown", userName: (user as any).name,
+    action: "dm.cancel", clubCodes: [c.clubCode], resource: `dmCampaign:${campaignId}`, detail: { batchId: c.batchId }, ip: clientIp(req), result: "ok",
+  });
+  return NextResponse.json({ ok: true });
 }

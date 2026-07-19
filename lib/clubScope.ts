@@ -13,27 +13,32 @@ let _cache: {
   byArea: Map<string, string[]>;
   areas: string[];
   bizByClub: Map<string, string>;
+  nameByClub: Map<string, string>;
 } | null = null;
 
 async function loadAreaMap(): Promise<{
   byArea: Map<string, string[]>;
   areas: string[];
   bizByClub: Map<string, string>;
+  nameByClub: Map<string, string>;
 }> {
   if (_cache && Date.now() - _cache.at < 5 * 60_000) return _cache;
   const byArea = new Map<string, string[]>();
   const bizByClub = new Map<string, string>();
+  const nameByClub = new Map<string, string>();
   let ExclusiveStartKey: any = undefined;
   do {
     const res: any = await ddb.send(new ScanCommand({
       TableName: CLUBS_TABLE,
-      ProjectionExpression: "clubCode, companyGroup, businessType",
+      ProjectionExpression: "clubCode, companyGroup, businessType, clubName, clubNameShort",
       ExclusiveStartKey,
     }));
     for (const it of res.Items ?? []) {
       if (!it.clubCode) continue;
       const code = String(it.clubCode);
       if (it.businessType) bizByClub.set(code, String(it.businessType));
+      const nm = it.clubNameShort || it.clubName;
+      if (nm) nameByClub.set(code, String(nm));
       const area = it.companyGroup;
       if (!area) continue;
       const arr = byArea.get(area) || [];
@@ -42,8 +47,23 @@ async function loadAreaMap(): Promise<{
     }
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub };
+  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub, nameByClub };
   return _cache;
+}
+
+// clubCode → 店舗名 の解決マップ。未登録は clubCode をそのまま名前に使う。
+export async function getClubNames(codes: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const uniq = [...new Set(codes.map((c) => String(c).trim()).filter(Boolean))];
+  if (uniq.length === 0) return out;
+  try {
+    const { nameByClub } = await loadAreaMap();
+    for (const c of uniq) out[c] = nameByClub.get(c) || c;
+  } catch (e) {
+    console.error("[clubScope] name lookup failed:", e);
+    for (const c of uniq) out[c] = c;
+  }
+  return out;
 }
 
 // clubCode の businessType (例: "FIT365", "赤", "青", "JOYFIT+", ...) を返す。未登録は null。

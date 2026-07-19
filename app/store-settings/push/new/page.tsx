@@ -9,6 +9,7 @@ import ConditionGroupForm, { type CondGroup, newCondGroup } from "@/components/C
 import { type ContractTypeOption } from "@/components/ContractTypePicker";
 import StorePicker from "@/components/StorePicker";
 import GuideTour from "@/components/GuideTour";
+import ContentBlocksEditor, { type ContentBlock, newTextBlock, blocksToHtml, blocksToText } from "@/components/ContentBlocksEditor";
 
 // 契約種別は店舗選択時に member-search(Oracle/会員区分) から動的取得する。
 // 初期グループ生成用の空マスタ (店舗未選択時)。
@@ -50,10 +51,10 @@ export default function NewPushPage() {
 
   // フォーム
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [imageUrl, setImageUrl] = useState(""); // お知らせ欄に表示する画像 (S3 公開URL)
-  const [imgUploading, setImgUploading] = useState(false);
-  const [imgError, setImgError] = useState("");
+  // 本文はブロック(テキスト/画像)で構成。画像は任意の位置に挿入・配置指定できる。
+  const [blocks, setBlocks] = useState<ContentBlock[]>([newTextBlock("")]);
+  const bodyText = useMemo(() => blocksToText(blocks), [blocks]);       // PUSHバナー/プレビュー/ガード用
+  const contentHtml = useMemo(() => blocksToHtml(blocks), [blocks]);    // お知らせ欄用HTML
   // AI(Claude on Bedrock) による タイトル・本文 文章生成
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
@@ -83,6 +84,19 @@ export default function NewPushPage() {
   const [isImmediate, setIsImmediate] = useState(true);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+
+  // 履歴からの「編集して再送信」: sessionStorage の内容を初期値に反映
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("push_reuse");
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.title) setTitle(String(d.title));
+        if (d.body) setBlocks([newTextBlock(String(d.body))]);
+        sessionStorage.removeItem("push_reuse");
+      }
+    } catch { /* noop */ }
+  }, []);
 
   // 担当クラブを取得 (stores API はユーザーの clubCodes でフィルタ済み)
   useEffect(() => {
@@ -150,41 +164,6 @@ export default function NewPushPage() {
     return () => { cancelled = true; };
   }, [clubsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // お知らせ画像: S3 へアップロードして公開URLを imageUrl にセット
-  const handleImageUpload = async (file: File | null) => {
-    if (!file) return;
-    setImgError("");
-    const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-    if (!allowed.includes(file.type)) {
-      setImgError("PNG / JPEG / WebP / GIF のみアップロードできます。");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setImgError("ファイルサイズは 10MB 以内にしてください。");
-      return;
-    }
-    setImgUploading(true);
-    try {
-      const initRes = await fetch("/api/store-settings/media/upload-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
-      });
-      const init = await initRes.json();
-      if (!initRes.ok || !init.ok) throw new Error(init?.error || "アップロード準備に失敗しました");
-      const putRes = await fetch(init.presignedUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error("S3 へのアップロードに失敗しました");
-      setImageUrl(init.publicUrl);
-    } catch (e: any) {
-      setImgError(e?.message || "アップロードに失敗しました");
-    } finally {
-      setImgUploading(false);
-    }
-  };
 
   const handleExtract = async () => {
     if (selectedClubs.length === 0) {
@@ -265,7 +244,7 @@ export default function NewPushPage() {
 
   const requestConfirm = () => {
     if (selectedClubs.length === 0) return alert("担当店舗を選択してください。");
-    if (!title || !body) return alert("タイトルと本文は必須です。");
+    if (!title || !bodyText) return alert("タイトルと本文は必須です。");
     if (targetAppUserIds.length === 0) return alert("配信可能な対象を選択してください。");
     if (!isImmediate && (!scheduledDate || !scheduledTime)) {
       return alert("予約配信の場合は送信日時を指定してください。");
@@ -275,7 +254,7 @@ export default function NewPushPage() {
 
   // AIで文章作成: タイトル・本文を生成して各入力欄へ反映する
   const generateAiText = async () => {
-    if (!aiPrompt.trim() && !body.trim() && !title.trim()) {
+    if (!aiPrompt.trim() && !bodyText.trim() && !title.trim()) {
       setAiError("作りたい内容の指示、またはタイトル/本文を入力してください。");
       return;
     }
@@ -285,7 +264,7 @@ export default function NewPushPage() {
       const res = await fetch("/api/store-settings/push/generate-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: aiPrompt, subject: title, body, brand }),
+        body: JSON.stringify({ prompt: aiPrompt, subject: title, body: bodyText, brand }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -293,7 +272,7 @@ export default function NewPushPage() {
         return;
       }
       if (data.title) setTitle(data.title);
-      if (data.body) setBody(data.body);
+      if (data.body) setBlocks([newTextBlock(data.body)]);
     } catch {
       setAiError("AI生成リクエストに失敗しました。");
     } finally {
@@ -314,8 +293,8 @@ export default function NewPushPage() {
           clubCodes: selectedClubs,
           brand,
           title,
-          body,
-          imageUrl: imageUrl || undefined,
+          body: bodyText,
+          contentHtml: contentHtml || undefined, // 画像を含むお知らせ本文HTML(位置指定)
           targetType: "CONDITION",
           appUserIds: targetAppUserIds,
           isImmediate,
@@ -361,7 +340,7 @@ export default function NewPushPage() {
             <button
               className="push-modal-cancel"
               onClick={() => submit(true)}
-              disabled={!clubCode || !title || !body || sending}
+              disabled={!clubCode || !title || !bodyText || sending}
               title="送信せずに下書き保存 (アプリには表示されません)"
             >
               下書き保存
@@ -422,51 +401,10 @@ export default function NewPushPage() {
               </div>
               <div className="push-field">
                 <label>本文 <span className="req">*</span></label>
-                <textarea
-                  className="push-textarea" rows={4} value={body}
-                  onChange={(e) => setBody(e.target.value)}
-                  placeholder="通知の内容..."
-                />
-              </div>
-              <div className="push-field">
-                <label>お知らせ画像（任意）</label>
-                {imageUrl ? (
-                  <div className="push-img-uploaded">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={imageUrl} alt="お知らせ画像" className="push-img-thumb" />
-                    <div className="push-img-actions">
-                      <span className="push-img-ok">✓ アップロード済み</span>
-                      <button type="button" className="push-img-remove" onClick={() => { setImageUrl(""); setImgError(""); }}>削除</button>
-                    </div>
-                  </div>
-                ) : (
-                  <label className={`push-img-drop${imgUploading ? " uploading" : ""}`}>
-                    <input
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      style={{ display: "none" }}
-                      disabled={imgUploading}
-                      onChange={(e) => { handleImageUpload(e.target.files?.[0] ?? null); e.currentTarget.value = ""; }}
-                    />
-                    {imgUploading ? (
-                      <span>アップロード中…</span>
-                    ) : (
-                      <>
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <path d="M17 8l-5-5-5 5" />
-                          <path d="M12 3v12" />
-                        </svg>
-                        <span>クリックして画像を選択</span>
-                        <small>PNG / JPEG / WebP / GIF・10MBまで</small>
-                      </>
-                    )}
-                  </label>
-                )}
-                {imgError && <div className="push-hint" style={{ color: "#dc2626" }}>{imgError}</div>}
+                <ContentBlocksEditor value={blocks} onChange={setBlocks} disabled={sending} />
               </div>
               <div className="push-hint">
-                ※ 画像・装飾はアプリの「お知らせ欄」に表示されます。
+                ※ 画像はアプリの「お知らせ欄」に、挿入した位置・配置で表示されます（PUSH通知バナーは本文テキストのみ）。
               </div>
               <div className="push-field" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginTop: 8 }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIで文章作成</label>
@@ -664,7 +602,7 @@ export default function NewPushPage() {
                       </div>
                       <div className="push-bubble-content">
                         <div className="push-bubble-title">{title || "タイトル"}</div>
-                        <div className="push-bubble-body">{body || "ここに通知の本文が表示されます。"}</div>
+                        <div className="push-bubble-body">{bodyText || "ここに通知の本文が表示されます。"}</div>
                       </div>
                     </div>
                     <div className="push-lock-hint">※ ロック画面・通知センターにはテキストのみ表示されます</div>
@@ -689,11 +627,11 @@ export default function NewPushPage() {
                     <div className="push-app-notice">
                       <div className="push-app-notice-title">{title || "タイトル"}</div>
                       <div className="push-app-notice-date">2026/07/13 10:41</div>
-                      {imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={imageUrl} alt="" className="push-app-notice-img" />
+                      {contentHtml ? (
+                        <div className="push-app-notice-body" dangerouslySetInnerHTML={{ __html: contentHtml }} />
+                      ) : (
+                        <div className="push-app-notice-body">ここにお知らせ本文が表示されます。</div>
                       )}
-                      <div className="push-app-notice-body">{body || "ここにお知らせ本文が表示されます。"}</div>
                     </div>
                   </div>
                 </div>
@@ -722,7 +660,7 @@ export default function NewPushPage() {
               </div>
               <div className="push-confirm-row">
                 <span className="push-confirm-label">本文</span>
-                <span className="push-confirm-val multiline">{body}</span>
+                <span className="push-confirm-val multiline">{bodyText}</span>
               </div>
               <div className="push-confirm-row">
                 <span className="push-confirm-label">配信対象</span>
@@ -731,6 +669,11 @@ export default function NewPushPage() {
               <div className="push-confirm-row">
                 <span className="push-confirm-label">送信時刻</span>
                 <span className={`push-confirm-val ${isImmediate ? "emphasis warn" : "emphasis"}`}>{scheduledLabel}</span>
+              </div>
+              <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, fontSize: 12, fontWeight: 700, lineHeight: 1.6, background: isImmediate ? "#fffbeb" : "#eff6ff", border: `1px solid ${isImmediate ? "#fde68a" : "#bfdbfe"}`, color: isImmediate ? "#92400e" : "#1e40af" }}>
+                {isImmediate
+                  ? "⚠️ 即時配信は送信後に取り消せません。内容をご確認ください。"
+                  : "予約配信は、送信前なら履歴の「予約」から編集・削除できます。"}
               </div>
             </div>
             <footer className="push-confirm-footer">

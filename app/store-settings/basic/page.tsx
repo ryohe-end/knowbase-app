@@ -47,13 +47,15 @@ const PREFECTURES = [
   "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県"
 ];
 
+// service:true = 入会DB shop_service_control が本番SoT(FIT365/JOYFITのshop_idを解決できた時のみ編集可)。
+// それ以外は club__c(会員DB) が SoT。
 const TOGGLE_GROUPS = [
   {
     group: "ポイント・プロモーション",
     items: [
       { key: "isPointSupported", label: "ポイント対応可能フラグ", desc: "ポイントシステムを有効化します", dateKey: "pointSupportStartDate" as const },
       { key: "appPointPopup", label: "アプリ内ポイントポップアップ表示フラグ", desc: "アプリ内でポイントのポップアップを表示します" },
-      { key: "enableReferral", label: "ベアレージポイント、友達紹介機能有効化切り替え", desc: "APP機能を有効化します" },
+      { key: "enableReferral", label: "ベアレージポイント、友達紹介機能有効化切り替え", desc: "APP機能を有効化します", service: true },
     ],
   },
   {
@@ -61,22 +63,23 @@ const TOGGLE_GROUPS = [
     items: [
       { key: "canUseDormantMember", label: "休会会員利用可能フラグ", desc: "休会時に月に1度だけ施設を利用できるようにします" },
       { key: "lesMillsAvailable", label: "レズミルズ会員利用可否フラグ", desc: "レズミルズ会員の利用を許可します" },
-      { key: "showFamilyAdd", label: "家族会員追加表示切り替え", desc: "APPで家族会員を追加できるようにします" },
+      { key: "showFamilyAdd", label: "家族会員追加表示切り替え", desc: "APPで家族会員を追加できるようにします", service: true },
     ],
   },
   {
-    group: "契約・お手続き",
+    group: "アプリ・お手続き",
     items: [
-      { key: "showMainContractChange", label: "各種お手続き画面：主契約変更表示非表示切り替え", desc: "主契約変更表示をします。" },
-      { key: "showKioskContractChange", label: "KIOSK：主契約変更表示切り替え", desc: "KIOSKで主契約変更表示をします" },
-      { key: "showOptionChange", label: "オプション追加・解約表示切り替え", desc: "APPでオプション追加、解約できるようにします" },
+      { key: "showAppEnableButton", label: "アプリ有効化ボタン表示切り替え", desc: "KIOSK/アプリの有効化ボタンを表示します", service: true },
+      { key: "showMainContractChange", label: "各種お手続き画面：主契約変更表示非表示切り替え", desc: "主契約変更表示をします。", service: true },
+      { key: "showKioskContractChange", label: "KIOSK：主契約変更表示切り替え", desc: "KIOSKで主契約変更表示をします", service: true },
+      { key: "showOptionChange", label: "オプション追加・解約表示切り替え", desc: "APPでオプション追加、解約できるようにします", service: true },
     ],
   },
   {
     group: "支払い・退会",
     items: [
       { key: "showUnpaidPayment", label: "未納金表示切り替え", desc: "APPで未納金のお支払い機能を有効化します" },
-      { key: "showWithdrawal", label: "退会表示切り替え", desc: "APPで退会機能を有効化します" },
+      { key: "showWithdrawal", label: "退会表示切り替え", desc: "APPで退会機能を有効化します", service: true },
     ],
   },
 ];
@@ -305,10 +308,14 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
       if (!ok) return;
       setSaving(true);
       const cleanedEmails = (form.inquiryEmails || []).filter(email => email.trim() !== "");
+      // 表示サービスは読み取り成功時のみ送る(未読・全falseでの一括上書き事故を防ぐ)。
+      const serviceToggles = form.serviceControlAvailable
+        ? Object.fromEntries((form.serviceToggleKeys || []).map((k) => [k, (form as any)[k]]))
+        : undefined;
       const res = await fetch("/api/store-settings/basic", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, inquiryEmails: cleanedEmails }),
+        body: JSON.stringify({ ...form, inquiryEmails: cleanedEmails, serviceToggles }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -740,11 +747,21 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                 <div key={group.group} className="kbs-toggle-group">
                   <div className="kbs-toggle-group-header">{group.group}</div>
                   <div className="kbs-toggle-list">
-                    {group.items.map((setting, idx) => (
+                    {group.items.map((setting, idx) => {
+                      const isService = "service" in setting && (setting as any).service;
+                      // JOYFIT等で当該ブランドに無いサービス(kiosk/family)は非表示
+                      if (isService && form.serviceToggleKeys && !form.serviceToggleKeys.includes(setting.key)) return null;
+                      // 入会DBの店舗を特定できない場合、サービストグルは編集不可
+                      const svcDisabled = isService && !form.serviceControlAvailable;
+                      return (
                       <div key={setting.key} className={`kbs-toggle-row ${idx % 2 === 0 ? "even" : ""}`}>
                         <div className="kbs-toggle-info">
-                          <div className="kbs-toggle-label">{setting.label}</div>
+                          <div className="kbs-toggle-label">
+                            {setting.label}
+                            {isService && <span className="kbs-src-tag" title="入会DB shop_service_control が本番の設定元です">入会DB</span>}
+                          </div>
                           <div className="kbs-toggle-desc">{setting.desc}</div>
+                          {svcDisabled && <div className="kbs-toggle-warn">この店舗の入会DB上の店舗を特定できないため編集できません</div>}
                           {"dateKey" in setting && setting.dateKey && (
                             <div className="kbs-toggle-date">
                               <label className="kbs-toggle-date-label">開始日:</label>
@@ -765,13 +782,15 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                             name={setting.key}
                             checked={(form as any)[setting.key] || false}
                             onChange={handleChange}
+                            disabled={svcDisabled}
                           />
                           <label htmlFor={setting.key}>
                             <span className="kbs-switch-knob" />
                           </label>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -1331,6 +1350,9 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
         .kbs-toggle-row:hover { background: #f0f7ff; }
         .kbs-toggle-info { flex: 1; min-width: 0; }
         .kbs-toggle-label { font-size: 13px; font-weight: 700; color: #334155; }
+        .kbs-src-tag { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 800; color: #0369a1; background: #e0f2fe; border: 1px solid #bae6fd; padding: 1px 7px; border-radius: 99px; vertical-align: middle; }
+        .kbs-toggle-warn { font-size: 11px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 4px 8px; margin-top: 6px; display: inline-block; }
+        .kbs-switch input:disabled + label { opacity: 0.4; cursor: not-allowed; }
         .kbs-toggle-desc { font-size: 11px; color: #94a3b8; margin-top: 2px; }
         .kbs-toggle-date { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
         .kbs-toggle-date-label { font-size: 11px; font-weight: 600; color: #64748b; white-space: nowrap; }

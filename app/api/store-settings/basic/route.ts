@@ -6,8 +6,16 @@ import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
 import { query } from "@/lib/memberDb";
 import type { StoreAppConfig } from "@/types/storeAppConfig";
-import { getOverlay, putOverlay, OVERLAY_TOGGLE_KEYS } from "@/lib/storeAppOverlay";
 import { effectiveClubCodes } from "@/lib/clubScope";
+import { resolveEntryShopId } from "@/lib/entryShopMap";
+import {
+  getServiceControls,
+  saveServiceControls,
+  applicableToggles,
+  type ServiceBrand,
+  type ServiceToggleKey,
+} from "@/lib/shopServiceControl";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,6 +90,11 @@ function extractAddressWithoutPrefecture(address: string | null): string {
 
 function toBool(v: any): boolean {
   return v === true || v === "true" || v === 1 || v === "1";
+}
+
+// club__c.brand__c → サービス連携ブランド (JOYFIT系はすべて JOYFIT)
+function brandOf(rawBrand: string): ServiceBrand {
+  return String(rawBrand || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365";
 }
 
 function toNullableNumber(v: any): number | null {
@@ -176,8 +189,19 @@ export async function GET(req: Request) {
       .filter(Boolean);
     const inquiryEmails = parsedEmails.length > 0 ? parsedEmails : [""];
 
-    // DynamoDB オーバーレイ (7トグルのみ。マシン詳細は machine__c マスタが SoT)。
-    const overlay = await getOverlay(club.club_code__c);
+    // 表示サービス(shop_service_control) を入会DBから読む。対応 shop_id は自動解決。
+    const svcBrand = brandOf(club.brand);
+    let serviceControls: Partial<Record<ServiceToggleKey, boolean>> = {};
+    let serviceShopId: string | null = null;
+    let serviceReadOk = false;
+    try {
+      serviceShopId = await resolveEntryShopId(svcBrand, club.club_code__c, club.name);
+      if (serviceShopId) { serviceControls = await getServiceControls(svcBrand, serviceShopId); serviceReadOk = true; }
+    } catch (e: any) {
+      console.error("[basic API] service control read failed:", e?.message || e);
+    }
+    // 読み取り成功時のみ編集可 (読めない時に false で上書きする事故を防ぐ)
+    const serviceControlAvailable = !!serviceShopId && serviceReadOk;
 
     // 店舗のマシン: 名前は club__c.machine_names__c、詳細(画像/部位/メーカー)は
     // machine__c マスタ(Salesforce連携)から名前で引く。
@@ -238,15 +262,19 @@ export async function GET(req: Request) {
       appPointPopup: club.app_point_popup,
       lesMillsAvailable: club.les_mills,
       canUseDormantMember: club.recess_member,
-      // 7つの表示トグルはオーバーレイ(DynamoDB)から。未保存は false。
-      showAppEnableButton: overlay?.toggles?.showAppEnableButton ?? false,
-      enableReferral: overlay?.toggles?.enableReferral ?? false,
-      showMainContractChange: overlay?.toggles?.showMainContractChange ?? false,
-      showKioskContractChange: overlay?.toggles?.showKioskContractChange ?? false,
-      showOptionChange: overlay?.toggles?.showOptionChange ?? false,
-      showFamilyAdd: overlay?.toggles?.showFamilyAdd ?? false,
-      showUnpaidPayment: !club.hide_unpaid,
-      showWithdrawal: overlay?.toggles?.showWithdrawal ?? false,
+      // 表示サービスは入会DB shop_service_control が本番SoT。行が無い/未解決は false。
+      showAppEnableButton: serviceControls.showAppEnableButton ?? false,
+      enableReferral: serviceControls.enableReferral ?? false,
+      showMainContractChange: serviceControls.showMainContractChange ?? false,
+      showKioskContractChange: serviceControls.showKioskContractChange ?? false,
+      showOptionChange: serviceControls.showOptionChange ?? false,
+      showFamilyAdd: serviceControls.showFamilyAdd ?? false,
+      showUnpaidPayment: !club.hide_unpaid, // 未納金表示は club__c(hide_unpaid) が SoT
+      showWithdrawal: serviceControls.showWithdrawal ?? false,
+
+      serviceControlAvailable,
+      serviceShopId: serviceShopId || undefined,
+      serviceToggleKeys: applicableToggles(svcBrand),
 
       unlockDevices,
       machines,
@@ -290,9 +318,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Forbidden: club not in your scope" }, { status: 403 });
   }
   try {
-    // 店舗の存在確認 + sfid 取得
+    // 店舗の存在確認 + sfid / brand 取得 (brandはサーバ側で確定させ、クライアント値は信用しない)
     const existing = await query(
-      `SELECT sfid FROM club__c WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false LIMIT 1`,
+      `SELECT sfid, name, COALESCE(brand__c, '') AS brand FROM club__c WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false LIMIT 1`,
       [clubCode]
     );
     if (existing.rows.length === 0) {
@@ -360,14 +388,41 @@ export async function POST(req: Request) {
       ]
     );
 
-    // 7トグルは club__c にカラムが無いため DynamoDB オーバーレイへ保存 (アプリ読取り先の
-    // 正式DBは別途接続予定。現状は管理画面での選択を保持)。マシン詳細は machine__c マスタが SoT。
-    try {
-      const toggles: Record<string, boolean> = {};
-      for (const k of OVERLAY_TOGGLE_KEYS) toggles[k] = Boolean((body as any)[k]);
-      await putOverlay(clubCode, { toggles, machines: [] });
-    } catch (e: any) {
-      console.error("[basic API] overlay save failed:", e?.message || e);
+    // 表示サービスは入会DB shop_service_control(本番SoT)へ保存。
+    // 事故防止のため body.serviceToggles(GETで読めた時のみUIが送る)が有る時だけ処理し、
+    // 現在値との差分のみ書き込む(未読・全false での一括上書きを防ぐ)。JOYFITはkiosk/family除外。
+    const svcToggles = (body as any).serviceToggles;
+    if (svcToggles && typeof svcToggles === "object") {
+      try {
+        const svcBrand = brandOf(existing.rows[0].brand || "");
+        const shopId = await resolveEntryShopId(svcBrand, clubCode, existing.rows[0].name);
+        if (shopId) {
+          const current = await getServiceControls(svcBrand, shopId); // 差分基準(失敗時はcatch)
+          const changes: Partial<Record<ServiceToggleKey, boolean>> = {};
+          const missing: string[] = [];
+          for (const k of applicableToggles(svcBrand)) {
+            if (!(k in svcToggles)) continue;
+            const want = Boolean(svcToggles[k]);
+            const cur = current[k];
+            if (cur === undefined) { if (want) missing.push(k); continue; } // 行が無い=INSERT不可(プロビジョン対象外)
+            if (cur !== want) changes[k] = want; // 既存行のみ UPDATE
+          }
+          if (missing.length) console.warn(`[basic API] service行が無く有効化できません (INSERT権限なし) shop=${shopId}:`, missing.join(","));
+          const changed = Object.keys(changes).length ? await saveServiceControls(svcBrand, shopId, changes) : 0;
+          if (changed > 0) {
+            void writeAudit({
+              userId: user.email || user.userId, userName: user.name,
+              action: "basic.serviceControl.save", resource: `shop:${shopId}`, clubCodes: [clubCode],
+              targetCount: changed, detail: { brand: svcBrand, shopId, changes }, ip: clientIp(req),
+            });
+          }
+        } else {
+          console.warn(`[basic API] service control: shop_id 未解決 (club=${clubCode})`);
+        }
+      } catch (e: any) {
+        console.error("[basic API] service control save failed:", e?.message || e);
+        return NextResponse.json({ ok: false, error: `表示サービス設定の保存に失敗しました: ${e?.message || e}` }, { status: 502 });
+      }
     }
 
     // 解錠機器 (unlocking_machine_code__c) を同期。SF連携は停止済み(残骸)で

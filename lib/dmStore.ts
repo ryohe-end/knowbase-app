@@ -17,6 +17,8 @@ import {
   GetCommand,
   ScanCommand,
   UpdateCommand,
+  QueryCommand,
+  BatchWriteCommand,
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
@@ -27,7 +29,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
-export type DmCampaignStatus = "scheduled" | "sending" | "sent" | "failed";
+export type DmCampaignStatus = "scheduled" | "sending" | "sent" | "failed" | "cancelled";
 
 export interface DmCampaign {
   campaignId: string;
@@ -44,6 +46,7 @@ export interface DmCampaign {
   scheduledAt?: string; // JST 'YYYY-MM-DD HH:mm' or ISO
   sentAt?: string;      // ISO
   createdAt: string;    // ISO
+  batchId?: string;     // SendGrid batch_id (予約送信のキャンセルに使用)
   // ---- webhook 集計カウンタ (ADD で更新) ----
   processed?: number;
   delivered?: number;
@@ -102,6 +105,17 @@ export async function updateCampaignSendResult(
   );
 }
 
+// 予約配信のキャンセル (status=cancelled)。
+export async function markCampaignCancelled(campaignId: string): Promise<void> {
+  await ddb.send(new UpdateCommand({
+    TableName: CAMPAIGNS_TABLE,
+    Key: { campaignId },
+    UpdateExpression: "SET #s = :s",
+    ExpressionAttributeNames: { "#s": "status" },
+    ExpressionAttributeValues: { ":s": "cancelled" },
+  }));
+}
+
 export async function getCampaign(campaignId: string): Promise<DmCampaign | null> {
   const res = await ddb.send(new GetCommand({ TableName: CAMPAIGNS_TABLE, Key: { campaignId } }));
   return (res.Item as DmCampaign | undefined) ?? null;
@@ -116,6 +130,81 @@ export async function listCampaigns(opts: { clubCodes: string[] }): Promise<DmCa
   }
   items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   return items;
+}
+
+// ── 宛先(受信者)の保存と 開封/未開封の突合 ─────────────────────────────
+// 送信時に宛先を DmEvents へ r#<email> として保存しておく (今後分)。開封は
+// applyEvent が u#open#<email> を書くので、両者の差分で未開封者を特定できる。
+
+export interface DmRecipient { email: string; name?: string }
+export interface DmPeople {
+  recipientsCaptured: boolean; // 宛先が保存済みか (旧campaignはfalse=未開封者を特定不可)
+  opened: { email: string; name?: string; at?: string }[];
+  unopened: { email: string; name?: string }[];
+}
+
+// 送信時に宛先を保存 (ベストエフォート・バッチ書き込み)
+export async function saveRecipients(campaignId: string, recipients: DmRecipient[]): Promise<void> {
+  const seen = new Set<string>();
+  const items = recipients
+    .map((r) => ({ email: (r.email || "").toLowerCase().trim(), name: (r.name || "").trim() }))
+    .filter((r) => r.email && !seen.has(r.email) && seen.add(r.email));
+  try {
+    for (let i = 0; i < items.length; i += 25) {
+      const chunk = items.slice(i, i + 25);
+      await ddb.send(new BatchWriteCommand({
+        RequestItems: {
+          [EVENTS_TABLE]: chunk.map((r) => ({
+            PutRequest: { Item: { campaignId, sk: `r#${r.email}`, email: r.email, name: r.name || undefined } },
+          })),
+        },
+      }));
+    }
+  } catch (e: any) {
+    console.error("[dmStore] saveRecipients failed:", e?.message || e);
+  }
+}
+
+// キャンペーンの 宛先×開封 を突合して 開いた人/開いてない人 を返す
+export async function listCampaignPeople(campaignId: string): Promise<DmPeople> {
+  const recipients = new Map<string, string | undefined>(); // email → name
+  const openers = new Map<string, string>();                // email → openedAt(ISO)
+  let ek: any;
+  try {
+    do {
+      const res = await ddb.send(new QueryCommand({
+        TableName: EVENTS_TABLE,
+        KeyConditionExpression: "campaignId = :c",
+        ExpressionAttributeValues: { ":c": campaignId },
+        ExclusiveStartKey: ek,
+      }));
+      for (const it of res.Items || []) {
+        const sk = String((it as any).sk || "");
+        if (sk.startsWith("r#")) recipients.set(String((it as any).email || sk.slice(2)), (it as any).name);
+        else if (sk.startsWith("u#open#")) openers.set(sk.slice("u#open#".length), String((it as any).at || ""));
+      }
+      ek = res.LastEvaluatedKey;
+    } while (ek);
+  } catch (e: any) {
+    console.error("[dmStore] listCampaignPeople failed:", e?.message || e);
+  }
+
+  const recipientsCaptured = recipients.size > 0;
+  if (recipientsCaptured) {
+    const opened: DmPeople["opened"] = [];
+    const unopened: DmPeople["unopened"] = [];
+    for (const [email, name] of recipients) {
+      const at = openers.get(email);
+      if (at !== undefined) opened.push({ email, name, at: at || undefined });
+      else unopened.push({ email, name });
+    }
+    opened.sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+    return { recipientsCaptured, opened, unopened };
+  }
+  // 旧campaign: 宛先未保存 → 開封者のみ判明 (未開封者は特定不可)
+  const opened = [...openers.entries()].map(([email, at]) => ({ email, at: at || undefined }));
+  opened.sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  return { recipientsCaptured: false, opened, unopened: [] };
 }
 
 // SendGrid の event 名 → キャンペーンカウンタ属性名

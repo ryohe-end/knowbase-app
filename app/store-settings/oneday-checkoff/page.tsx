@@ -1,0 +1,168 @@
+"use client";
+
+import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
+import { ToastProvider, useToast } from "@/components/Toast";
+
+type Ticket = { token: string; serialNumber: number; memberNo: string; shopName: string; casioShopId: string; purchaseDate: string; purchaseTime: string; expirationDate: string };
+
+const fmtDate = (d: string) => (/^\d{8}$/.test(d) ? `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}` : d || "-");
+const fmtTime = (t: string) => (/^\d{6}$/.test(t) ? `${t.slice(0, 2)}:${t.slice(2, 4)}` : "");
+function nowJstLocal(): string {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+
+function Inner() {
+  const { showToast } = useToast();
+  const [month, setMonth] = useState("");
+  const [shopName, setShopName] = useState("");
+  const [memberNo, setMemberNo] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [limited, setLimited] = useState(false);
+  const [error, setError] = useState("");
+
+  const [target, setTarget] = useState<Ticket | null>(null);
+  const [useDt, setUseDt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const p = new URLSearchParams();
+      if (month) p.set("month", month.replace("-", ""));
+      if (shopName) p.set("shopName", shopName);
+      if (memberNo) p.set("memberNo", memberNo);
+      const res = await fetch(`/api/store-settings/oneday-checkoff?${p}`, { cache: "no-store" });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "取得に失敗しました");
+      setTickets(d.tickets || []); setLimited(!!d.limited);
+    } catch (e: any) { setError(e?.message || "取得に失敗しました"); }
+    finally { setLoading(false); }
+  }, [month, shopName, memberNo]);
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+
+  const openCheckoff = (t: Ticket) => { setTarget(t); setUseDt(nowJstLocal()); };
+  const runCheckoff = async () => {
+    if (!target) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/store-settings/oneday-checkoff", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: target.token, serialNumber: target.serialNumber, action: "use", useDt }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || "消し込みに失敗しました");
+      showToast(`会員 ${target.memberNo} のチケットを消し込みました。`, "success");
+      setTickets((prev) => prev.filter((x) => !(x.token === target.token && x.serialNumber === target.serialNumber)));
+      setTarget(null);
+    } catch (e: any) { showToast(e?.message || "消し込みに失敗しました", "error"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="odc-root">
+      <AdminLoadingOverlay visible={loading} text="未使用1dayチケットを読み込み中..." />
+      <header className="odc-header">
+        <div className="odc-header-inner">
+          <Link href="/store-settings" className="odc-back">← メニューへ戻る</Link>
+          <h1>1dayパス チケット消し込み<span className="odc-badge">FIT365</span></h1>
+          <span className="odc-src">入会DB (one_day_ticket)</span>
+        </div>
+      </header>
+
+      <main className="odc-main">
+        <div className="odc-filters">
+          <div className="odc-field"><label>購入月</label><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></div>
+          <div className="odc-field"><label>店舗名</label><input type="text" placeholder="部分一致" value={shopName} onChange={(e) => setShopName(e.target.value)} /></div>
+          <div className="odc-field"><label>会員番号</label><input type="text" placeholder="完全一致" value={memberNo} onChange={(e) => setMemberNo(e.target.value)} /></div>
+          <button className="odc-apply" onClick={load}>絞り込む</button>
+        </div>
+
+        {error && <div className="odc-error">{error}</div>}
+        <div className="odc-count">未使用チケット <b>{tickets.length}</b> 件{limited ? "（上限500件・絞り込んでください）" : ""}</div>
+
+        <div className="odc-table-wrap">
+          <table className="odc-table">
+            <thead><tr><th>購入日時</th><th>会員番号</th><th>店舗</th><th>有効期限</th><th></th></tr></thead>
+            <tbody>
+              {tickets.map((t) => (
+                <tr key={`${t.token}-${t.serialNumber}`}>
+                  <td className="odc-nowrap">{fmtDate(t.purchaseDate)} {fmtTime(t.purchaseTime)}</td>
+                  <td><code className="odc-code">{t.memberNo}</code></td>
+                  <td>{t.shopName}</td>
+                  <td className="odc-nowrap">{fmtDate(t.expirationDate)}</td>
+                  <td><button className="odc-use-btn" onClick={() => openCheckoff(t)}>消し込み</button></td>
+                </tr>
+              ))}
+              {tickets.length === 0 && !loading && <tr><td colSpan={5} className="odc-empty">未使用チケットはありません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </main>
+
+      {target && (
+        <div className="odc-modal-bg" onClick={() => !busy && setTarget(null)}>
+          <div className="odc-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>チケットを消し込み（使用済にする）</h3>
+            <p>会員 <b>{target.memberNo}</b>（{target.shopName}）の1dayパスを使用済みにします。<strong>本番の入会DBを更新します。</strong></p>
+            <div className="odc-modal-field">
+              <label>利用日時</label>
+              <input type="datetime-local" value={useDt} max={nowJstLocal()} onChange={(e) => setUseDt(e.target.value)} />
+            </div>
+            <div className="odc-modal-act">
+              <button className="odc-modal-cancel" disabled={busy} onClick={() => setTarget(null)}>キャンセル</button>
+              <button className="odc-modal-ok" disabled={busy || !useDt} onClick={runCheckoff}>{busy ? "処理中…" : "消し込む"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        .odc-root { background: #f8fafc; min-height: 100vh; font-family: sans-serif; color: #0f172a; }
+        .odc-header { background: #fff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 50; }
+        .odc-header-inner { max-width: 1100px; margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+        .odc-back { text-decoration: none; font-size: 13px; font-weight: 600; color: #64748b; }
+        .odc-header h1 { font-size: 18px; font-weight: 800; margin: 0; display: flex; align-items: center; gap: 8px; }
+        .odc-badge { font-size: 10px; font-weight: 800; color: #be185d; background: #fce7f3; border: 1px solid #fbcfe8; padding: 2px 8px; border-radius: 99px; }
+        .odc-src { margin-left: auto; font-size: 11px; color: #94a3b8; font-family: monospace; }
+        .odc-main { max-width: 1100px; margin: 0 auto; padding: 20px 24px; }
+        .odc-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+        .odc-field { display: flex; flex-direction: column; gap: 4px; }
+        .odc-field label { font-size: 11px; font-weight: 700; color: #64748b; }
+        .odc-field input { padding: 7px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px; }
+        .odc-apply { margin-left: auto; padding: 9px 20px; background: #0f172a; color: #fff; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; }
+        .odc-error { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; }
+        .odc-count { font-size: 13px; color: #475569; margin-bottom: 10px; }
+        .odc-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: auto; }
+        .odc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .odc-table th { text-align: left; padding: 11px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: 800; color: #64748b; white-space: nowrap; }
+        .odc-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+        .odc-table tr:last-child td { border-bottom: none; }
+        .odc-nowrap { white-space: nowrap; }
+        .odc-code { font-family: monospace; font-size: 11px; color: #64748b; background: #f1f5f9; padding: 1px 6px; border-radius: 4px; }
+        .odc-empty { text-align: center; color: #94a3b8; padding: 28px; }
+        .odc-use-btn { font-size: 12px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #10b981, #047857); border: none; border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+        .odc-modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+        .odc-modal { background: #fff; border-radius: 16px; padding: 26px; max-width: 440px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,0.25); }
+        .odc-modal h3 { font-size: 18px; font-weight: 800; margin: 0 0 10px; }
+        .odc-modal p { font-size: 13px; color: #475569; line-height: 1.7; margin: 0 0 16px; }
+        .odc-modal-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+        .odc-modal-field label { font-size: 12px; font-weight: 700; color: #334155; }
+        .odc-modal-field input { padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 14px; font-weight: 600; }
+        .odc-modal-act { display: flex; gap: 10px; justify-content: flex-end; }
+        .odc-modal-cancel { font-size: 13px; font-weight: 700; padding: 9px 18px; border-radius: 9px; border: 1.5px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; }
+        .odc-modal-ok { font-size: 13px; font-weight: 800; padding: 9px 20px; border-radius: 9px; border: none; background: linear-gradient(135deg, #10b981, #047857); color: #fff; cursor: pointer; }
+        .odc-modal-ok:disabled, .odc-modal-cancel:disabled { opacity: 0.55; cursor: not-allowed; }
+      `}</style>
+    </div>
+  );
+}
+
+export default function OneDayCheckoffPage() {
+  return (<ToastProvider><Inner /></ToastProvider>);
+}

@@ -42,6 +42,7 @@ export type Purchase = {
   purchasedAt: string;
   usedAt: string | null;
   status: PurchaseStatus;
+  rawStat?: string; // 生の ticket_stat (B=手動消し込み対象)
   paymentMethod: string;
 };
 
@@ -461,6 +462,7 @@ export async function GET(req: Request) {
       purchasedAt: r.purchased_at ? new Date(r.purchased_at).toISOString() : "",
       usedAt: r.used_at ? new Date(r.used_at).toISOString() : null,
       status: mapTicketStatus(r.stat),
+      rawStat: String(r.stat || ""), // 生の ticket_stat (消し込み対象=B の判定用)
       paymentMethod: r.pay || "—",
     };
   });
@@ -477,12 +479,15 @@ export async function GET(req: Request) {
 }
 
 const TARGET_ONETIMEPASS = "onetimepass";
+// EnjoyTimePass ticket_stat の正式マッピング:
+//   B=未使用 / N=未使用(購入直後・標準) / U=利用中 / Z=使用済 / E=期限切 / D=削除済
 function mapTicketStatus(stat: string): PurchaseStatus {
   switch (stat) {
-    case "Z": case "U": return "used";
-    case "E": return "expired";
-    case "B": case "D": return "refunded";
-    default: return "purchased"; // N 等
+    case "B": case "N": return "purchased"; // 未使用
+    case "U": case "Z": return "used";      // 利用中 / 使用済
+    case "E": return "expired";             // 期限切
+    case "D": return "refunded";            // 削除済
+    default: return "purchased";
   }
 }
 function ageFromBirthday(birthday: any, asOf: Date): number {

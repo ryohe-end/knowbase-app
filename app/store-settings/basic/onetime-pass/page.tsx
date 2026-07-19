@@ -259,6 +259,20 @@ function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// 現在時刻(JST)の datetime-local 文字列 'YYYY-MM-DDTHH:mm'
+function nowJstLocal(): string {
+  const d = new Date(Date.now() + 9 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+// datetime-local(JST) に分を加算した datetime-local 文字列
+function addMinutesJstLocal(local: string, minutes: number): string {
+  const ms = Date.parse(local.replace(" ", "T") + "+09:00");
+  if (!Number.isFinite(ms)) return local;
+  const d = new Date(ms + minutes * 60 * 1000 + 9 * 3600 * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
 function formatYen(n: number): string {
   return `¥${n.toLocaleString("ja-JP")}`;
 }
@@ -650,6 +664,21 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   // チケット操作 (利用済み / 未使用に戻す / 取り消し)
   const [opTarget, setOpTarget] = useState<{ p: Purchase; op: TicketOp } | null>(null);
   const [opBusy, setOpBusy] = useState(false);
+  // 消し込み(use)の利用期間 (JST datetime-local)。終了は開始+利用時間を初期値に。
+  const [opStartDt, setOpStartDt] = useState("");
+  const [opEndDt, setOpEndDt] = useState("");
+  useEffect(() => {
+    if (opTarget?.op === "use") {
+      const start = nowJstLocal();
+      setOpStartDt(start);
+      setOpEndDt(addMinutesJstLocal(start, opTarget.p.durationMinutes || 0));
+    }
+  }, [opTarget]);
+  // 開始変更時は終了を「開始+利用時間」に追従
+  const onChangeOpStart = (v: string) => {
+    setOpStartDt(v);
+    if (opTarget) setOpEndDt(addMinutesJstLocal(v, opTarget.p.durationMinutes || 0));
+  };
   const [statusFilter, setStatusFilter] = useState<"all" | PurchaseStatus>("all");
   const [durationFilter, setDurationFilter] = useState<number | "all">("all");
   const [genderFilter, setGenderFilter] = useState<"all" | Gender>("all");
@@ -706,7 +735,7 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
       const res = await fetch("/api/store-settings/onetime-pass/checkoff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clubCode, ticketId: p.id, action: op }),
+        body: JSON.stringify({ clubCode, ticketId: p.id, action: op, startDt: op === "use" ? opStartDt : undefined, endDt: op === "use" ? opEndDt : undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw new Error(data.error || "操作に失敗しました");
@@ -724,7 +753,7 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
     } finally {
       setOpBusy(false);
     }
-  }, [opTarget, clubCode, showToast]);
+  }, [opTarget, clubCode, showToast, opStartDt, opEndDt]);
 
   // 返金 (入金処理の繋ぎこみは後日 — 現状はボタンのみ)
   const handleRefundClick = useCallback(() => {
@@ -1384,11 +1413,22 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
               <div><dt>金額</dt><dd>{formatYen(opTarget.p.price)}</dd></div>
               <div><dt>購入日時</dt><dd>{formatDateTime(opTarget.p.purchasedAt)}</dd></div>
             </dl>
+            {opTarget.op === "use" && (
+              <div className="otp-modal-endfield">
+                <label>利用した期間（利用時間 {formatDuration(opTarget.p.durationMinutes)}）</label>
+                <div className="otp-period-row">
+                  <input type="datetime-local" value={opStartDt} max={nowJstLocal()} onChange={(e) => onChangeOpStart(e.target.value)} />
+                  <span className="otp-period-tilde">〜</span>
+                  <input type="datetime-local" value={opEndDt} min={opStartDt} onChange={(e) => setOpEndDt(e.target.value)} />
+                </div>
+                <span className="otp-modal-hint">開始を選ぶと終了は「開始＋利用時間」に自動設定されます（終了は手動調整も可）。</span>
+              </div>
+            )}
             <div className="otp-modal-actions">
               <button type="button" className="otp-modal-cancel" disabled={opBusy} onClick={() => setOpTarget(null)}>
                 キャンセル
               </button>
-              <button type="button" className={`otp-modal-confirm tone-${OP_META[opTarget.op].tone}`} disabled={opBusy} onClick={runOp}>
+              <button type="button" className={`otp-modal-confirm tone-${OP_META[opTarget.op].tone}`} disabled={opBusy || (opTarget.op === "use" && (!opStartDt || !opEndDt))} onClick={runOp}>
                 {opBusy ? "処理中…" : OP_META[opTarget.op].confirm}
               </button>
             </div>
@@ -2948,6 +2988,13 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
         .otp-modal-detail > div { display: flex; justify-content: space-between; gap: 12px; }
         .otp-modal-detail dt { font-size: 12px; color: #64748b; font-weight: 600; margin: 0; }
         .otp-modal-detail dd { font-size: 13px; color: #0f172a; font-weight: 700; margin: 0; text-align: right; }
+        .otp-modal-endfield { display: flex; flex-direction: column; gap: 6px; margin: 0 0 18px; }
+        .otp-modal-endfield label { font-size: 12px; font-weight: 700; color: #334155; }
+        .otp-modal-endfield input { padding: 9px 11px; border: 1px solid #cbd5e1; border-radius: 9px; font-size: 14px; font-weight: 600; }
+        .otp-period-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .otp-period-row input { flex: 1; min-width: 150px; }
+        .otp-period-tilde { color: #94a3b8; font-weight: 700; }
+        .otp-modal-hint { font-size: 11px; color: #94a3b8; line-height: 1.5; }
         .otp-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
         .otp-modal-cancel { font-size: 13px; font-weight: 700; padding: 9px 18px; border-radius: 9px; border: 1.5px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; }
         .otp-modal-cancel:hover:not(:disabled) { background: #f8fafc; }
