@@ -1,0 +1,11 @@
+{
+  "name": "knowbie-recess-roster",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "休会ロスターの夜間集計(recess_api_history → DynamoDB)",
+  "dependencies": {
+    "@aws-sdk/client-lambda": "^3.600.0",
+    "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/lib-dynamodb": "^3.600.0"
+  }
+}
