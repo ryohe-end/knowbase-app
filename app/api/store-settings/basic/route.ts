@@ -292,12 +292,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   // --- 認可 ---
+  // 管理者は全店、店舗ユーザー/店舗紐づき管理者は自店舗(clubCodes内)を編集可(マシン登録/変更等)。
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-  if (user.role !== "admin") {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
   // --- 入力解析 ---
@@ -313,8 +311,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
   }
 
-  // 担当クラブ(clubCodes)スコープで所属チェック (他ルートと統一。空=admin全店舗)。
-  if (user.clubCodes.length > 0 && !user.clubCodes.includes(clubCode)) {
+  // 担当クラブ(clubCodes)スコープで所属チェック。
+  // admin は全店舗編集可(clubCodes空=全店)。非adminは自店舗(clubCodesに含まれるクラブ)のみ編集可。
+  // 非adminでclubCodesが空のユーザーは編集不可(空を全店許可と誤解しない=権限昇格の穴を塞ぐ)。
+  const isAdmin = user.role === "admin";
+  const inScope = user.clubCodes.length > 0 && user.clubCodes.includes(clubCode);
+  if (!isAdmin && !inScope) {
     return NextResponse.json({ ok: false, error: "Forbidden: club not in your scope" }, { status: 403 });
   }
   try {

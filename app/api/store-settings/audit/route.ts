@@ -4,7 +4,7 @@
 // テーブルは PAY_PER_REQUEST で件数も限定的なため Scan + JS 側で新しい順ソートする。
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { isAdminRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -12,29 +12,30 @@ export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.AUDIT_LOG_TABLE || "knowbie-audit-logs";
+const USERS_TABLE = process.env.USERS_TABLE || "yamauchi-Users";
+const USERS_EMAIL_GSI = process.env.USERS_EMAIL_GSI || "email-index";
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
 // Scan の暴走防止: 最大この件数までページングして集める
 const MAX_SCAN_ITEMS = 5000;
 
-// メールアドレスは監査画面に生で出さない(社外/ベンダーアドレス保護 + PII)。
-// 例: endo@fioth.co.jp → e***@f***  / 文字列中の全メールを置換する。
-const EMAIL_G = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
-function maskOneEmail(addr: string): string {
-  const [local, domain] = addr.split("@");
-  const d = (domain || "").split(".")[0] || "";
-  return `${(local || "?").slice(0, 1)}***@${d.slice(0, 1) || "?"}***`;
-}
-function redactEmails<T>(v: T): T {
-  if (typeof v === "string") return v.replace(EMAIL_G, (m) => maskOneEmail(m)) as unknown as T;
-  if (Array.isArray(v)) return v.map((x) => redactEmails(x)) as unknown as T;
-  if (v && typeof v === "object") {
-    const out: any = {};
-    for (const [k, val] of Object.entries(v)) out[k] = redactEmails(val);
-    return out;
-  }
-  return v;
+// userName が空の監査レコード向けに、userId(=email) から登録名を引く(email-index)。短時間キャッシュ。
+const nameCache = new Map<string, { at: number; name: string | null }>();
+async function resolveUserName(userId: string): Promise<string | null> {
+  const hit = nameCache.get(userId);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.name;
+  let name: string | null = null;
+  try {
+    const r = await ddb.send(new QueryCommand({
+      TableName: USERS_TABLE, IndexName: USERS_EMAIL_GSI,
+      KeyConditionExpression: "email = :e", ExpressionAttributeValues: { ":e": userId },
+      ProjectionExpression: "#n", ExpressionAttributeNames: { "#n": "name" }, Limit: 1,
+    }));
+    name = (r.Items?.[0] as any)?.name ?? null;
+  } catch { name = null; }
+  nameCache.set(userId, { at: Date.now(), name });
+  return name;
 }
 
 export async function GET(req: Request) {
@@ -102,7 +103,14 @@ export async function GET(req: Request) {
   // 新しい順 (timestamp desc)
   items.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
   const truncated = items.length >= MAX_SCAN_ITEMS;
-  // 生メールアドレスは一切返さない(userId/userName/resource/detail をマスク)
-  const logs = items.slice(0, limit).map((it) => redactEmails(it));
+  const logs = items.slice(0, limit);
+
+  // userName が空の記録は Users(email-index) から名前を補完して「名前が出ない人」を解消
+  const missing = [...new Set(logs.filter((l) => !l.userName && l.userId).map((l) => String(l.userId)))];
+  if (missing.length > 0) {
+    const resolved = await Promise.all(missing.map(async (uid) => [uid, await resolveUserName(uid)] as const));
+    const nameByUser = new Map(resolved);
+    for (const l of logs) if (!l.userName && l.userId) { const n = nameByUser.get(String(l.userId)); if (n) l.userName = n; }
+  }
   return NextResponse.json({ ok: true, logs, total: items.length, truncated });
 }
