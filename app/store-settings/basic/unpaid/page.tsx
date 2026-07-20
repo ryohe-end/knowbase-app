@@ -237,7 +237,7 @@ function UnpaidManager() {
     else if (mode === "area" && areaClubCodes.length > 0) { codes = areaClubCodes; tag = (territory || area).replace(/\s/g, ""); }
     else if (mode === "brand" && brand) { codes = clubs.filter((c) => c.businessType === brand).map((c) => c.clubCode); tag = brand; }
     if (codes.length === 0) { alert("店舗・エリア・ブランドのいずれかを選択してください"); return; }
-    const res = await fetch(`/api/store-settings/unpaid/list?clubCodes=${codes.join(",")}&bucket=${bucket}`, { cache: "no-store" });
+    const res = await fetch(`/api/store-settings/unpaid/list?clubCodes=${codes.join(",")}&bucket=${bucket}&reason=csv`, { cache: "no-store" });
     const d = await res.json();
     let rows: Member[] = d.members || [];
     if (bucket === "current" && statusFilter !== "all") rows = rows.filter((m) => statusCat(m.status) === statusFilter);

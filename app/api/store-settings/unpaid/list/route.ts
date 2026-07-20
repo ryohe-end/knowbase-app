@@ -36,6 +36,8 @@ export async function GET(req: NextRequest) {
   const clubCode = (sp.get("clubCode") || "").trim();
   const clubCodesParam = (sp.get("clubCodes") || "").trim();
   const bucket = sp.get("bucket") || "current";
+  // reason=csv は CSV出力(PII持ち出し)。一覧表示の再描画ノイズと区別して監査アクションを分ける。
+  const isCsv = sp.get("reason") === "csv";
 
   // 単一 or 複数(エリアCSV)。全て担当スコープ内であることを検証。
   let clubs = clubCodesParam ? clubCodesParam.split(",").map((s) => s.trim()).filter(Boolean) : (clubCode ? [clubCode] : []);
@@ -58,10 +60,10 @@ export async function GET(req: NextRequest) {
     void writeAudit({
       userId: (user as any).email || (user as any).userId || "unknown",
       userName: (user as any).name,
-      action: "unpaid.list",
+      action: isCsv ? "unpaid.csv" : "unpaid.list",
       clubCodes: clubs,
       targetCount: bucket === "paid" ? (data.items?.length ?? 0) : (data.totalMembers ?? 0),
-      detail: { bucket },
+      detail: { bucket, ...(isCsv ? { reason: "csv" } : {}) },
       ip: clientIp(req),
     });
     if (bucket === "paid") {

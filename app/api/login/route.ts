@@ -10,6 +10,7 @@ import {
 import { randomUUID } from "crypto";
 import { hashPassword, needsRehash, verifyPassword } from "@/lib/password";
 import { makeAdminCookiePayload, signValue } from "@/lib/auth";
+import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,6 +105,14 @@ export async function POST(req: Request) {
 
   const authenticatedUser = await authenticateUser(email, isExternalLogin, pass);
   if (!authenticatedUser) {
+    // 失敗ログインも監査に残す(不正アクセスの兆候検知)。userId=試行メール。
+    void writeAudit({
+      userId: email,
+      action: "auth.login.failed",
+      detail: { external: isExternalLogin },
+      ip: clientIp(req),
+      result: "error",
+    });
     return NextResponse.json({ ok: false, error: "認証に失敗しました" }, { status: 401 });
   }
 
@@ -170,6 +179,16 @@ export async function POST(req: Request) {
       /* non-fatal */
     }
   }
+
+  // ログイン成功を監査トレイルに統合(以降の操作と同じ knowbie-audit-logs 上で時系列追跡可能に)。
+  void writeAudit({
+    userId: authenticatedUser.email,
+    userName: authenticatedUser.name,
+    action: "auth.login",
+    detail: { role: authenticatedUser.role, external: isExternalLogin, uid },
+    ip: clientIp(req),
+    result: "ok",
+  });
 
   const cookieStore = await cookies();
   const isAdmin = authenticatedUser.role === "admin";

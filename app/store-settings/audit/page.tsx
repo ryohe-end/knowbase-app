@@ -19,10 +19,14 @@ type AuditLog = {
 
 // action → 日本語ラベル (前方一致で判定)
 const ACTION_LABELS: { prefix: string; label: string }[] = [
+  { prefix: "auth.login.failed", label: "ログイン失敗" },
+  { prefix: "auth.login", label: "ログイン" },
+  { prefix: "auth.logout", label: "ログアウト" },
   { prefix: "push.", label: "Push/お知らせ" },
   { prefix: "dm.", label: "DM配信" },
   { prefix: "member.extract", label: "会員抽出" },
-  { prefix: "unpaid.list", label: "未納一覧/CSV" },
+  { prefix: "unpaid.csv", label: "未納CSV出力" },
+  { prefix: "unpaid.list", label: "未納一覧表示" },
   { prefix: "refund.memberDetail", label: "返金:会員照会" },
   { prefix: "refund.", label: "返金申請" },
   { prefix: "deposit.", label: "入金申請" },
@@ -36,10 +40,12 @@ function actionLabel(action: string): string {
 // action の大分類 (フィルタ選択肢)
 const ACTION_FILTERS: { value: string; label: string }[] = [
   { value: "", label: "すべての操作" },
+  { value: "auth.", label: "ログイン/ログアウト" },
   { value: "push.", label: "Push/お知らせ" },
   { value: "dm.", label: "DM配信" },
   { value: "member.extract", label: "会員抽出" },
-  { value: "unpaid.list", label: "未納一覧/CSV" },
+  { value: "unpaid.csv", label: "未納CSV出力" },
+  { value: "unpaid.list", label: "未納一覧表示" },
   { value: "refund.", label: "返金 (照会/申請/遷移)" },
   { value: "deposit.", label: "入金 (申請/遷移)" },
 ];
