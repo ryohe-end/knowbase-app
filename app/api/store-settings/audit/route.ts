@@ -18,6 +18,25 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 // Scan の暴走防止: 最大この件数までページングして集める
 const MAX_SCAN_ITEMS = 5000;
 
+// メールアドレスは監査画面に生で出さない(社外/ベンダーアドレス保護 + PII)。
+// 例: endo@fioth.co.jp → e***@f***  / 文字列中の全メールを置換する。
+const EMAIL_G = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+function maskOneEmail(addr: string): string {
+  const [local, domain] = addr.split("@");
+  const d = (domain || "").split(".")[0] || "";
+  return `${(local || "?").slice(0, 1)}***@${d.slice(0, 1) || "?"}***`;
+}
+function redactEmails<T>(v: T): T {
+  if (typeof v === "string") return v.replace(EMAIL_G, (m) => maskOneEmail(m)) as unknown as T;
+  if (Array.isArray(v)) return v.map((x) => redactEmails(x)) as unknown as T;
+  if (v && typeof v === "object") {
+    const out: any = {};
+    for (const [k, val] of Object.entries(v)) out[k] = redactEmails(val);
+    return out;
+  }
+  return v;
+}
+
 export async function GET(req: Request) {
   if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -83,5 +102,7 @@ export async function GET(req: Request) {
   // 新しい順 (timestamp desc)
   items.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
   const truncated = items.length >= MAX_SCAN_ITEMS;
-  return NextResponse.json({ ok: true, logs: items.slice(0, limit), total: items.length, truncated });
+  // 生メールアドレスは一切返さない(userId/userName/resource/detail をマスク)
+  const logs = items.slice(0, limit).map((it) => redactEmails(it));
+  return NextResponse.json({ ok: true, logs, total: items.length, truncated });
 }
