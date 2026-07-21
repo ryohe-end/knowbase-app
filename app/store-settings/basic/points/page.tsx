@@ -42,7 +42,28 @@ type HistoryRow = {
   note?: string | null;
   cancellableTxId?: string | null;  // knowbase由来かつ取消可能なら DDB transactionId
 };
-type CancelTarget = { txId: string; points: number; occurredAt: string; source: string };
+// knowbie付与の取消(txId) と 外部/利用の取消(hid) の両対応
+type CancelTarget = {
+  txId?: string;          // knowbie付与の取消 (DDB transactionId)
+  hid?: string;           // 外部/利用の取消 (CPSS hid)
+  external?: boolean;
+  txType?: PointTxType;   // used/earned など (方向の文言に使用)
+  points: number;
+  occurredAt: string;
+  source: string;
+};
+
+// 外部(CPSS由来)取消の取消可能期間(日)。サーバ側 POINTS_EXTERNAL_CANCEL_MAX_AGE_DAYS と揃える。
+const EXTERNAL_CANCEL_MAX_AGE_DAYS = 92;
+// 外部取消の対象行か: 未取消 & hidあり & knowbie付与でない(=既存ボタン対象外) & 期間内
+function canExternalCancel(t: HistoryRow): boolean {
+  if (t.cancelled || t.status === "CAN") return false;
+  if (t.cancellableTxId) return false; // knowbie付与は既存の取消ボタンで対応
+  if (!t.hid) return false;
+  const ts = new Date(t.occurredAt).getTime();
+  if (!Number.isFinite(ts)) return false;
+  return (Date.now() - ts) / 86400000 <= EXTERNAL_CANCEL_MAX_AGE_DAYS;
+}
 
 type MemberPointInfo = {
   memberCode: string;
@@ -320,18 +341,33 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
   // 取り消し実行
   const doCancel = async () => {
     if (!member || !cancelTarget) return;
+    // 外部取消は理由必須
+    if (cancelTarget.external && !cancelNote.trim()) {
+      showToast("取消理由を入力してください。", "error");
+      return;
+    }
     setCancelling(true);
     try {
+      const payload = cancelTarget.external
+        ? {
+            action: "cancelExternal",
+            clubCode,
+            memberCode: member.memberCode,
+            hid: cancelTarget.hid,
+            occurredAt: cancelTarget.occurredAt,
+            note: cancelNote,
+          }
+        : {
+            action: "cancel",
+            clubCode,
+            memberCode: member.memberCode,
+            sourceTransactionId: cancelTarget.txId,
+            note: cancelNote || undefined,
+          };
       const res = await fetch("/api/store-settings/points/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "cancel",
-          clubCode,
-          memberCode: member.memberCode,
-          sourceTransactionId: cancelTarget.txId,
-          note: cancelNote || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取り消し失敗");
@@ -601,6 +637,14 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
                               >
                                 取消
                               </button>
+                            ) : canExternalCancel(t) ? (
+                              <button
+                                className="pt-cancel-btn"
+                                title="外部/利用ポイントを取り消します（要理由・監査記録）"
+                                onClick={() => setCancelTarget({ hid: t.hid!, external: true, txType: t.type, points: t.points, occurredAt: t.occurredAt, source: t.source })}
+                              >
+                                取消
+                              </button>
                             ) : (
                               <span className="pt-na">—</span>
                             )}
@@ -702,26 +746,37 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
         <div className="pt-modal-overlay" onClick={() => !cancelling && setCancelTarget(null)}>
           <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
             <header className="pt-modal-header">
-              <h3>ポイント付与を取り消す</h3>
-              <p>取り消すと残高は減算されます。元には戻せません。</p>
+              <h3>{cancelTarget.external ? "ポイント取引を取り消す" : "ポイント付与を取り消す"}</h3>
+              <p>
+                {cancelTarget.external
+                  ? cancelTarget.txType === "used"
+                    ? "取り消すと利用分が会員に戻ります（残高が増えます）。元には戻せません。"
+                    : "取り消すと会員残高が変わります。元には戻せません。"
+                  : "取り消すと残高は減算されます。元には戻せません。"}
+              </p>
             </header>
             <div className="pt-modal-body">
+              {cancelTarget.external && (
+                <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, padding: "10px 12px", fontSize: 12, fontWeight: 600, marginBottom: 12 }}>
+                  ⚠️ これは外部システム(タウン/POS)由来の取引の取消です。会員の残高に直接影響します。理由の入力が必須で、操作は監査ログに記録されます。
+                </div>
+              )}
               <div className="pt-confirm-row">
                 <span>対象</span>
                 <span>{formatDateTime(cancelTarget.occurredAt)} / {cancelTarget.source}</span>
               </div>
               <div className="pt-confirm-row">
-                <span>付与ポイント</span>
-                <span style={{ fontWeight: 800, color: "#047857" }}>{formatPoints(cancelTarget.points)}</span>
+                <span>{cancelTarget.external ? (cancelTarget.txType === "used" ? "利用ポイント" : "対象ポイント") : "付与ポイント"}</span>
+                <span style={{ fontWeight: 800, color: cancelTarget.points < 0 ? "#1d4ed8" : "#047857" }}>{formatPoints(cancelTarget.points)}</span>
               </div>
               <div className="pt-field">
-                <label>取消理由（任意）</label>
+                <label>取消理由{cancelTarget.external ? "（必須）" : "（任意）"}</label>
                 <textarea
                   className="pt-input pt-textarea"
                   rows={3}
                   value={cancelNote}
                   onChange={(e) => setCancelNote(e.target.value)}
-                  placeholder="例) 入力誤り / 重複付与"
+                  placeholder={cancelTarget.external ? "例) 二重課金 / 誤操作による利用" : "例) 入力誤り / 重複付与"}
                 />
               </div>
             </div>
@@ -729,7 +784,11 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
               <button className="pt-modal-cancel" onClick={() => setCancelTarget(null)} disabled={cancelling}>
                 戻る
               </button>
-              <button className="pt-modal-submit pt-modal-danger" onClick={doCancel} disabled={cancelling}>
+              <button
+                className="pt-modal-submit pt-modal-danger"
+                onClick={doCancel}
+                disabled={cancelling || (cancelTarget.external && !cancelNote.trim())}
+              >
                 {cancelling ? "送信中..." : "取り消す"}
               </button>
             </footer>
