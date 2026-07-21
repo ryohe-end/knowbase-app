@@ -10,6 +10,7 @@ import {
   DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
+import { isAdminLike } from "@/lib/roles";
 import type { StoreTerm } from "@/types/storeTerms";
 
 export const runtime = "nodejs";
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
-  if (user.role !== "admin") {
+  if (!isAdminLike(user.role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
@@ -136,7 +137,7 @@ export async function DELETE(req: Request) {
   if (!user) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
-  if (user.role !== "admin") {
+  if (!isAdminLike(user.role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

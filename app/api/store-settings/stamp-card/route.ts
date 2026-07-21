@@ -12,6 +12,7 @@ import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
 import { query } from "@/lib/memberDb";
 import { effectiveClubCodes } from "@/lib/clubScope";
+import { isAdminLike } from "@/lib/roles";
 import type { StampCardSettings, StampCardPrize } from "@/types/stampCardSettings";
 
 export const runtime = "nodejs";
@@ -57,7 +58,7 @@ async function getCurrentUser() {
       email: u.email,
       role: u.role as string,
       groupIds: normalizeStringArray(u.groupIds),
-      clubCodes: await effectiveClubCodes(normalizeStringArray(u.clubCodes), normalizeStringArray(u.areas)),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(u.clubCodes), normalizeStringArray(u.areas), { role: String(u.role ?? "") }),
     };
   } catch (e) {
     console.error("[stamp-card API] getCurrentUser failed:", e);
@@ -138,7 +139,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isAdminLike(user.role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => null)) as StampCardSettings | null;
   const clubCode = String(body?.clubCode ?? "").trim();

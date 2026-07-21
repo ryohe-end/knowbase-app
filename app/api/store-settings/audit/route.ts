@@ -5,7 +5,8 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
-import { isAdminRequest } from "@/lib/auth";
+import { getSessionUser } from "@/lib/auth";
+import { isAdminLike } from "@/lib/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,7 +40,9 @@ async function resolveUserName(userId: string): Promise<string | null> {
 }
 
 export async function GET(req: Request) {
-  if (!(await isAdminRequest(req))) {
+  // 監査ログ閲覧は admin または SV(加盟店SV) に開放 (店舗設定内の機能)。
+  const sessionUser = await getSessionUser(req);
+  if (!sessionUser || !isAdminLike(sessionUser.role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 

@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { isAdminLike } from "@/lib/roles";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 import type { RefundApplication, ApprovalStep } from "@/types/refundApplication";
 
@@ -150,7 +151,7 @@ export async function POST(req: Request) {
       if (existing && !isClubInScope(user, existing.clubCode)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
-      if (existing && existing.createdBy !== user.userId && user.role !== "admin") {
+      if (existing && existing.createdBy !== user.userId && !isAdminLike(user.role)) {
         return NextResponse.json({ ok: false, error: "Forbidden: not owner" }, { status: 403 });
       }
     } catch (e) {

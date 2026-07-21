@@ -10,6 +10,7 @@ import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
+import { isAdminLike } from "@/lib/roles";
 import { query } from "@/lib/memberDb";
 import type { BannerSettings, AppBanner, AppType } from "@/types/bannerSettings";
 
@@ -102,7 +103,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "admin") return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  if (!isAdminLike(user.role)) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json().catch(() => null)) as BannerSettings | null;
   const appType = body?.appType as AppType;

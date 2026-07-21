@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { isAdminLike } from "@/lib/roles";
 import type { RefundApplication } from "@/types/refundApplication";
 
 export const runtime = "nodejs";
@@ -49,7 +50,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     }
     const isOwnerDeletable =
       app.createdBy === user.userId && (app.status === "下書き" || app.status === "差戻し");
-    if (user.role !== "admin" && !isOwnerDeletable) {
+    if (!isAdminLike(user.role) && !isOwnerDeletable) {
       return NextResponse.json(
         { ok: false, error: "この申請は削除できません（自分の下書き/差戻しのみ削除可）" },
         { status: 403 }

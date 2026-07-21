@@ -52,7 +52,7 @@ export async function getRefundUser(): Promise<RefundUser | null> {
     if (!u || u.isActive === false) return null;
     // 担当エリア(companyGroup)を店舗に展開し、個別clubCodesと union した実効スコープを返す
     const { effectiveClubCodes } = await import("./clubScope");
-    const clubCodes = await effectiveClubCodes(normArr(u.clubCodes), normArr(u.areas));
+    const clubCodes = await effectiveClubCodes(normArr(u.clubCodes), normArr(u.areas), { role: String(u.role ?? "") });
     return {
       userId: String(u.userId ?? ""),
       name: String(u.name ?? ""),
@@ -76,7 +76,8 @@ export function canApply(user: RefundUser): boolean {
   return user.role !== "finance";
 }
 export function canApprove(user: RefundUser): boolean {
-  return user.role === "admin" || user.role === "approver";
+  // SV(加盟店SV)は admin 相当 (FCスコープ内)
+  return user.role === "admin" || user.role === "sv" || user.role === "approver";
 }
 export function canFinance(user: RefundUser): boolean {
   // 経理のみ。管理者(admin)は経理メニュー/処理を持たない。

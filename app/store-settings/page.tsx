@@ -56,7 +56,7 @@ export default function StoreSettingsMenu() {
     let alive = true;
     fetch("/api/me", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive && d?.ok) setIsAdmin(String(d.user?.role || "") === "admin"); })
+      .then((d) => { if (alive && d?.ok) setIsAdmin(["admin", "sv"].includes(String(d.user?.role || ""))); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
@@ -109,6 +109,13 @@ export default function StoreSettingsMenu() {
     },
     ...(isAdmin
       ? [
+          {
+            title: "加盟店企業マスタ",
+            desc: "加盟店(FC)を運営する企業を横断で登録・管理します（管理者・SV）。",
+            href: "/store-settings/franchise-companies",
+            icon: <StorefrontIcon />,
+            color: "#0f766e",
+          },
           {
             title: "操作監査ログ",
             desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴を確認します（管理者専用）。",

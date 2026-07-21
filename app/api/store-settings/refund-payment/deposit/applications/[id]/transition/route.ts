@@ -15,6 +15,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { isAdminLike } from "@/lib/roles";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 import type {
   DepositApplication,
@@ -85,7 +86,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const prevStatus = app.status;
 
     if (action === "submit") {
-      if (app.createdBy !== user.userId && user.role !== "admin") {
+      if (app.createdBy !== user.userId && !isAdminLike(user.role)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
       if (app.status === "消込完了") {

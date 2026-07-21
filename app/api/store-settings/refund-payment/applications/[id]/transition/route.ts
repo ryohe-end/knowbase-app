@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
+import { isAdminLike } from "@/lib/roles";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 import { notifyRefundRejected } from "@/lib/refundNotify";
 import type {
@@ -102,7 +103,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
     if (action === "submit") {
       // 申請者本人 (もしくは admin) のみ
-      if (app.createdBy !== user.userId && user.role !== "admin") {
+      if (app.createdBy !== user.userId && !isAdminLike(user.role)) {
         return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
       }
       // 提出できるのは「下書き」または「差戻し」のみ。

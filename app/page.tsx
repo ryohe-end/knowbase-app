@@ -522,6 +522,7 @@ export default function HomePage() {
 
   const [me, setMe] = useState<Me | null>(null);
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
+  const isSv = useMemo(() => me?.role === "sv", [me]); // 加盟店SV: 店舗設定(FC)へアクセス可
   const [isAdminErrorModalOpen, setIsAdminErrorModalOpen] = useState(false);
   // 直営店舗のブランド (JOYFIT/FIT365)。直営店舗の担当者のみ 管理画面ボタンを出す。
   const [directBrands, setDirectBrands] = useState<string[]>([]);
@@ -1603,8 +1604,8 @@ export default function HomePage() {
               {externalLinks.filter((l) => l.isActive).length === 0 && <span className="kb-subnote">登録されたリンクはありません。</span>}
             </div>
 
-            {/* 直営店舗のみ: 店舗設定へのボタン(遷移先は共通なのでブランド別に分けず1つに集約) */}
-            {directBrands.length > 0 && (
+            {/* 直営店舗の担当者 または SV(加盟店): 店舗設定へのボタン */}
+            {(directBrands.length > 0 || isSv) && (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
                 <button
                   type="button"

@@ -83,7 +83,7 @@ export async function GET() {
 
     const { effectiveClubCodes } = await import("@/lib/clubScope");
     const areas = normalizeStringArray(user.areas);
-    const effectiveClubs = await effectiveClubCodes(normalizeStringArray(user.clubCodes), areas);
+    const effectiveClubs = await effectiveClubCodes(normalizeStringArray(user.clubCodes), areas, { role: String(user.role ?? "") });
 
     const res = NextResponse.json({
       ok: true,

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { isAdminLike } from "@/lib/roles";
 import type { DepositApplication } from "@/types/depositApplication";
 
 export const runtime = "nodejs";
@@ -38,7 +39,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRefundUser();
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  if (user.role !== "admin") {
+  if (!isAdminLike(user.role)) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const { id } = await params;

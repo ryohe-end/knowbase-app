@@ -69,7 +69,7 @@ async function getCurrentUser() {
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
-      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas)),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas), { role: String(user.role ?? "") }),
     };
   } catch (e) {
     console.error("[basic API] Failed to get current user:", e);

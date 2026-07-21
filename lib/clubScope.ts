@@ -14,6 +14,7 @@ let _cache: {
   areas: string[];
   bizByClub: Map<string, string>;
   nameByClub: Map<string, string>;
+  fcClubs: string[]; // 加盟店(FC): companyGroup が FC 始まり (WFAP=海外は除外)
 } | null = null;
 
 async function loadAreaMap(): Promise<{
@@ -21,11 +22,13 @@ async function loadAreaMap(): Promise<{
   areas: string[];
   bizByClub: Map<string, string>;
   nameByClub: Map<string, string>;
+  fcClubs: string[];
 }> {
   if (_cache && Date.now() - _cache.at < 5 * 60_000) return _cache;
   const byArea = new Map<string, string[]>();
   const bizByClub = new Map<string, string>();
   const nameByClub = new Map<string, string>();
+  const fcClubs: string[] = [];
   let ExclusiveStartKey: any = undefined;
   do {
     const res: any = await ddb.send(new ScanCommand({
@@ -41,14 +44,26 @@ async function loadAreaMap(): Promise<{
       if (nm) nameByClub.set(code, String(nm));
       const area = it.companyGroup;
       if (!area) continue;
-      const arr = byArea.get(area) || [];
+      const cg = String(area);
+      if (cg.toUpperCase().startsWith("FC")) fcClubs.push(code); // 加盟店
+      const arr = byArea.get(cg) || [];
       arr.push(code);
-      byArea.set(area, arr);
+      byArea.set(cg, arr);
     }
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub, nameByClub };
+  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub, nameByClub, fcClubs };
   return _cache;
+}
+
+// 加盟店(FC)全店の clubCode。SV(加盟店SV)の実効スコープに使う。
+export async function fcClubCodes(): Promise<string[]> {
+  try {
+    return (await loadAreaMap()).fcClubs.slice();
+  } catch (e) {
+    console.error("[clubScope] fcClubCodes failed:", e);
+    return [];
+  }
 }
 
 // clubCode → 店舗名 の解決マップ。未登録は clubCode をそのまま名前に使う。
@@ -122,18 +137,31 @@ export async function resolveHomeClub(memberCode: string): Promise<string> {
   return c3; // どちらも未知 → 従来通り先頭3桁
 }
 
-// 個別clubCodes + 担当エリア(companyGroup)の店舗 を union した実効スコープ
-export async function effectiveClubCodes(clubCodes: string[], areas: string[]): Promise<string[]> {
-  if (!areas || areas.length === 0) return clubCodes;
-  try {
-    const { byArea } = await loadAreaMap();
-    const set = new Set(clubCodes);
-    for (const a of areas) for (const c of byArea.get(a) || []) set.add(c);
-    return [...set];
-  } catch (e) {
-    console.error("[clubScope] area expand failed:", e);
-    return clubCodes; // 失敗時は個別clubCodesのみ (安全側)
+// 個別clubCodes + 担当エリア(companyGroup)の店舗 を union した実効スコープ。
+// SV(加盟店SV, role="sv")は加盟店(FC)全店を実効スコープとする(admin相当・FC限定)。
+export async function effectiveClubCodes(
+  clubCodes: string[],
+  areas: string[],
+  opts?: { role?: string }
+): Promise<string[]> {
+  let base = clubCodes;
+  if (areas && areas.length > 0) {
+    try {
+      const { byArea } = await loadAreaMap();
+      const set = new Set(clubCodes);
+      for (const a of areas) for (const c of byArea.get(a) || []) set.add(c);
+      base = [...set];
+    } catch (e) {
+      console.error("[clubScope] area expand failed:", e);
+      base = clubCodes; // 失敗時は個別clubCodesのみ (安全側)
+    }
   }
+  // SV: 加盟店(FC)全店をスコープに加える
+  if (opts?.role === "sv") {
+    const fc = await fcClubCodes();
+    if (fc.length > 0) return [...new Set([...base, ...fc])];
+  }
+  return base;
 }
 
 // 割当可能なエリア(companyGroup)一覧

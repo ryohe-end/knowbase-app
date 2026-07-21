@@ -148,7 +148,7 @@ export default function TermsManagementPage() {
   const [expandedBrands, setExpandedBrands] = useState<Record<string, boolean>>(
     Object.fromEntries(BRANDS.map((b) => [b, true]))
   );
-  const isAdmin = me?.role === "admin";
+  const isAdmin = me?.role === "admin" || me?.role === "sv";
 
   // 編集中の StoreTerm のローカルコピー (null = 一覧表示)
   const [editing, setEditing] = useState<StoreTerm | null>(null);
