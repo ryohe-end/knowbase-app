@@ -16,6 +16,20 @@ const formatDate = (iso: string) => {
   });
 };
 
+// n.body は information2.content(お知らせHTML)。ロック画面バナー/本文はテキストのみ表示するため
+// タグを除去してプレーンテキスト化する(お知らせ欄は HTML のまま描画)。
+function stripHtml(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 // ブランド(app_type) → プレビューテーマ
 function brandTheme(appType?: string): { color: string; appName: string } {
   return appType === "joyfit"
@@ -49,6 +63,9 @@ export default function PushDetailPage() {
   const stats = n?.stats;
   const openRate = stats && stats.sentCount > 0 ? Math.round((stats.openCount / stats.sentCount) * 100) : 0;
   const theme = brandTheme(n?.appType);
+  // お知らせHTML(n.body) からロック画面/本文用のプレーンテキストを作る
+  const bannerText = n ? stripHtml(n.body) : "";
+  const hasNoticeHtml = !!n?.body && /<[a-z][\s\S]*>/i.test(n.body); // HTMLタグを含む=お知らせ欄デザインあり
 
   return (
     <div className="push-root">
@@ -66,7 +83,7 @@ export default function PushDetailPage() {
           </div>
           {n && (
             <Link href="/store-settings/push/new" className="push-primary-btn"
-              onClick={() => { try { sessionStorage.setItem("push_reuse", JSON.stringify({ title: n.title, body: n.body })); } catch {} }}
+              onClick={() => { try { sessionStorage.setItem("push_reuse", JSON.stringify({ title: n.title, body: bannerText, html: hasNoticeHtml ? n.body : "" })); } catch {} }}
               title="この配信の内容を引き継いで編集・再送信します">
               編集して再送信
             </Link>
@@ -104,28 +121,66 @@ export default function PushDetailPage() {
                 </div>
                 <div className="push-detail-block">
                   <div className="push-detail-label">本文</div>
-                  <div className="push-detail-val multiline">{n.body}</div>
+                  <div className="push-detail-val multiline">{bannerText}</div>
                 </div>
               </div>
 
               <div className="push-detail-card">
                 <div className="push-detail-card-title">スマホ通知プレビュー</div>
-                <div className="push-preview-frame">
-                  <div className="push-phone-mockup">
-                    <div className="push-notch" />
-                    <div className="push-screen">
-                      <div className="push-time">10:41</div>
-                      <div className="push-notification-bubble">
-                        <div className="push-bubble-header">
-                          <div className="push-app-info">
-                            <div className="push-app-icon" style={{ background: theme.color }} />
-                            <span className="push-app-name">{theme.appName}</span>
-                          </div>
-                          <span className="push-now">たった今</span>
+                <div className="push-preview-frame push-preview-dual">
+                  {/* ① ロック画面に出る PUSH 通知バナー(テキストのみ) */}
+                  <div className="push-preview-item">
+                    <div className="push-preview-caption">
+                      <span className="push-preview-badge lock">ロック画面</span>
+                      PUSH通知バナー
+                    </div>
+                    <div className="push-phone-mockup lock">
+                      <div className="push-notch" />
+                      <div className="push-screen lock-screen">
+                        <div className="push-lock-time">
+                          <div className="push-lock-clock">10:41</div>
+                          <div className="push-lock-date">配信済み</div>
                         </div>
-                        <div className="push-bubble-content">
-                          <div className="push-bubble-title">{n.title}</div>
-                          <div className="push-bubble-body">{n.body}</div>
+                        <div className="push-notification-bubble">
+                          <div className="push-bubble-header">
+                            <div className="push-app-info">
+                              <div className="push-app-icon" style={{ background: theme.color }} />
+                              <span className="push-app-name">{theme.appName}</span>
+                            </div>
+                            <span className="push-now">たった今</span>
+                          </div>
+                          <div className="push-bubble-content">
+                            <div className="push-bubble-title">{n.title}</div>
+                            <div className="push-bubble-body">{bannerText}</div>
+                          </div>
+                        </div>
+                        <div className="push-lock-hint">※ ロック画面・通知センターにはテキストのみ表示されます</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ② アプリを開くと「お知らせ」欄に出る詳細(HTML) */}
+                  <div className="push-preview-item">
+                    <div className="push-preview-caption">
+                      <span className="push-preview-badge app" style={{ background: theme.color }}>アプリ内</span>
+                      お知らせ画面
+                    </div>
+                    <div className="push-phone-mockup app">
+                      <div className="push-notch" />
+                      <div className="push-screen app-screen">
+                        <div className="push-app-bar" style={{ background: theme.color }}>
+                          <span className="push-app-bar-back">‹</span>
+                          <span className="push-app-bar-title">お知らせ</span>
+                          <span />
+                        </div>
+                        <div className="push-app-notice">
+                          <div className="push-app-notice-title">{n.title}</div>
+                          <div className="push-app-notice-date">{formatDate(n.scheduledAt)}</div>
+                          {hasNoticeHtml ? (
+                            <div className="push-app-notice-body" dangerouslySetInnerHTML={{ __html: n.body }} />
+                          ) : (
+                            <div className="push-app-notice-body multiline">{bannerText}</div>
+                          )}
                         </div>
                       </div>
                     </div>

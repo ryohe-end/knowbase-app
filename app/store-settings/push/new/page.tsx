@@ -55,10 +55,13 @@ export default function NewPushPage() {
   const [blocks, setBlocks] = useState<ContentBlock[]>([newTextBlock("")]);
   const bodyText = useMemo(() => blocksToText(blocks), [blocks]);       // PUSHバナー/プレビュー/ガード用
   const contentHtml = useMemo(() => blocksToHtml(blocks), [blocks]);    // お知らせ欄用HTML
-  // AI(Claude on Bedrock) による タイトル・本文 文章生成
+  // AI(Claude on Bedrock) による タイトル・本文・お知らせHTML 生成
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
   const [aiError, setAiError] = useState("");
+  const [htmlBody, setHtmlBody] = useState(""); // AI生成のお知らせHTML(空=ブロック本文HTMLを使用)
+  // お知らせ欄に実際に使うHTML: AI生成があればそれを優先、無ければブロック本文
+  const noticeHtml = htmlBody || contentHtml;
   // 条件グループ (グループ内は AND、グループ間は groupOp)
   const [groups, setGroups] = useState<CondGroup[]>([newCondGroup(CONTRACT_TYPES)]);
   const [groupOp, setGroupOp] = useState<"OR" | "AND">("OR");
@@ -94,7 +97,7 @@ export default function NewPushPage() {
     try {
       const res = await fetch("/api/store-settings/push/test", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberNos: testMembers, title, body: bodyText, contentHtml: contentHtml || undefined, brand, clubCode }),
+        body: JSON.stringify({ memberNos: testMembers, title, body: bodyText, contentHtml: noticeHtml || undefined, brand, clubCode }),
       });
       const d = await res.json();
       if (!res.ok || !d.ok) throw new Error(d.error || "テスト送信に失敗しました");
@@ -111,6 +114,7 @@ export default function NewPushPage() {
         const d = JSON.parse(raw);
         if (d.title) setTitle(String(d.title));
         if (d.body) setBlocks([newTextBlock(String(d.body))]);
+        if (d.html) setHtmlBody(String(d.html)); // 元のお知らせデザインHTMLを引き継ぐ
         sessionStorage.removeItem("push_reuse");
       }
     } catch { /* noop */ }
@@ -291,6 +295,7 @@ export default function NewPushPage() {
       }
       if (data.title) setTitle(data.title);
       if (data.body) setBlocks([newTextBlock(data.body)]);
+      if (data.html) setHtmlBody(data.html); // お知らせ欄のデザインHTML
     } catch {
       setAiError("AI生成リクエストに失敗しました。");
     } finally {
@@ -312,7 +317,7 @@ export default function NewPushPage() {
           brand,
           title,
           body: bodyText,
-          contentHtml: contentHtml || undefined, // 画像を含むお知らせ本文HTML(位置指定)
+          contentHtml: noticeHtml || undefined, // AI生成HTML優先、無ければブロック本文HTML(画像位置指定)
           targetType: "CONDITION",
           appUserIds: targetAppUserIds,
           isImmediate,
@@ -425,7 +430,7 @@ export default function NewPushPage() {
                 ※ 画像はアプリの「お知らせ欄」に、挿入した位置・配置で表示されます（PUSH通知バナーは本文テキストのみ）。
               </div>
               <div className="push-field" style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, marginTop: 8 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIで文章作成</label>
+                <label style={{ display: "flex", alignItems: "center", gap: 6 }}>✨ AIで文章・お知らせHTMLを作成</label>
                 <textarea
                   className="push-textarea" rows={2} value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
@@ -435,10 +440,16 @@ export default function NewPushPage() {
                   type="button" className="push-extract-btn" style={{ marginTop: 8 }}
                   onClick={generateAiText} disabled={aiGenerating}
                 >
-                  {aiGenerating ? "生成中..." : "AIでタイトル・本文を作成"}
+                  {aiGenerating ? "生成中..." : htmlBody ? "AIで作り直す" : "AIでタイトル・本文・お知らせHTMLを作成"}
                 </button>
                 {aiError && <div className="push-hint" style={{ color: "#dc2626" }}>{aiError}</div>}
-                <div className="push-hint" style={{ marginTop: 6 }}>指示をもとにタイトルと本文を生成し、上の入力欄へ反映します。生成後もそのまま編集できます。</div>
+                {htmlBody && (
+                  <div className="push-hint" style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, color: "#059669", fontWeight: 700 }}>
+                    <span>✓ AI生成のお知らせHTMLを使用中（プレビュー反映）</span>
+                    <button type="button" onClick={() => setHtmlBody("")} style={{ background: "none", border: "none", color: "#dc2626", fontWeight: 700, cursor: "pointer", fontSize: 11 }}>解除</button>
+                  </div>
+                )}
+                <div className="push-hint" style={{ marginTop: 6 }}>指示をもとにタイトル・本文・お知らせ欄のデザインHTMLを生成し、入力欄とお知らせプレビューに反映します。「解除」でブロック本文に戻せます。生成後もそのまま編集できます。</div>
               </div>
             </div>
 
@@ -655,8 +666,8 @@ export default function NewPushPage() {
                     <div className="push-app-notice">
                       <div className="push-app-notice-title">{title || "タイトル"}</div>
                       <div className="push-app-notice-date">2026/07/13 10:41</div>
-                      {contentHtml ? (
-                        <div className="push-app-notice-body" dangerouslySetInnerHTML={{ __html: contentHtml }} />
+                      {noticeHtml ? (
+                        <div className="push-app-notice-body" dangerouslySetInnerHTML={{ __html: noticeHtml }} />
                       ) : (
                         <div className="push-app-notice-body">ここにお知らせ本文が表示されます。</div>
                       )}
