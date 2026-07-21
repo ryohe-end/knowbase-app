@@ -244,9 +244,7 @@ export async function getSessionUser(
     const areas = normalizeStringArray(u.areas);
     // 担当エリア(companyGroup)を店舗に展開し、個別clubCodesと union した実効スコープを返す
     const { effectiveClubCodes } = await import("./clubScope");
-    const clubCodes = await effectiveClubCodes(normalizeStringArray(u.clubCodes), areas, {
-      groupIds: normalizeStringArray(u.groupIds), role: String(u.role ?? ""),
-    });
+    const clubCodes = await effectiveClubCodes(normalizeStringArray(u.clubCodes), areas);
     return {
       email: String(u.email ?? session.email),
       role: String(u.role ?? ""),

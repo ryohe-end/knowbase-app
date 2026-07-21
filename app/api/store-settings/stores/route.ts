@@ -66,9 +66,7 @@ async function getCurrentUser() {
       email: user.email,
       role: user.role as string,
       groupIds: normalizeStringArray(user.groupIds),
-      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas), {
-        groupIds: normalizeStringArray(user.groupIds), role: String(user.role ?? ""),
-      }),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(user.clubCodes), normalizeStringArray(user.areas)),
     };
   } catch (e) {
     console.error("[stores API] Failed to get current user:", e);

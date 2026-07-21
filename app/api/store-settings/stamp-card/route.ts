@@ -57,9 +57,7 @@ async function getCurrentUser() {
       email: u.email,
       role: u.role as string,
       groupIds: normalizeStringArray(u.groupIds),
-      clubCodes: await effectiveClubCodes(normalizeStringArray(u.clubCodes), normalizeStringArray(u.areas), {
-        groupIds: normalizeStringArray(u.groupIds), role: String(u.role ?? ""),
-      }),
+      clubCodes: await effectiveClubCodes(normalizeStringArray(u.clubCodes), normalizeStringArray(u.areas)),
     };
   } catch (e) {
     console.error("[stamp-card API] getCurrentUser failed:", e);

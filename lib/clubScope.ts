@@ -14,8 +14,6 @@ let _cache: {
   areas: string[];
   bizByClub: Map<string, string>;
   nameByClub: Map<string, string>;
-  directClubs: string[]; // 直営 (companyGroup が FC 以外)
-  fcClubs: string[];     // FC   (companyGroup が FC 始まり)
 } | null = null;
 
 async function loadAreaMap(): Promise<{
@@ -23,15 +21,11 @@ async function loadAreaMap(): Promise<{
   areas: string[];
   bizByClub: Map<string, string>;
   nameByClub: Map<string, string>;
-  directClubs: string[];
-  fcClubs: string[];
 }> {
   if (_cache && Date.now() - _cache.at < 5 * 60_000) return _cache;
   const byArea = new Map<string, string[]>();
   const bizByClub = new Map<string, string>();
   const nameByClub = new Map<string, string>();
-  const directClubs: string[] = [];
-  const fcClubs: string[] = [];
   let ExclusiveStartKey: any = undefined;
   do {
     const res: any = await ddb.send(new ScanCommand({
@@ -47,19 +41,13 @@ async function loadAreaMap(): Promise<{
       if (nm) nameByClub.set(code, String(nm));
       const area = it.companyGroup;
       if (!area) continue;
-      const cg = String(area);
-      // 直営/FC 分類 (WFAP=海外は除外)。ボタン表示・グループスコープに使う。
-      if (cg.toUpperCase() !== "WFAP") {
-        if (cg.toUpperCase().startsWith("FC")) fcClubs.push(code);
-        else directClubs.push(code);
-      }
-      const arr = byArea.get(cg) || [];
+      const arr = byArea.get(area) || [];
       arr.push(code);
-      byArea.set(cg, arr);
+      byArea.set(area, arr);
     }
     ExclusiveStartKey = res.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub, nameByClub, directClubs, fcClubs };
+  _cache = { at: Date.now(), byArea, areas: [...byArea.keys()].sort(), bizByClub, nameByClub };
   return _cache;
 }
 
@@ -135,52 +123,17 @@ export async function resolveHomeClub(memberCode: string): Promise<string> {
 }
 
 // 個別clubCodes + 担当エリア(companyGroup)の店舗 を union した実効スコープ
-// 所属グループ(g001=直営 / g002=FC)を店舗スコープに展開する。
-// clubCodes/areas が未割当のユーザーの実効スコープを所属区分で補うために使う。
-export async function groupScopeClubs(groupIds: string[]): Promise<string[]> {
-  const wantDirect = groupIds.includes("g001"); // 直営
-  const wantFc = groupIds.includes("g002");     // FC
-  if (!wantDirect && !wantFc) return [];
+export async function effectiveClubCodes(clubCodes: string[], areas: string[]): Promise<string[]> {
+  if (!areas || areas.length === 0) return clubCodes;
   try {
-    const { directClubs, fcClubs } = await loadAreaMap();
-    const set = new Set<string>();
-    if (wantDirect) for (const c of directClubs) set.add(c);
-    if (wantFc) for (const c of fcClubs) set.add(c);
+    const { byArea } = await loadAreaMap();
+    const set = new Set(clubCodes);
+    for (const a of areas) for (const c of byArea.get(a) || []) set.add(c);
     return [...set];
   } catch (e) {
-    console.error("[clubScope] groupScopeClubs failed:", e);
-    return [];
+    console.error("[clubScope] area expand failed:", e);
+    return clubCodes; // 失敗時は個別clubCodesのみ (安全側)
   }
-}
-
-// 実効クラブスコープ。個別clubCodes + 担当エリア(companyGroup)を union。
-// 明示スコープが空の非adminは、所属グループ(g001=直営 / g002=FC)の店舗をスコープとする。
-// admin は空のまま返す(呼び出し側で「空=全件」と解釈)。
-export async function effectiveClubCodes(
-  clubCodes: string[],
-  areas: string[],
-  opts?: { groupIds?: string[]; role?: string }
-): Promise<string[]> {
-  let base = clubCodes;
-  if (areas && areas.length > 0) {
-    try {
-      const { byArea } = await loadAreaMap();
-      const set = new Set(clubCodes);
-      for (const a of areas) for (const c of byArea.get(a) || []) set.add(c);
-      base = [...set];
-    } catch (e) {
-      console.error("[clubScope] area expand failed:", e);
-      base = clubCodes; // 失敗時は個別clubCodesのみ (安全側)
-    }
-  }
-  // 明示スコープがあればそれを優先
-  if (base.length > 0) return base;
-  // 明示スコープ空 & 非admin: 所属グループでスコープ付与
-  if (opts && opts.role !== "admin" && opts.groupIds && opts.groupIds.length > 0) {
-    const g = await groupScopeClubs(opts.groupIds);
-    if (g.length > 0) return g;
-  }
-  return base; // 空 (admin=全件は呼び出し側で解釈)
 }
 
 // 割当可能なエリア(companyGroup)一覧
