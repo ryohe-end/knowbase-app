@@ -5,7 +5,7 @@ import Link from "next/link";
 import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import { ToastProvider, useToast } from "@/components/Toast";
 
-type Ticket = { token: string; serialNumber: number; memberNo: string; shopName: string; casioShopId: string; purchaseDate: string; purchaseTime: string; expirationDate: string };
+type Ticket = { token: string; serialNumber: number; memberNo: string; memberName: string; memberKana: string; shopName: string; casioShopId: string; purchaseDate: string; purchaseTime: string; expirationDate: string };
 
 const fmtDate = (d: string) => (/^\d{8}$/.test(d) ? `${d.slice(0, 4)}/${d.slice(4, 6)}/${d.slice(6, 8)}` : d || "-");
 const fmtTime = (t: string) => (/^\d{6}$/.test(t) ? `${t.slice(0, 2)}:${t.slice(2, 4)}` : "");
@@ -20,6 +20,7 @@ function Inner() {
   const [month, setMonth] = useState("");
   const [shopName, setShopName] = useState("");
   const [memberNo, setMemberNo] = useState("");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(true);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [limited, setLimited] = useState(false);
@@ -36,13 +37,14 @@ function Inner() {
       if (month) p.set("month", month.replace("-", ""));
       if (shopName) p.set("shopName", shopName);
       if (memberNo) p.set("memberNo", memberNo);
+      if (name) p.set("name", name);
       const res = await fetch(`/api/store-settings/oneday-checkoff?${p}`, { cache: "no-store" });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "取得に失敗しました");
       setTickets(d.tickets || []); setLimited(!!d.limited);
     } catch (e: any) { setError(e?.message || "取得に失敗しました"); }
     finally { setLoading(false); }
-  }, [month, shopName, memberNo]);
+  }, [month, shopName, memberNo, name]);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -57,7 +59,7 @@ function Inner() {
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.ok) throw new Error(d.error || "消し込みに失敗しました");
-      showToast(`会員 ${target.memberNo} のチケットを消し込みました。`, "success");
+      showToast(`${target.memberName ? target.memberName + "様 " : ""}会員 ${target.memberNo} のチケットを消し込みました。`, "success");
       setTickets((prev) => prev.filter((x) => !(x.token === target.token && x.serialNumber === target.serialNumber)));
       setTarget(null);
     } catch (e: any) { showToast(e?.message || "消し込みに失敗しました", "error"); }
@@ -80,6 +82,7 @@ function Inner() {
           <div className="odc-field"><label>購入月</label><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></div>
           <div className="odc-field"><label>店舗名</label><input type="text" placeholder="部分一致" value={shopName} onChange={(e) => setShopName(e.target.value)} /></div>
           <div className="odc-field"><label>会員番号</label><input type="text" placeholder="完全一致" value={memberNo} onChange={(e) => setMemberNo(e.target.value)} /></div>
+          <div className="odc-field"><label>氏名・カナ</label><input type="text" placeholder="部分一致" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") load(); }} /></div>
           <button className="odc-apply" onClick={load}>絞り込む</button>
         </div>
 
@@ -88,18 +91,19 @@ function Inner() {
 
         <div className="odc-table-wrap">
           <table className="odc-table">
-            <thead><tr><th>購入日時</th><th>会員番号</th><th>店舗</th><th>有効期限</th><th></th></tr></thead>
+            <thead><tr><th>購入日時</th><th>会員番号</th><th>氏名</th><th>店舗</th><th>有効期限</th><th></th></tr></thead>
             <tbody>
               {tickets.map((t) => (
                 <tr key={`${t.token}-${t.serialNumber}`}>
                   <td className="odc-nowrap">{fmtDate(t.purchaseDate)} {fmtTime(t.purchaseTime)}</td>
                   <td><code className="odc-code">{t.memberNo}</code></td>
+                  <td>{t.memberName || "-"}{t.memberKana ? <span className="odc-kana">{t.memberKana}</span> : null}</td>
                   <td>{t.shopName}</td>
                   <td className="odc-nowrap">{fmtDate(t.expirationDate)}</td>
                   <td><button className="odc-use-btn" onClick={() => openCheckoff(t)}>消し込み</button></td>
                 </tr>
               ))}
-              {tickets.length === 0 && !loading && <tr><td colSpan={5} className="odc-empty">未使用チケットはありません</td></tr>}
+              {tickets.length === 0 && !loading && <tr><td colSpan={6} className="odc-empty">未使用チケットはありません</td></tr>}
             </tbody>
           </table>
         </div>
@@ -109,7 +113,7 @@ function Inner() {
         <div className="odc-modal-bg" onClick={() => !busy && setTarget(null)}>
           <div className="odc-modal" onClick={(e) => e.stopPropagation()}>
             <h3>チケットを消し込み（使用済にする）</h3>
-            <p>会員 <b>{target.memberNo}</b>（{target.shopName}）の1dayパスを使用済みにします。<strong>本番の入会DBを更新します。</strong></p>
+            <p>{target.memberName ? <><b>{target.memberName}</b> 様 </> : null}会員 <b>{target.memberNo}</b>（{target.shopName}）の1dayパスを使用済みにします。<strong>本番の入会DBを更新します。</strong></p>
             <div className="odc-modal-field">
               <label>利用日時</label>
               <input type="datetime-local" value={useDt} max={nowJstLocal()} onChange={(e) => setUseDt(e.target.value)} />
@@ -141,6 +145,7 @@ function Inner() {
         .odc-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: auto; }
         .odc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
         .odc-table th { text-align: left; padding: 11px 14px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-size: 11px; font-weight: 800; color: #64748b; white-space: nowrap; }
+        .odc-kana { display: block; font-size: 10.5px; color: #94a3b8; margin-top: 1px; }
         .odc-table td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
         .odc-table tr:last-child td { border-bottom: none; }
         .odc-nowrap { white-space: nowrap; }

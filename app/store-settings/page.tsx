@@ -90,23 +90,6 @@ export default function StoreSettingsMenu() {
       icon: <DocumentTextIcon />,
       color: "#8b5cf6",
     },
-    {
-      title: "店舗詳細管理",
-      desc: "Web入会システムの管理者メニュー（入会情報、退会機能、メール設定等）へアクセスします。",
-      href: "/store-settings/admin-portal",
-      icon: <StorefrontIcon />,
-      color: "#e11d48",
-      comingSoon: true,
-    },
-    // 入会画面設定は一旦クローズ (後日開発)。メニューから非表示。ページ/APIは残置。
-    {
-      title: "返金・入金申請",
-      desc: "対象月の返金申請、未納金の入金登録を行います。",
-      href: "/store-settings/refund-payment",
-      icon: <BanknotesIcon />,
-      color: "#0ea5e9",
-      comingSoon: true,
-    },
     ...(isAdmin
       ? [
           {
@@ -125,6 +108,24 @@ export default function StoreSettingsMenu() {
           },
         ]
       : []),
+    // ↓ 準備中(Coming Soon)はメニュー末尾へ集約
+    // 入会画面設定は一旦クローズ (後日開発)。ページ/APIは残置。
+    {
+      title: "店舗詳細管理",
+      desc: "Web入会システムの管理者メニュー（入会情報、退会機能、メール設定等）へアクセスします。",
+      href: "/store-settings/admin-portal",
+      icon: <StorefrontIcon />,
+      color: "#e11d48",
+      comingSoon: true,
+    },
+    {
+      title: "返金・入金申請",
+      desc: "対象月の返金申請、未納金の入金登録を行います。",
+      href: "/store-settings/refund-payment",
+      icon: <BanknotesIcon />,
+      color: "#0ea5e9",
+      comingSoon: true,
+    },
   ];
 
   return (

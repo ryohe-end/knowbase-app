@@ -56,13 +56,18 @@ export async function GET(req: Request) {
   if (shopName) { clauses.push("sp.name LIKE ?"); params.push(`%${shopName}%`); }
   const memberNo = (sp.get("memberNo") || "").trim();
   if (memberNo) { clauses.push("t.member_no=?"); params.push(memberNo); }
+  // 氏名/カナ 部分一致 (member.own_name_js=氏名, own_name_cc=カナ)
+  const name = (sp.get("name") || "").trim();
+  if (name) { clauses.push("(m.own_name_js LIKE ? OR m.own_name_cc LIKE ?)"); params.push(`%${name}%`, `%${name}%`); }
 
   const res = await sshBatch(TARGET, [{
     text: `SELECT t.token, t.serial_number, t.member_no, t.shop_id, sp.name shop_name, spv.casio_shop_id,
-                  t.purchase_date, t.purchase_time, t.expiration_date, t.expiration_time
+                  t.purchase_date, t.purchase_time, t.expiration_date, t.expiration_time,
+                  m.own_name_js member_name, m.own_name_cc member_kana
              FROM one_day_ticket t
              INNER JOIN shop_convert_view spv ON spv.town_shop_id=t.shop_id
              INNER JOIN shop sp ON sp.shop_id=t.shop_id
+             LEFT JOIN member m ON m.shop_id=t.shop_id AND m.member_no=t.member_no
             WHERE ${clauses.join(" AND ")}
             ORDER BY t.purchase_date DESC, t.purchase_time DESC LIMIT ${LIST_LIMIT}`,
     params,
@@ -71,6 +76,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     tickets: res.results[0].rows.map((r: any) => ({
       token: String(r.token), serialNumber: Number(r.serial_number), memberNo: String(r.member_no || ""),
+      memberName: String(r.member_name || ""), memberKana: String(r.member_kana || ""),
       shopName: String(r.shop_name || ""), casioShopId: String(r.casio_shop_id),
       purchaseDate: String(r.purchase_date || ""), purchaseTime: String(r.purchase_time || ""),
       expirationDate: String(r.expiration_date || ""),
