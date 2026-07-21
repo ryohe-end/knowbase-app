@@ -758,7 +758,7 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
             <div className="pt-modal-body">
               {cancelTarget.external && (
                 <div style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 8, padding: "10px 12px", fontSize: 12, fontWeight: 600, marginBottom: 12 }}>
-                  ⚠️ これは外部システム(タウン/POS)由来の取引の取消です。会員の残高に直接影響します。理由の入力が必須で、操作は監査ログに記録されます。
+                  ⚠️ これは外部システム由来の取引の取消です。会員の残高に直接影響します。理由の入力が必須で、操作は監査ログに記録されます。
                 </div>
               )}
               <div className="pt-confirm-row">
