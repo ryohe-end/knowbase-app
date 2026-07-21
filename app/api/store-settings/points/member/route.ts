@@ -4,7 +4,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { PointTransaction as PersistedTx } from "@/types/pointTransaction";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
-import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { getClubBusinessType, cpssBrandForBusinessType, resolveHomeClub } from "@/lib/clubScope";
 import { cpssCall } from "@/lib/cpssProxy";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 
@@ -129,11 +129,11 @@ async function fetchRdsMember(memberNo: string, clubCode: string): Promise<any |
 async function buildRealMember(
   clubCode: string, memberCode: string
 ): Promise<MemberPointInfo | null> {
-  const homeClub = memberCode.slice(0, 3);
+  // clubCode は呼び出し側で resolveHomeClub 済みの所属クラブ(3桁/4桁)。ブランド・RDSともこれを使う。
   const brand = cpssBrandForBusinessType(await getClubBusinessType(clubCode));
 
   const [rds, cp, persisted] = await Promise.all([
-    fetchRdsMember(memberCode, homeClub),
+    fetchRdsMember(memberCode, clubCode),
     cpssCall(brand, CPSS_ENV, "getMemberForApp", { aid: memberCode, cumulus: true, expires: true }),
     fetchPersisted(clubCode, memberCode),
   ]);
@@ -365,7 +365,7 @@ export async function GET(req: Request) {
   if (!/^\d{4,}$/.test(memberCode)) {
     return NextResponse.json({ error: "会員番号を正しく入力してください" }, { status: 400 });
   }
-  const homeClub = memberCode.slice(0, 3);
+  const homeClub = await resolveHomeClub(memberCode); // 3桁/4桁クラブを正しく解決
   // 選択店舗・会員所属クラブの両方が担当スコープ内であること
   if (!isClubInScope(user, homeClub) || !isClubInScope(user, clubCode)) {
     return NextResponse.json({ error: "この会員は担当クラブ外です" }, { status: 403 });

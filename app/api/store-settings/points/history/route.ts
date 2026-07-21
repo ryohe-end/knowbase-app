@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
-import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { getClubBusinessType, cpssBrandForBusinessType, resolveHomeClub } from "@/lib/clubScope";
 import { cpssCall } from "@/lib/cpssProxy";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 import type { PointTransaction as PersistedTx } from "@/types/pointTransaction";
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   if (!/^\d{4,}$/.test(memberCode)) {
     return NextResponse.json({ ok: false, error: "会員番号が不正です" }, { status: 400 });
   }
-  const homeClub = memberCode.slice(0, 3);
+  const homeClub = await resolveHomeClub(memberCode); // 3桁/4桁クラブを正しく解決
   if (!isClubInScope(user, homeClub)) {
     return NextResponse.json({ ok: false, error: "この会員は担当クラブ外です" }, { status: 403 });
   }

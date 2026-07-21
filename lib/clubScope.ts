@@ -83,6 +83,45 @@ export function cpssBrandForBusinessType(bizType?: string | null): "JOYFIT" | "F
   return (bizType || "").toUpperCase().startsWith("FIT365") ? "FIT365" : "JOYFIT";
 }
 
+// 会員番号 → 所属クラブコードを解決する。
+// クラブコードは 3桁 or 4桁 で、会員番号は「クラブコード + 連番」。先頭3桁固定で切ると
+// 4桁クラブ(直営に多い)を誤解決し、別クラブ(=別ブランド)に飛んでCPSS参照が失敗する。
+// 既知クラブ集合で 4桁優先→3桁 に解決。3桁/4桁の両方が実在する衝突時のみ
+// app_user.club_code を正として確定する(会員マスタが真実)。
+export async function resolveHomeClub(memberCode: string): Promise<string> {
+  const code = String(memberCode || "").trim();
+  const c3 = code.slice(0, 3);
+  const c4 = code.slice(0, 4);
+  let has3 = false;
+  let has4 = false;
+  try {
+    const { bizByClub } = await loadAreaMap();
+    has3 = bizByClub.has(c3);
+    has4 = bizByClub.has(c4);
+  } catch (e) {
+    console.error("[clubScope] resolveHomeClub club set load failed:", e);
+    return c3;
+  }
+  if (has4 && !has3) return c4; // 4桁のみ既知 → 4桁 (大半の4桁クラブ)
+  if (has3 && !has4) return c3; // 3桁のみ既知 → 3桁 (従来の正常ケース)
+  if (has3 && has4) {
+    // 衝突(例: "1106" も "110" も実在): 会員の実クラブを app_user から確定する
+    try {
+      const { query } = await import("./memberDb");
+      const r = await query<{ club_code: string }>(
+        "SELECT club_code FROM app_user WHERE member_id = $1 LIMIT 1",
+        [code]
+      );
+      const cc = r.rows[0]?.club_code ? String(r.rows[0].club_code).trim() : "";
+      if (cc === c3 || cc === c4) return cc;
+    } catch (e) {
+      console.error("[clubScope] resolveHomeClub app_user disambiguation failed:", e);
+    }
+    return c4; // 不明時は4桁優先 (4桁クラブは新しく、衝突の主因)
+  }
+  return c3; // どちらも未知 → 従来通り先頭3桁
+}
+
 // 個別clubCodes + 担当エリア(companyGroup)の店舗 を union した実効スコープ
 export async function effectiveClubCodes(clubCodes: string[], areas: string[]): Promise<string[]> {
   if (!areas || areas.length === 0) return clubCodes;

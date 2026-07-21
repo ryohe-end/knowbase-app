@@ -23,7 +23,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
-import { getClubBusinessType, cpssBrandForBusinessType } from "@/lib/clubScope";
+import { getClubBusinessType, cpssBrandForBusinessType, resolveHomeClub } from "@/lib/clubScope";
 import { cpssCall } from "@/lib/cpssProxy";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 import { POINT_REASONS, type PointReason, type PointTransaction } from "@/types/pointTransaction";
@@ -151,9 +151,9 @@ export async function POST(req: Request) {
   if (!/^\d{4,}$/.test(body.memberCode)) {
     return NextResponse.json({ ok: false, error: "会員番号が不正です" }, { status: 400 });
   }
-  // 会員の所属クラブ(会員番号先頭3桁)を正とし、shopid/ブランド/スコープ/台帳キーを統一する。
+  // 会員の所属クラブ(3桁/4桁)を正とし、shopid/ブランド/スコープ/台帳キーを統一する。
   // 選択店舗(body.clubCode)と所属クラブの両方が担当スコープ内であること。
-  const club = body.memberCode.slice(0, 3);
+  const club = await resolveHomeClub(body.memberCode);
   if (!isClubInScope(user, club) || !isClubInScope(user, body.clubCode)) {
     return NextResponse.json({ ok: false, error: "この会員は担当クラブ外です" }, { status: 403 });
   }
