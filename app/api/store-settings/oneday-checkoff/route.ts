@@ -34,7 +34,16 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const isAdmin = !user.clubCodes || user.clubCodes.length === 0;
 
-  const clauses = ["t.payment_flg=1", "(t.use_date IS NULL OR t.use_date='')", "t.is_expired=0", "t.del_flg=0"];
+  // 状態フィルタ: unused(既定) / used / all
+  const status = (sp.get("status") || "unused").trim();
+  const clauses = ["t.payment_flg=1", "t.del_flg=0"];
+  if (status === "used") {
+    clauses.push("t.use_date IS NOT NULL", "t.use_date<>''");
+  } else if (status === "all") {
+    // 使用済み+未使用 (削除以外)。use_date/期限での絞りなし。
+  } else {
+    clauses.push("(t.use_date IS NULL OR t.use_date='')", "t.is_expired=0"); // 未使用
+  }
   const params: any[] = [];
 
   // スコープ (casio_shop_id)
@@ -63,6 +72,7 @@ export async function GET(req: Request) {
   const res = await sshBatch(TARGET, [{
     text: `SELECT t.token, t.serial_number, t.member_no, t.shop_id, sp.name shop_name, spv.casio_shop_id,
                   t.purchase_date, t.purchase_time, t.expiration_date, t.expiration_time,
+                  t.use_date, t.use_time,
                   m.own_name_js member_name, m.own_name_cc member_kana
              FROM one_day_ticket t
              INNER JOIN shop_convert_view spv ON spv.town_shop_id=t.shop_id
@@ -80,6 +90,8 @@ export async function GET(req: Request) {
       shopName: String(r.shop_name || ""), casioShopId: String(r.casio_shop_id),
       purchaseDate: String(r.purchase_date || ""), purchaseTime: String(r.purchase_time || ""),
       expirationDate: String(r.expiration_date || ""),
+      used: !!(r.use_date && String(r.use_date) !== ""),
+      useDate: String(r.use_date || ""), useTime: String(r.use_time || ""),
     })),
     limited: res.results[0].rows.length >= LIST_LIMIT,
   });
