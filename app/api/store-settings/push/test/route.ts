@@ -41,9 +41,11 @@ export async function POST(req: Request) {
   if (!title || !content) return NextResponse.json({ ok: false, error: "タイトルと本文を入力してください" }, { status: 400 });
 
   // 会員番号 → app_user (担当スコープ内のみ。admin=clubCodes空は全件)
+  // スコープは会員番号(member_id)の先頭クラブコード(3桁/4桁)で判定する。
+  // app_user.club_code はアプリ登録クラブで契約クラブと異なることが多く誤判定になるため使わない。
   const scoped = user.clubCodes.length > 0;
   const rows = await query<{ id: number; member_id: string; club_code: string }>(
-    `SELECT id, member_id, club_code FROM app_user WHERE member_id = ANY($1::text[])${scoped ? " AND club_code = ANY($2::text[])" : ""}`,
+    `SELECT id, member_id, club_code FROM app_user WHERE member_id = ANY($1::text[])${scoped ? " AND (LEFT(member_id,3) = ANY($2::text[]) OR LEFT(member_id,4) = ANY($2::text[]))" : ""}`,
     scoped ? [memberNos, user.clubCodes] : [memberNos]
   );
   const found = rows.rows;

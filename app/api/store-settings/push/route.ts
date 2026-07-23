@@ -117,7 +117,7 @@ export async function GET(req: Request) {
         `SELECT 1 AS ok FROM information2_destination d
            LEFT JOIN app_user au ON au.id = d.app_user_id
           WHERE d.information2_id = $1
-            AND (d.club_code = ANY($2::text[]) OR au.club_code = ANY($2::text[]))
+            AND (d.club_code = ANY($2::text[]) OR (LEFT(au.member_id,3) = ANY($2::text[]) OR LEFT(au.member_id,4) = ANY($2::text[])))
           LIMIT 1`,
         [infoId, allowedClubs]
       );
@@ -161,7 +161,7 @@ export async function GET(req: Request) {
          FROM information2_destination d
          JOIN app_user au ON au.id = d.app_user_id
         WHERE d.information2_id = $1 AND d.app_user_id IS NOT NULL
-          ${allowedClubs.length > 0 ? "AND au.club_code = ANY($2::text[])" : ""}
+          ${allowedClubs.length > 0 ? "AND (LEFT(au.member_id,3) = ANY($2::text[]) OR LEFT(au.member_id,4) = ANY($2::text[]))" : ""}
         ORDER BY (d.read_at IS NOT NULL) DESC, d.read_at DESC, au.name
         LIMIT 5000`,
       allowedClubs.length > 0 ? [infoId, allowedClubs] : [infoId]
@@ -208,7 +208,7 @@ export async function GET(req: Request) {
       ? await query<any>(
           `${selectCols}
            WHERE d.club_code = ANY($1::text[])
-              OR (d.app_user_id IS NOT NULL AND au.club_code = ANY($1::text[]))
+              OR (d.app_user_id IS NOT NULL AND (LEFT(au.member_id,3) = ANY($1::text[]) OR LEFT(au.member_id,4) = ANY($1::text[])))
            ${tail}`,
           [allowedClubs]
         )
@@ -297,11 +297,18 @@ export async function POST(req: Request) {
     if (ids.length === 0) {
       return NextResponse.json({ ok: false, error: "appUserIds required for CONDITION" }, { status: 400 });
     }
-    // 担当外会員への配信を防ぐ: appUserIds のクラブが担当スコープ内かサーバ側で再検証
+    // 担当外会員への配信を防ぐ: appUserIds が担当スコープ内かサーバ側で再検証
     // (フロントは抽出済みIDを渡すが、API直叩き時の担当外混入を弾く。admin=clubCodes空は免除)
+    //
+    // 判定は「会員の所属クラブ = 会員番号(member_id)の先頭クラブコード」で行う。
+    // app_user.club_code は"アプリ登録クラブ"で契約クラブと異なることが多く(相互利用/転籍等)、
+    // それで判定すると自店会員が「担当外」と誤判定されるため使わない(抽出側はOracle契約
+    // クラブコードで絞っており、それと整合させる)。クラブコードは3桁/4桁混在なので両方で照合。
     if (user.clubCodes.length > 0) {
       const chk = await query<{ id: number }>(
-        `SELECT id FROM app_user WHERE id = ANY($1::int[]) AND club_code = ANY($2::text[])`,
+        `SELECT id FROM app_user
+          WHERE id = ANY($1::int[])
+            AND (LEFT(member_id, 3) = ANY($2::text[]) OR LEFT(member_id, 4) = ANY($2::text[]))`,
         [ids, user.clubCodes]
       );
       const allowed = new Set(chk.rows.map((r) => Number(r.id)));
@@ -386,7 +393,7 @@ export async function DELETE(req: Request) {
   if (allowedClubs.length > 0) {
     const scoped = await query<{ ok: number }>(
       `SELECT 1 AS ok FROM information2_destination d LEFT JOIN app_user au ON au.id = d.app_user_id
-        WHERE d.information2_id = $1 AND (d.club_code = ANY($2::text[]) OR au.club_code = ANY($2::text[])) LIMIT 1`,
+        WHERE d.information2_id = $1 AND (d.club_code = ANY($2::text[]) OR (LEFT(au.member_id,3) = ANY($2::text[]) OR LEFT(au.member_id,4) = ANY($2::text[]))) LIMIT 1`,
       [infoId, allowedClubs]
     );
     if (scoped.rows.length === 0) return NextResponse.json({ ok: false, error: "担当外です" }, { status: 403 });
