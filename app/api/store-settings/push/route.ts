@@ -21,6 +21,7 @@ import { query } from "@/lib/memberDb";
 import { createInformation, type AppType } from "@/lib/information";
 import { getClubNames } from "@/lib/clubScope";
 import { putPushMeta, batchGetPushMeta } from "@/lib/pushMeta";
+import { oracleAppMembersInClubs } from "@/lib/memberScope";
 import type { PushNotification, PushStatus, PushPerson } from "@/types/pushNotification";
 
 export const runtime = "nodejs";
@@ -300,19 +301,22 @@ export async function POST(req: Request) {
     // 担当外会員への配信を防ぐ: appUserIds が担当スコープ内かサーバ側で再検証
     // (フロントは抽出済みIDを渡すが、API直叩き時の担当外混入を弾く。admin=clubCodes空は免除)
     //
-    // 判定は「会員の所属クラブ = 会員番号(member_id)の先頭クラブコード」で行う。
-    // app_user.club_code は"アプリ登録クラブ"で契約クラブと異なることが多く(相互利用/転籍等)、
-    // それで判定すると自店会員が「担当外」と誤判定されるため使わない(抽出側はOracle契約
-    // クラブコードで絞っており、それと整合させる)。クラブコードは3桁/4桁混在なので両方で照合。
+    // 判定は Oracle の会員契約クラブコードで行う(抽出=members/extract と同じ基準)。
+    // app_user.club_code(アプリ登録クラブ)や member_id 先頭(発行クラブ)は契約クラブと
+    // 異なることがあり、それで判定すると自店会員が「担当外」と誤判定される/転籍会員を
+    // 取りこぼす。宛先クラブ(clubCodes; 既に担当内に検証済)に契約している会員番号集合を
+    // Oracle から取り、宛先 appUserId の会員番号がその集合に含まれるかで判定する。
     if (user.clubCodes.length > 0) {
-      const chk = await query<{ id: number }>(
-        `SELECT id FROM app_user
-          WHERE id = ANY($1::int[])
-            AND (LEFT(member_id, 3) = ANY($2::text[]) OR LEFT(member_id, 4) = ANY($2::text[]))`,
-        [ids, user.clubCodes]
+      const au = await query<{ id: number; member_id: string }>(
+        `SELECT id, member_id FROM app_user WHERE id = ANY($1::int[])`,
+        [ids]
       );
-      const allowed = new Set(chk.rows.map((r) => Number(r.id)));
-      const bad = ids.filter((n) => !allowed.has(Number(n)));
+      const memberByAppId = new Map(au.rows.map((r) => [Number(r.id), String(r.member_id)]));
+      const inScope = await oracleAppMembersInClubs(clubCodes);
+      const bad = ids.filter((n) => {
+        const mno = memberByAppId.get(Number(n));
+        return !mno || !inScope.has(mno);
+      });
       if (bad.length > 0) {
         return NextResponse.json(
           { ok: false, error: `担当外の会員が宛先に含まれています（${bad.length}件）` },

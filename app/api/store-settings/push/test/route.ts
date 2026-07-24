@@ -9,6 +9,7 @@ import { getSessionUser } from "@/lib/auth";
 import { query } from "@/lib/memberDb";
 import { createInformation, type AppType } from "@/lib/information";
 import { writeAudit, clientIp } from "@/lib/auditLog";
+import { oracleAppMembersInClubs } from "@/lib/memberScope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,15 +41,19 @@ export async function POST(req: Request) {
   const content = String(body?.body || "").trim();
   if (!title || !content) return NextResponse.json({ ok: false, error: "タイトルと本文を入力してください" }, { status: 400 });
 
-  // 会員番号 → app_user (担当スコープ内のみ。admin=clubCodes空は全件)
-  // スコープは会員番号(member_id)の先頭クラブコード(3桁/4桁)で判定する。
-  // app_user.club_code はアプリ登録クラブで契約クラブと異なることが多く誤判定になるため使わない。
+  // 会員番号 → app_user。担当スコープは Oracle の会員契約クラブで判定する(admin=clubCodes空は全件)。
+  // app_user.club_code(アプリ登録クラブ)や member_id 先頭(発行クラブ)は契約クラブと異なる
+  // ことがあり誤判定になるため使わない。担当クラブに契約している会員番号集合(Oracle)で絞り込む。
   const scoped = user.clubCodes.length > 0;
   const rows = await query<{ id: number; member_id: string; club_code: string }>(
-    `SELECT id, member_id, club_code FROM app_user WHERE member_id = ANY($1::text[])${scoped ? " AND (LEFT(member_id,3) = ANY($2::text[]) OR LEFT(member_id,4) = ANY($2::text[]))" : ""}`,
-    scoped ? [memberNos, user.clubCodes] : [memberNos]
+    `SELECT id, member_id, club_code FROM app_user WHERE member_id = ANY($1::text[])`,
+    [memberNos]
   );
-  const found = rows.rows;
+  let found = rows.rows;
+  if (scoped) {
+    const inScope = await oracleAppMembersInClubs(user.clubCodes);
+    found = found.filter((r) => inScope.has(String(r.member_id)));
+  }
   if (found.length === 0) return NextResponse.json({ ok: false, error: "該当するアプリ会員が見つかりません（会員番号・担当店舗を確認してください）" }, { status: 404 });
   const foundNos = new Set(found.map((r) => String(r.member_id)));
   const notFound = memberNos.filter((m) => !foundNos.has(m));
