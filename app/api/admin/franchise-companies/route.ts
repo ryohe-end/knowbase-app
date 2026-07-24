@@ -1,15 +1,15 @@
-// app/api/store-settings/franchise-companies/route.ts
-// 加盟店企業(FC店の運営企業)マスタ。SV(加盟店SV)/admin が横断で登録・管理する。
+// app/api/admin/franchise-companies/route.ts
+// 加盟店企業(FC店の運営企業)マスタ。knowbase 管理画面(admin専用)で登録・管理する。
 //   GET    → 一覧
 //   POST   → 登録/更新 (companyId 指定で更新、無ければ新規採番)
 //   DELETE ?companyId= → 削除
 // 保存先: DynamoDB knowbie-franchise-companies (PK: companyId)
+// 認可: /admin と同じく admin(kb_admin cookie / KB_ADMIN_API_KEY) のみ。
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand, PutCommand, DeleteCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "crypto";
-import { getSessionUser } from "@/lib/auth";
-import { isAdminLike } from "@/lib/roles";
+import { isAdminRequest, verifySignedValue, parseCookieHeader } from "@/lib/auth";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
@@ -39,9 +39,18 @@ function strArr(v: any): string[] {
   return v.map((x) => String(x).trim()).filter(Boolean);
 }
 
+// 監査ログ用に操作者メール(kb_user)を復号(無くても処理は継続)。
+async function actorEmail(req: Request): Promise<string> {
+  try {
+    const map = parseCookieHeader(req.headers.get("cookie") || "");
+    return (await verifySignedValue(map["kb_user"])) || "admin";
+  } catch {
+    return "admin";
+  }
+}
+
 export async function GET(req: Request) {
-  const user = await getSessionUser(req);
-  if (!user || !isAdminLike(user.role)) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   try {
@@ -61,8 +70,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const user = await getSessionUser(req);
-  if (!user || !isAdminLike(user.role)) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   let body: Partial<FranchiseCompany>;
@@ -74,6 +82,7 @@ export async function POST(req: Request) {
   const name = String(body.name ?? "").trim();
   if (!name) return NextResponse.json({ ok: false, error: "企業名は必須です" }, { status: 400 });
 
+  const email = await actorEmail(req);
   const now = new Date().toISOString();
   const isNew = !body.companyId;
   let existing: FranchiseCompany | undefined;
@@ -91,12 +100,12 @@ export async function POST(req: Request) {
     note: body.note ? String(body.note).trim() : undefined,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-    createdBy: existing?.createdBy ?? user.email,
+    createdBy: existing?.createdBy ?? email,
   };
   try {
     await ddb.send(new PutCommand({ TableName: TABLE, Item: company }));
     void writeAudit({
-      userId: user.email, action: isNew ? "franchiseCompany.create" : "franchiseCompany.update",
+      userId: email, action: isNew ? "franchiseCompany.create" : "franchiseCompany.update",
       resource: `franchiseCompany:${company.companyId}`, targetCount: company.clubCodes.length,
       detail: { name: company.name, clubs: company.clubCodes.length }, ip: clientIp(req), result: "ok",
     });
@@ -108,8 +117,7 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const user = await getSessionUser(req);
-  if (!user || !isAdminLike(user.role)) {
+  if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const companyId = new URL(req.url).searchParams.get("companyId");
@@ -117,7 +125,7 @@ export async function DELETE(req: Request) {
   try {
     await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { companyId } }));
     void writeAudit({
-      userId: user.email, action: "franchiseCompany.delete",
+      userId: await actorEmail(req), action: "franchiseCompany.delete",
       resource: `franchiseCompany:${companyId}`, ip: clientIp(req), result: "ok",
     });
     return NextResponse.json({ ok: true });

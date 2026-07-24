@@ -91,6 +91,13 @@ export default function AdminHome() {
       color: "#475569",
     },
     {
+      href: "/admin/franchise-companies",
+      label: "4-B. MASTER DATA",
+      title: "加盟店企業マスタ",
+      desc: "加盟店(FC)を運営する企業を横断で登録し、所属FC店舗を紐付け管理します",
+      color: "#0f766e",
+    },
+    {
       href: "/admin/users",
       label: "5. ACCOUNT",
       title: "ユーザー管理",

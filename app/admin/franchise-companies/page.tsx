@@ -33,7 +33,7 @@ export default function FranchiseCompaniesPage() {
     setErr("");
     try {
       const [cRes, sRes] = await Promise.all([
-        fetch("/api/store-settings/franchise-companies", { cache: "no-store" }),
+        fetch("/api/admin/franchise-companies", { cache: "no-store" }),
         fetch("/api/store-settings/stores", { cache: "no-store" }),
       ]);
       const cData = await cRes.json();
@@ -70,7 +70,7 @@ export default function FranchiseCompaniesPage() {
     if (!edit.name.trim()) { setErr("企業名は必須です"); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/store-settings/franchise-companies", {
+      const res = await fetch("/api/admin/franchise-companies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(edit),
@@ -89,7 +89,7 @@ export default function FranchiseCompaniesPage() {
   const remove = async (c: FranchiseCompany) => {
     if (!window.confirm(`「${c.name}」を削除します。よろしいですか？`)) return;
     try {
-      const res = await fetch(`/api/store-settings/franchise-companies?companyId=${encodeURIComponent(c.companyId)}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/franchise-companies?companyId=${encodeURIComponent(c.companyId)}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "削除に失敗しました");
       await load();
@@ -108,7 +108,7 @@ export default function FranchiseCompaniesPage() {
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-        <Link href="/store-settings" style={{ color: "#64748b", textDecoration: "none", fontSize: 13 }}>← 店舗設定</Link>
+        <Link href="/admin" style={{ color: "#64748b", textDecoration: "none", fontSize: 13 }}>← 管理者ダッシュボード</Link>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: 0 }}>加盟店企業マスタ</h1>

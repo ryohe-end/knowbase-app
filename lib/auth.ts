@@ -258,7 +258,7 @@ export async function getSessionUser(
   }
 }
 
-function parseCookieHeader(h: string): Record<string, string> {
+export function parseCookieHeader(h: string): Record<string, string> {
   const out: Record<string, string> = {};
   if (!h) return out;
   for (const part of h.split(";")) {
