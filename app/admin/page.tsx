@@ -98,6 +98,13 @@ export default function AdminHome() {
       color: "#0f766e",
     },
     {
+      href: "/admin/club-areas",
+      label: "4-C. MASTER DATA",
+      title: "エリア・テリトリー管理",
+      desc: "課別エリア（関東 第1エリア 等）とテリトリー・所属店舗を管理します",
+      color: "#0d9488",
+    },
+    {
       href: "/admin/users",
       label: "5. ACCOUNT",
       title: "ユーザー管理",

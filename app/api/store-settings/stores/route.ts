@@ -125,8 +125,9 @@ export async function GET() {
     let dir: Record<string, { area: string; ownership: string; brandGroup: string; companyGroup: string; company: string; areaName: string; territory: string }> = {};
     try {
       const { listClubs } = await import("@/lib/unpaid");
-      const { buildClubAreaLookup } = await import("@/lib/unpaidAreaMap");
-      const areaLookup = buildClubAreaLookup();
+      // エリア/テリトリーは DynamoDB(knowbie-club-areas)由来。空/失敗時は旧ハードコードにフォールバック。
+      const { loadClubAreaLookup } = await import("@/lib/clubAreas");
+      const areaLookup = await loadClubAreaLookup();
       const clubs = await listClubs();
       for (const c of clubs) {
         const cg = c.companyGroup || "";

@@ -146,8 +146,11 @@ CREATE PIPE pipe_clubs AUTO_INGEST = TRUE AS
 | clubCode | S | PK。店舗コード |
 | clubName / clubNameShort | S | 店舗名 |
 | businessType | S | FIT365 / 赤 / 青 / JOYFIT+ 等 |
-| companyGroup | S | 担当エリア |
+| companyGroup | S | 担当エリア（EAST/WEST/FC(EAST)… ＝knowbie-clubs由来） |
 | companyName / openDate / syncedAt | S | |
+| area / area_block / territory | S | 課別エリア（例: area="関東 第1エリア", area_block="関東", territory="テリトリー1"）。`knowbie-club-areas` を join して付与。未割当店は空文字 |
+
+> ※ `area/area_block/territory` は別マスタ `knowbie-club-areas`（PK areaId、/admin/club-areas で編集）をエクスポート時に clubCode で join。読取失敗/空なら空文字で継続（クラブ出力自体は止めない）。ロールに当テーブルの `dynamodb:Scan` 付与済み。
 
 ### B. 1day `one_day_ticket`（fit365entry / ecojoy）
 `token, serial_number, uuid, shop_id, member_no, cmember_no, use_date, use_time, purchase_date, purchase_time, expiration_date, expiration_time, is_expired, payment_flg, del_flg, insert_date, insert_time`
