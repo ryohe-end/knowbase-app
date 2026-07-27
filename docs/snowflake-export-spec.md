@@ -19,10 +19,11 @@ AWS 側アーキテクチャ仕様。既存の knowbie 基盤（DynamoDB / ssh-d
 | A | クラブ(店舗)マスタ | DynamoDB `knowbie-clubs`(us-east-1) | マスタ・全件洗い替え |
 | B | 1dayパス チケット | 入会DB `one_day_ticket`（FIT365=fit365entry / JOYFIT=ecojoy、MySQL） | トランザクション・差分 |
 | C | OneTimePass(EnjoyTimePass) チケット | `t1pass.ticket_tbl`（onetimepass、PostgreSQL） | トランザクション・差分 |
-| D | (任意)APP未納金支払い | `unpaid_history`⋈`sb_history`（fit365entry / ecojoy） | トランザクション・差分 |
+| D | オプション都度利用(デジタルチケット) | `dgtk_sys.ticket` usage='OPTN'（dgtk_sys、PostgreSQL）＋会員番号は `pson.person_tbl` で解決 | トランザクション・差分 |
+| E | (任意)APP未納金支払い | `unpaid_history`⋈`sb_history`（fit365entry / ecojoy） | トランザクション・差分 |
 
-B/C/D の入会DB・t1pass は **VPC 外から直接叩けない**ため、既存の **`knowbie-ssh-db-proxy`**（SSHトンネル）を
-経由して読み出す（新規に接続経路を作らない）。
+B/C/D/E の入会DB・t1pass・dgtk・pson は **VPC 外から直接叩けない**ため、既存の **`knowbie-ssh-db-proxy`**（SSHトンネル）を
+経由して読み出す（新規に接続経路を作らない）。source名: 1day=`oneday#fit365` / OTP=`onetimepass` / オプション都度=`option#dgtk`。
 
 ---
 
@@ -160,7 +161,12 @@ CREATE PIPE pipe_clubs AUTO_INGEST = TRUE AS
 `access_key, seq, club_cd, ticket_stat(B/N/U/Z/E/D), max_hour, amount, order_id, start_dt(tz), end_dt(char), insert_dt(tz)`
 - `club_cd = clubCode`。ステータス意味は `ticket_stat`（B/N=未使用, U=利用中, Z=使用済, E=期限切, D=削除済）。
 
-### D. 未納(任意) `unpaid_history ⋈ sb_history(way=9)`
+### D. オプション都度利用 `dgtk_sys.ticket`（usage='OPTN'、source=`option#dgtk`）
+`ticket_order_id(購入ID/PK), ticket_code, ticket_holder_id, coupon_code, brand, ticket_name, ticket_status(U/F/C/D/E/N/T), ticket_source, ticket_fix_club, ticket_sales_club(店舗), ticket_retail_price, club_income, ticket_create_dt(tz/差分カーソル), ticket_payment_dt, ticket_start_dt, ticket_consume_dt(利用), ticket_cxl_date, ticket_expire, ticket_sales_date(char8)` ＋ 付与列 `member_id`。
+- 会員番号 `member_id` は `pson.person_tbl`（`person_id = ticket_holder_id` → `member_id`）で解決して各行に付与（未解決は null）。
+- 差分: `ticket_create_dt` 高水位。Snowflake側は `ticket_order_id`/`ticket_code` で MERGE。ステータス: U=使用中/F=使用済/C=返金済/D=削除済/E=期限切/N,T=未確定。
+
+### E. 未納(任意) `unpaid_history ⋈ sb_history(way=9)`
 `uh.uid(会員), uh.amount, uh.insert_date, uh.order_id, spv.casio_shop_id`（詳細は `app/api/store-settings/unpaid-app-payments/route.ts` の結合を踏襲）。
 
 ---

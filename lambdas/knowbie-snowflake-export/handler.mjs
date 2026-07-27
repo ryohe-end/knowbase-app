@@ -166,6 +166,7 @@ async function exportOneday(dt) {
 
 // C) OneTimePass: insert_dt(timestamptz) カーソルでページング。Lambda応答6MB制限のため LIMIT 4000。
 const OTP_LIMIT = 8000;
+const OPTION_LIMIT = 5000;
 async function exportOnetimepass(dt) {
   const source = "onetimepass";
   const startHw = await getHighWater(source);
@@ -190,6 +191,49 @@ async function exportOnetimepass(dt) {
     if (cur > maxHw) maxHw = cur;
     got += rows.length;
     if (rows.length < OTP_LIMIT) break;
+    await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
+  }
+  await setHighWater(source, maxHw, got);
+  return { source, count: got };
+}
+
+// D) オプション都度利用(デジタルチケット OPTN): dgtk_sys.ticket を ticket_create_dt 高水位で差分。
+//    会員番号は個人情報Sys(pson).person_tbl(person_id=ticket_holder_id → member_id)で解決して付与。
+//    Snowflake側は主キー(ticket_order_id / ticket_code)で MERGE=冪等前提。
+async function exportOption(dt) {
+  const source = "option#dgtk";
+  const startHw = await getHighWater(source);
+  let cur = startHw || "1970-01-01T00:00:00Z";
+  let maxHw = cur;
+  let got = 0;
+  while (true) {
+    const rows = await proxy(
+      "dgtk_sys",
+      `select ticket_order_id, ticket_code, ticket_holder_id, coupon_code, brand, usage,
+              ticket_name, ticket_status, ticket_source, ticket_fix_club, ticket_sales_club,
+              ticket_retail_price, club_income, ticket_create_dt, ticket_payment_dt,
+              ticket_start_dt, ticket_consume_dt, ticket_cxl_date, ticket_expire, ticket_sales_date
+         from dgtk_sys.ticket
+        where usage = 'OPTN' and ticket_create_dt > $1::timestamptz
+        order by ticket_create_dt
+        limit ${OPTION_LIMIT}`,
+      [cur]
+    );
+    if (rows.length === 0) break;
+    // 会員番号解決: holder(person_id) -> member_id を pson からチャンク取得
+    const holders = [...new Set(rows.map((r) => r.ticket_holder_id).filter(Boolean))];
+    const memberByHolder = {};
+    for (let i = 0; i < holders.length; i += 1000) {
+      const chunk = holders.slice(i, i + 1000);
+      const ph = chunk.map((_, k) => `$${k + 1}`).join(",");
+      const mrows = await proxy("pson", `select person_id, member_id from person_tbl where person_id in (${ph})`, chunk);
+      for (const m of mrows) memberByHolder[String(m.person_id)] = m.member_id != null ? String(m.member_id) : null;
+    }
+    await putNdjson(source, dt, rows.map((r) => ({ ...r, member_id: memberByHolder[String(r.ticket_holder_id)] ?? null })));
+    cur = rows[rows.length - 1].ticket_create_dt;
+    if (cur > maxHw) maxHw = cur;
+    got += rows.length;
+    if (rows.length < OPTION_LIMIT) break;
     await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
   }
   await setHighWater(source, maxHw, got);
@@ -222,6 +266,7 @@ export const handler = async (event = {}) => {
   out.push(await exportClubs(dt));
   out.push(...(await exportOneday(dt)));
   out.push(await exportOnetimepass(dt));
+  out.push(await exportOption(dt));
   out.push(await exportRecess(dt));
   console.log("[snowflake-export]", JSON.stringify({ dt, out }));
   return { ok: true, dt, results: out };
