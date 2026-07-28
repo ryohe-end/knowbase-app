@@ -1642,6 +1642,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
   const isJoyfit = String(store?.brand || "").toUpperCase().startsWith("JOYFIT");
   const PASS_ICON = "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z";
   const CHECK_ICON = "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z";
+  const CHART_ICON = "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z";
   // カテゴリごとに機能を集約したメニュー
   const menuGroups = [
     {
@@ -1657,12 +1658,15 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
           items: [
             { title: "OneTimePass 金額設定", desc: "時間別(30〜210分)の通常価格・予約価格を設定します。", href: `/store-settings/joyfit-onetimepass`, color: "#7c3aed", iconPath: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
             { title: "利用状況・消し込み", desc: "EnjoyTimePass の購入分析、チケットの消し込み(利用済/取消)を行います。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=dashboard`, color: "#f59e0b", iconPath: PASS_ICON },
+            { title: "ダイナミックプライシング", desc: "売上傾向・需要(繁忙期/閑散期)に基づく価格提案を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=pricing`, color: "#0ea5e9", iconPath: CHART_ICON },
           ],
         }
       : {
           category: "1dayパス（FIT365）",
           items: [
             { title: "1dayパス 金額設定", desc: "通常価格・キャンペーン価格を設定します。", href: `/store-settings/fit365-onedaypass`, color: "#f59e0b", iconPath: PASS_ICON },
+            { title: "利用状況・詳細", desc: "1dayパスの購入分析・利用状況の詳細を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=dashboard`, color: "#7c3aed", iconPath: CHART_ICON },
+            { title: "ダイナミックプライシング", desc: "売上傾向・需要(繁忙期/閑散期)に基づく価格提案を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=pricing`, color: "#0ea5e9", iconPath: CHART_ICON },
             { title: "チケット消し込み", desc: "未使用の1dayパスを消し込み（使用済に）します。", href: `/store-settings/oneday-checkoff`, color: "#10b981", iconPath: CHECK_ICON },
           ],
         },
@@ -1677,7 +1681,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
       category: "ポイント・オプション",
       items: [
         { title: "ポイント管理", desc: "ポイント付与ルール、有効期限、ポイント残高の確認・調整を行います。", href: `/store-settings/basic/points?clubCode=${clubCode}`, color: "#10b981", iconPath: "M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" },
-        { title: "オプション都度利用", desc: "各オプションの都度利用料金・提供状況・販売実績を参照します（読み取り専用）。", href: `/store-settings/basic/option-usage?clubCode=${clubCode}`, color: "#8b5cf6", iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5", comingSoon: true },
+        { title: "オプション都度利用", desc: "各オプションの都度利用料金・提供状況・販売実績を参照します（読み取り専用）。", href: `/store-settings/basic/option-usage?clubCode=${clubCode}`, color: "#8b5cf6", iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" },
       ],
     },
     {
