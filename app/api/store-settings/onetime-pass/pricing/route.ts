@@ -1,5 +1,7 @@
 // app/api/store-settings/onetime-pass/pricing/route.ts
 import { NextResponse } from "next/server";
+import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
+import { sshQuery } from "@/lib/sshDbProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -536,76 +538,20 @@ function buildSeasonalPeriods(
   });
 }
 
-function generateDemoAnalysis(
-  clubCode: string,
+// 集計(hourly/dayOfWeek/durationDemand)から価格分析を組み立てる共通処理。
+// demo(合成集計) と 実データ集計 の両方から呼ぶ。rand 省略時(実データ)は揺らぎ無し。
+function assembleAnalysis(
   brand: string,
-  currentPrices: Map<number, number>
+  currentPrices: Map<number, number>,
+  hourly: HourlySlot[],
+  dayOfWeek: DayOfWeekSlot[],
+  durationDemand: DurationDemand[],
+  isDemo: boolean,
+  rand: () => number = () => 0.5
 ): PricingAnalysis {
-  let seed = clubCode.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const rand = () => {
-    seed = (seed * 9301 + 49297) % 233280;
-    return seed / 233280;
-  };
-
-  const durations = defaultDurationsForBrand(brand);
   const isJoyfit = brand.toUpperCase().startsWith("JOYFIT");
-
-  // 時間帯別 (6-23時を主に。ピーク: 昼12-13、夕18-20)
-  const hourly: HourlySlot[] = [];
-  for (let h = 0; h < 24; h++) {
-    let base = 2;
-    if (h >= 6 && h < 10) base = 8 + Math.floor(rand() * 6);
-    else if (h >= 10 && h < 12) base = 6 + Math.floor(rand() * 4);
-    else if (h >= 12 && h < 14) base = 14 + Math.floor(rand() * 8);  // 昼ピーク
-    else if (h >= 14 && h < 17) base = 5 + Math.floor(rand() * 4);
-    else if (h >= 17 && h < 21) base = 18 + Math.floor(rand() * 10); // 夕ピーク
-    else if (h >= 21 && h < 23) base = 6 + Math.floor(rand() * 4);
-    else base = 1 + Math.floor(rand() * 2);
-    hourly.push({
-      hour: h,
-      count: base,
-      sales: base * (isJoyfit ? 800 : 3000) + Math.floor(rand() * 1000),
-    });
-  }
   const peakHour = hourly.reduce((m, s) => (s.count > m.count ? s : m), hourly[0]).hour;
-
-  // 曜日別 (JOYFITは平日夕方ピーク、FIT365は週末ピーク)
-  const dayOfWeek: DayOfWeekSlot[] = [];
-  for (let i = 0; i < 7; i++) {
-    let base: number;
-    if (isJoyfit) {
-      base = i >= 1 && i <= 5 ? 70 + Math.floor(rand() * 30) : 45 + Math.floor(rand() * 20);
-    } else {
-      base = i === 0 || i === 6 ? 80 + Math.floor(rand() * 30) : 38 + Math.floor(rand() * 18);
-    }
-    dayOfWeek.push({
-      dayOfWeek: i,
-      label: DAY_LABELS[i],
-      count: base,
-      sales: base * (isJoyfit ? 850 : 3100),
-    });
-  }
   const peakDayIdx = dayOfWeek.reduce((m, s) => (s.count > m.count ? s : m), dayOfWeek[0]).dayOfWeek;
-
-  // 期間別需要
-  const durationDemand: DurationDemand[] = durations.map((dm) => {
-    // 短時間ほど需要が高い (JOYFIT)、1日は単一
-    const popularity = isJoyfit ? Math.max(0.25, 1 - (dm / 250)) : 1;
-    const baseCount = Math.floor(50 + rand() * 60) * popularity;
-    const trendPct = Math.round((rand() - 0.4) * 30); // -12〜+18%
-    const trend: "up" | "down" | "flat" =
-      trendPct > 5 ? "up" : trendPct < -5 ? "down" : "flat";
-    return {
-      durationMinutes: dm,
-      count: Math.round(baseCount),
-      sales: Math.round(baseCount * (currentPrices.get(dm) ?? defaultPriceFor(dm))),
-      occupancyRate: Math.min(0.95, 0.35 + rand() * 0.55),
-      peakHour,
-      peakDay: DAY_LABELS[peakDayIdx],
-      trend,
-      trendPct,
-    };
-  });
 
   // 期間別スロット定義 (ダイナミックプライシングの軸)
   type SlotDef = {
@@ -831,8 +777,180 @@ function generateDemoAnalysis(
     pricingFactors,
     calculationExamples,
     generatedAt: new Date().toISOString(),
-    isDemo: true,
+    isDemo,
   };
+}
+
+// demo(合成データ)分析: 従来の乱数生成した集計を assembleAnalysis に流す。
+function generateDemoAnalysis(
+  clubCode: string,
+  brand: string,
+  currentPrices: Map<number, number>
+): PricingAnalysis {
+  let seed = clubCode.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  const rand = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+  const durations = defaultDurationsForBrand(brand);
+  const isJoyfit = brand.toUpperCase().startsWith("JOYFIT");
+
+  const hourly: HourlySlot[] = [];
+  for (let h = 0; h < 24; h++) {
+    let base = 2;
+    if (h >= 6 && h < 10) base = 8 + Math.floor(rand() * 6);
+    else if (h >= 10 && h < 12) base = 6 + Math.floor(rand() * 4);
+    else if (h >= 12 && h < 14) base = 14 + Math.floor(rand() * 8);
+    else if (h >= 14 && h < 17) base = 5 + Math.floor(rand() * 4);
+    else if (h >= 17 && h < 21) base = 18 + Math.floor(rand() * 10);
+    else if (h >= 21 && h < 23) base = 6 + Math.floor(rand() * 4);
+    else base = 1 + Math.floor(rand() * 2);
+    hourly.push({ hour: h, count: base, sales: base * (isJoyfit ? 800 : 3000) + Math.floor(rand() * 1000) });
+  }
+  const peakHour = hourly.reduce((m, s) => (s.count > m.count ? s : m), hourly[0]).hour;
+
+  const dayOfWeek: DayOfWeekSlot[] = [];
+  for (let i = 0; i < 7; i++) {
+    let base: number;
+    if (isJoyfit) base = i >= 1 && i <= 5 ? 70 + Math.floor(rand() * 30) : 45 + Math.floor(rand() * 20);
+    else base = i === 0 || i === 6 ? 80 + Math.floor(rand() * 30) : 38 + Math.floor(rand() * 18);
+    dayOfWeek.push({ dayOfWeek: i, label: DAY_LABELS[i], count: base, sales: base * (isJoyfit ? 850 : 3100) });
+  }
+  const peakDayIdx = dayOfWeek.reduce((m, s) => (s.count > m.count ? s : m), dayOfWeek[0]).dayOfWeek;
+
+  const durationDemand: DurationDemand[] = durations.map((dm) => {
+    const popularity = isJoyfit ? Math.max(0.25, 1 - dm / 250) : 1;
+    const baseCount = Math.floor(50 + rand() * 60) * popularity;
+    const trendPct = Math.round((rand() - 0.4) * 30);
+    const trend: "up" | "down" | "flat" = trendPct > 5 ? "up" : trendPct < -5 ? "down" : "flat";
+    return {
+      durationMinutes: dm,
+      count: Math.round(baseCount),
+      sales: Math.round(baseCount * (currentPrices.get(dm) ?? defaultPriceFor(dm))),
+      occupancyRate: Math.min(0.95, 0.35 + rand() * 0.55),
+      peakHour,
+      peakDay: DAY_LABELS[peakDayIdx],
+      trend,
+      trendPct,
+    };
+  });
+
+  return assembleAnalysis(brand, currentPrices, hourly, dayOfWeek, durationDemand, true, rand);
+}
+
+// ── 実データ集計 (JOYFIT=t1pass / FIT365 1day=fit365entry)。単一店舗・90日上限・5分キャッシュ ──
+const REAL_LOOKBACK_DAYS = 90;
+const REAL_RECENT_DAYS = 45;
+const REAL_CACHE_TTL_MS = 5 * 60_000;
+const _realCache = new Map<string, { at: number; analysis: PricingAnalysis | null }>();
+
+const isoDaysAgo = (days: number) => new Date(Date.now() - days * 86400e3).toISOString();
+const ymdDaysAgo = (days: number) => {
+  const d = new Date(Date.now() + 9 * 3600e3 - days * 86400e3);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`;
+};
+const casio6 = (c: string) => String(c).replace(/\D/g, "").padStart(6, "0").slice(-6);
+
+type RealAgg = { hour: number; dow: number; dur: number; recent: boolean; cnt: number; sales: number };
+
+// ブランド別に購入トランザクションを (時間帯×曜日×時間枠×直近半期) で集計取得。
+async function fetchRealAggregates(clubCode: string, brand: string): Promise<RealAgg[] | null> {
+  const isJoyfit = brand.toUpperCase().startsWith("JOYFIT");
+  if (isJoyfit) {
+    const res = await sshQuery(
+      "onetimepass",
+      `select extract(hour from t.insert_dt at time zone 'Asia/Tokyo')::int as hour,
+              extract(dow  from t.insert_dt at time zone 'Asia/Tokyo')::int as dow,
+              t.max_hour::int as dur,
+              (t.insert_dt >= $3::timestamptz) as recent,
+              count(*)::int as cnt, coalesce(sum(t.amount),0)::bigint as sales
+         from t1pass.ticket_tbl t
+        where t.club_cd = $1 and t.insert_dt >= $2::timestamptz and t.ticket_stat <> 'D'
+        group by 1,2,3,4`,
+      [Number(clubCode), isoDaysAgo(REAL_LOOKBACK_DAYS), isoDaysAgo(REAL_RECENT_DAYS)]
+    );
+    if (!res.ok) return null;
+    return res.rows.map((r: any) => ({
+      hour: Number(r.hour), dow: Number(r.dow), dur: Number(r.dur),
+      recent: r.recent === true || r.recent === "t" || r.recent === 1,
+      cnt: Number(r.cnt), sales: Number(r.sales),
+    }));
+  }
+  // FIT365 1day (fit365entry, MySQL)。金額列は無いので sales は呼び出し側で現価格×件数で補完。
+  const res = await sshQuery(
+    "fit365entry",
+    `select cast(substr(t.purchase_time,1,2) as unsigned) as hour,
+            (dayofweek(str_to_date(t.purchase_date,'%Y%m%d')) - 1) as dow,
+            1440 as dur,
+            (t.purchase_date >= ?) as recent,
+            count(*) as cnt
+       from one_day_ticket t
+       inner join shop_convert_view spv on spv.town_shop_id = t.shop_id
+      where spv.casio_shop_id = ? and t.purchase_date >= ? and t.del_flg = 0 and t.payment_flg = 1
+      group by 1,2,3,4`,
+    [ymdDaysAgo(REAL_RECENT_DAYS), casio6(clubCode), ymdDaysAgo(REAL_LOOKBACK_DAYS)]
+  );
+  if (!res.ok) return null;
+  return res.rows.map((r: any) => ({
+    hour: Number(r.hour), dow: Number(r.dow), dur: 1440,
+    recent: Number(r.recent) === 1, cnt: Number(r.cnt), sales: 0,
+  }));
+}
+
+// 実データ分析。データ無し/失敗は null(呼び出し側は emptyAnalysis を返す)。
+async function realAnalysis(
+  clubCode: string,
+  brand: string,
+  currentPrices: Map<number, number>
+): Promise<PricingAnalysis | null> {
+  const isJoyfit = brand.toUpperCase().startsWith("JOYFIT");
+  const key = `${clubCode}|${isJoyfit ? "JOYFIT" : "FIT365"}`;
+  const hit = _realCache.get(key);
+  if (hit && Date.now() - hit.at < REAL_CACHE_TTL_MS) return hit.analysis;
+
+  let aggs: RealAgg[] | null = null;
+  try {
+    aggs = await fetchRealAggregates(clubCode, brand);
+  } catch (e) {
+    console.error("[pricing] real aggregate failed:", (e as Error)?.message);
+  }
+
+  let analysis: PricingAnalysis | null = null;
+  if (aggs && aggs.length > 0) {
+    const durations = defaultDurationsForBrand(brand);
+    const priceOf = (dm: number) => currentPrices.get(dm) ?? defaultPriceFor(dm);
+    const hourly: HourlySlot[] = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0, sales: 0 }));
+    const dayOfWeek: DayOfWeekSlot[] = Array.from({ length: 7 }, (_, i) => ({ dayOfWeek: i, label: DAY_LABELS[i], count: 0, sales: 0 }));
+    const durMap = new Map<number, { count: number; sales: number; recent: number; prior: number }>();
+    for (const a of aggs) {
+      const salesVal = isJoyfit ? a.sales : a.cnt * priceOf(a.dur);
+      if (a.hour >= 0 && a.hour < 24) { hourly[a.hour].count += a.cnt; hourly[a.hour].sales += salesVal; }
+      if (a.dow >= 0 && a.dow < 7) { dayOfWeek[a.dow].count += a.cnt; dayOfWeek[a.dow].sales += salesVal; }
+      const dm = durations.includes(a.dur) ? a.dur : (isJoyfit ? a.dur : 1440);
+      const cur = durMap.get(dm) ?? { count: 0, sales: 0, recent: 0, prior: 0 };
+      cur.count += a.cnt; cur.sales += salesVal;
+      if (a.recent) cur.recent += a.cnt; else cur.prior += a.cnt;
+      durMap.set(dm, cur);
+    }
+    const peakHour = hourly.reduce((m, s) => (s.count > m.count ? s : m), hourly[0]).hour;
+    const peakDayIdx = dayOfWeek.reduce((m, s) => (s.count > m.count ? s : m), dayOfWeek[0]).dayOfWeek;
+    const totalCount = [...durMap.values()].reduce((s, v) => s + v.count, 0) || 1;
+    const durationDemand: DurationDemand[] = durations.map((dm) => {
+      const v = durMap.get(dm) ?? { count: 0, sales: 0, recent: 0, prior: 0 };
+      const trendPct = v.prior > 0 ? Math.round(((v.recent - v.prior) / v.prior) * 100) : (v.recent > 0 ? 100 : 0);
+      const trend: "up" | "down" | "flat" = trendPct > 5 ? "up" : trendPct < -5 ? "down" : "flat";
+      const occupancyRate = Math.max(0.3, Math.min(0.9, 0.3 + (v.count / totalCount) * 0.5 + Math.min(v.count, 300) / 300 * 0.1));
+      return {
+        durationMinutes: dm, count: v.count, sales: v.sales, occupancyRate,
+        peakHour, peakDay: DAY_LABELS[peakDayIdx], trend, trendPct,
+      };
+    });
+    analysis = assembleAnalysis(brand, currentPrices, hourly, dayOfWeek, durationDemand, false);
+  }
+
+  _realCache.set(key, { at: Date.now(), analysis });
+  return analysis;
 }
 
 export async function POST(req: Request) {
@@ -857,8 +975,17 @@ export async function POST(req: Request) {
     if (demo) {
       return NextResponse.json({ analysis: generateDemoAnalysis(clubCode, brand, map) });
     }
-    return NextResponse.json({ analysis: emptyAnalysis() });
-  } catch {
+
+    // 実データ: 認証 + 担当店舗スコープを確認してから相手DBを集計する。
+    const user = await getRefundUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!/^\d+$/.test(clubCode)) return NextResponse.json({ error: "clubCode invalid" }, { status: 400 });
+    if (!isClubInScope(user, clubCode)) return NextResponse.json({ error: "この店舗は担当外です" }, { status: 403 });
+
+    const analysis = await realAnalysis(clubCode, brand, map);
+    return NextResponse.json({ analysis: analysis ?? emptyAnalysis() });
+  } catch (e) {
+    console.error("[pricing] POST error:", (e as Error)?.message);
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 }
