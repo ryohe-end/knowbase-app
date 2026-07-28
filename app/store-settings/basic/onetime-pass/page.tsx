@@ -9,6 +9,9 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 import { runAiAnalysis } from "@/lib/aiPoll";
 import AiSpinner from "@/components/AiSpinner";
 import { ToastProvider, useToast } from "@/components/Toast";
+import JoyfitOneTimePassEditor from "@/app/store-settings/joyfit-onetimepass/JoyfitOneTimePassEditor";
+import Fit365OneDayPassEditor from "@/app/store-settings/fit365-onedaypass/Fit365OneDayPassEditor";
+import OneDayCheckoffEditor from "@/app/store-settings/oneday-checkoff/OneDayCheckoffEditor";
 
 // --- 型 ---
 type PricePeriod = {
@@ -34,7 +37,7 @@ type StoreSummary = {
 };
 
 type UnitType = "1day" | "30min";
-type TabKey = "settings" | "dashboard" | "pricing";
+type TabKey = "settings" | "dashboard" | "pricing" | "checkoff";
 
 type Confidence = "high" | "medium" | "low";
 type DemandLevel = "low" | "mid" | "high";
@@ -649,7 +652,7 @@ function ForecastChart({
   );
 }
 
-function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) {
+function DashboardTab({ clubCode, brand, mode = "full" }: { clubCode: string; brand: string; mode?: "full" | "checkoff" | "analytics" }) {
   const { showToast } = useToast();
   const def = defaultDateRange();
   const [from, setFrom] = useState(def.from);
@@ -791,6 +794,109 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
   const days = rangeDays(from, to);
   const dailyAvgSales = summary ? Math.round(summary.totalSales / days) : 0;
   const totalGenderSales = summary ? summary.byGender.reduce((s, x) => s + x.sales, 0) : 0;
+
+  // 消し込みモーダル (checkoff モード共通)
+  const opModal = opTarget && (
+    <div className="otp-modal-overlay" onClick={() => !opBusy && setOpTarget(null)}>
+      <div className="otp-modal" onClick={(e) => e.stopPropagation()}>
+        <h3 className="otp-modal-title">{OP_META[opTarget.op].title}</h3>
+        <p className="otp-modal-desc">{OP_META[opTarget.op].desc}</p>
+        <div className="otp-modal-detail">
+          <div><dt>購入者</dt><dd>{opTarget.p.purchaserName}</dd></div>
+          <div><dt>利用時間</dt><dd>{formatDuration(opTarget.p.durationMinutes)}</dd></div>
+          <div><dt>金額</dt><dd>{formatYen(opTarget.p.price)}</dd></div>
+          <div><dt>購入日時</dt><dd>{formatDateTime(opTarget.p.purchasedAt)}</dd></div>
+        </div>
+        {opTarget.op === "use" && (
+          <div className="otp-modal-endfield">
+            <label>利用開始日時</label>
+            <input type="datetime-local" value={opStartDt} max={nowJstLocal()} onChange={(e) => onChangeOpStart(e.target.value)} />
+            <label>利用終了日時</label>
+            <input type="datetime-local" value={opEndDt} onChange={(e) => setOpEndDt(e.target.value)} />
+            <span className="otp-modal-hint">終了日時は「開始 + 利用時間」を初期値にしています。</span>
+          </div>
+        )}
+        <div className="otp-modal-actions">
+          <button type="button" className="otp-modal-cancel" disabled={opBusy} onClick={() => setOpTarget(null)}>キャンセル</button>
+          <button type="button" className={`otp-modal-confirm tone-${OP_META[opTarget.op].tone}`} disabled={opBusy} onClick={runOp}>
+            {opBusy ? "処理中…" : OP_META[opTarget.op].confirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // 消し込みタブ: EnjoyTimePass(t1pass) チケット一覧 + 利用済/未使用/取消
+  if (mode === "checkoff") {
+    return (
+      <>
+        <AdminLoadingOverlay visible={loading} text="購入データを読み込み中..." />
+        <section className="otp-range-bar">
+          <div className="otp-range-left">
+            <div className="otp-range-label">対象期間</div>
+            <div className="otp-range-presets">
+              {[
+                { id: "30d", label: "過去30日" },
+                { id: "90d", label: "過去90日" },
+                { id: "thisMonth", label: "今月" },
+                { id: "lastMonth", label: "先月" },
+                { id: "custom", label: "カスタム" },
+              ].map((p) => (
+                <button key={p.id} type="button" className={`otp-range-preset ${preset === p.id ? "active" : ""}`} onClick={() => applyPreset(p.id as RangePreset)}>{p.label}</button>
+              ))}
+            </div>
+            <div className="otp-range-dates">
+              <input type="date" className="otp-input otp-range-date" value={from} max={to} onChange={(e) => { setPreset("custom"); setFrom(e.target.value); }} />
+              <span className="otp-range-sep">〜</span>
+              <input type="date" className="otp-input otp-range-date" value={to} min={from} onChange={(e) => { setPreset("custom"); setTo(e.target.value); }} />
+              <span className="otp-range-days">{days}日間</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="otp-demo-card">
+          <div className="otp-section-title-row">
+            <h3 className="otp-section-title">チケット消し込み（EnjoyTimePass）</h3>
+            <input className="otp-input" style={{ maxWidth: 240 }} placeholder="購入者名・会員番号で検索" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <div className="otp-table-wrap">
+            <table className="otp-table">
+              <thead>
+                <tr><th>購入者</th><th>利用時間</th><th>金額</th><th>購入日時</th><th>状態</th><th>利用日時</th><th></th></tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id}>
+                    <td>{p.purchaserName}{p.memberCode ? <span style={{ display: "block", fontSize: 11, color: "#94a3b8" }}>{p.memberCode}</span> : null}</td>
+                    <td>{formatDuration(p.durationMinutes)}</td>
+                    <td>{formatYen(p.price)}</td>
+                    <td className="otp-nowrap">{formatDateTime(p.purchasedAt)}</td>
+                    <td><span className="otp-status-chip" style={{ color: STATUS_META[p.status].color, background: STATUS_META[p.status].bg }}>{STATUS_META[p.status].label}</span></td>
+                    <td className="otp-nowrap">{p.usedAt ? formatDateTime(p.usedAt) : "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {p.status === "used" ? (
+                        <button type="button" className="otp-add-btn" onClick={() => setOpTarget({ p, op: "unuse" })}>未使用に戻す</button>
+                      ) : p.status === "purchased" ? (
+                        <>
+                          <button type="button" className="otp-add-btn" onClick={() => setOpTarget({ p, op: "use" })}>利用済み</button>
+                          <button type="button" className="otp-remove-btn" style={{ marginLeft: 6 }} onClick={() => setOpTarget({ p, op: "cancel" })}>取り消し</button>
+                        </>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && !loading && (
+                  <tr><td colSpan={7} className="otp-mini-empty" style={{ textAlign: "center" }}>対象チケットがありません</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {opModal}
+      </>
+    );
+  }
 
   return (
     <>
@@ -1219,222 +1325,6 @@ function DashboardTab({ clubCode, brand }: { clubCode: string; brand: string }) 
         </div>
       </section>
 
-      {/* 購入者リスト */}
-      <section className="otp-list-card">
-        <div className="otp-list-header">
-          <h2 className="otp-list-title">
-            購入者一覧
-            <span className="otp-count">{filtered.length}</span>
-          </h2>
-        </div>
-
-        <div className="otp-filters">
-          <input
-            type="text"
-            className="otp-search"
-            placeholder="名前・メール・電話・会員番号で検索..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | PurchaseStatus)}
-            className="otp-select"
-          >
-            <option value="all">全ステータス</option>
-            <option value="purchased">未使用</option>
-            <option value="used">使用済</option>
-            <option value="expired">期限切れ</option>
-            <option value="refunded">返金</option>
-          </select>
-          <select
-            value={durationFilter === "all" ? "all" : String(durationFilter)}
-            onChange={(e) =>
-              setDurationFilter(e.target.value === "all" ? "all" : Number(e.target.value))
-            }
-            className="otp-select"
-          >
-            <option value="all">全利用時間</option>
-            {durations.map((d) => (
-              <option key={d} value={d}>
-                {formatDuration(d)}
-              </option>
-            ))}
-          </select>
-          <select
-            value={genderFilter}
-            onChange={(e) => setGenderFilter(e.target.value as "all" | Gender)}
-            className="otp-select"
-          >
-            <option value="all">全性別</option>
-            <option value="male">男性</option>
-            <option value="female">女性</option>
-            <option value="other">その他</option>
-            <option value="unknown">未回答</option>
-          </select>
-          <select
-            value={ageFilter}
-            onChange={(e) => setAgeFilter(e.target.value as "all" | AgeGroup)}
-            className="otp-select"
-          >
-            <option value="all">全年代</option>
-            <option value="u20">〜19歳</option>
-            <option value="20s">20代</option>
-            <option value="30s">30代</option>
-            <option value="40s">40代</option>
-            <option value="50s">50代</option>
-            <option value="60plus">60歳〜</option>
-          </select>
-        </div>
-
-        {filtered.length === 0 ? (
-          <div className="otp-empty">
-            <div className="otp-empty-text">
-              {loading
-                ? "読み込み中..."
-                : purchases.length === 0
-                ? "この期間の購入データはありません。"
-                : "条件に一致する購入データがありません。"}
-            </div>
-          </div>
-        ) : (
-          <div className="otp-table-wrap">
-            <table className="otp-table">
-              <thead>
-                <tr>
-                  <th>購入者</th>
-                  <th className="otp-th-center">性別</th>
-                  <th>年齢</th>
-                  <th>連絡先</th>
-                  <th>会員番号</th>
-                  <th>利用時間</th>
-                  <th>金額</th>
-                  <th>購入日時</th>
-                  <th>利用日時</th>
-                  <th>新規/既存</th>
-                  <th>ステータス</th>
-                  <th className="otp-th-center">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id}>
-                    <td className="otp-name-cell">{p.purchaserName}</td>
-                    <td className="otp-gender-td">
-                      <span
-                        className="otp-gender-chip"
-                        style={{ color: GENDER_META[p.gender].color, background: GENDER_META[p.gender].bg }}
-                      >
-                        {p.gender === "male" ? "♂" : p.gender === "female" ? "♀" : "•"} {GENDER_META[p.gender].label}
-                      </span>
-                    </td>
-                    <td className="otp-age-cell">
-                      {p.age}歳 <span className="otp-age-group-sub">({AGE_GROUP_META[p.ageGroup].label})</span>
-                    </td>
-                    <td>
-                      <div className="otp-contact">
-                        {p.purchaserEmail && <div>{p.purchaserEmail}</div>}
-                        {p.purchaserPhone && <div className="otp-phone">{p.purchaserPhone}</div>}
-                        {!p.purchaserEmail && !p.purchaserPhone && <span className="otp-na">—</span>}
-                      </div>
-                    </td>
-                    <td>
-                      {p.memberCode ? (
-                        <code className="otp-mcode">{p.memberCode}</code>
-                      ) : (
-                        <span className="otp-na">ゲスト</span>
-                      )}
-                    </td>
-                    <td className="otp-dur-cell">{formatDuration(p.durationMinutes)}</td>
-                    <td className="otp-price-cell">{formatYen(p.price)}</td>
-                    <td className="otp-date-cell">{formatDateTime(p.purchasedAt)}</td>
-                    <td className="otp-date-cell">
-                      {p.usedAt ? formatDateTime(p.usedAt) : <span className="otp-na">—</span>}
-                    </td>
-                    <td>
-                      {p.isFirstPurchase ? (
-                        <span className="otp-status-chip" style={{ color: "#047857", background: "#d1fae5" }}>新規</span>
-                      ) : (
-                        <span className="otp-status-chip" style={{ color: "#1d4ed8", background: "#dbeafe" }}>既存</span>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className="otp-status-chip"
-                        style={{ color: STATUS_META[p.status].color, background: STATUS_META[p.status].bg }}
-                      >
-                        {STATUS_META[p.status].label}
-                      </span>
-                    </td>
-                    <td className="otp-actions-td">
-                      <div className="otp-row-actions">
-                        {p.status === "purchased" && (
-                          <button type="button" className="otp-act-btn use" title="このチケットを利用済にする（消し込み）"
-                            onClick={() => setOpTarget({ p, op: "use" })}>
-                            利用済み
-                          </button>
-                        )}
-                        {p.status === "used" && (
-                          <button type="button" className="otp-act-btn unuse" title="消し込みを取り消して未使用に戻す"
-                            onClick={() => setOpTarget({ p, op: "unuse" })}>
-                            未使用に戻す
-                          </button>
-                        )}
-                        {p.status !== "refunded" && (
-                          <button type="button" className="otp-act-btn cancel" title="チケットを取り消す（返金ステータス化・入金処理なし）"
-                            onClick={() => setOpTarget({ p, op: "cancel" })}>
-                            取り消し
-                          </button>
-                        )}
-                        <button type="button" className="otp-act-btn refund" disabled={p.status === "refunded"}
-                          title="返金（入金処理・準備中）" onClick={handleRefundClick}>
-                          返金
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* チケット操作 確認モーダル */}
-      {opTarget && (
-        <div className="otp-modal-overlay" onClick={() => !opBusy && setOpTarget(null)}>
-          <div className="otp-modal" onClick={(e) => e.stopPropagation()}>
-            <h3 className="otp-modal-title">{OP_META[opTarget.op].title}</h3>
-            <p className="otp-modal-desc">{OP_META[opTarget.op].desc}</p>
-            <dl className="otp-modal-detail">
-              <div><dt>購入者</dt><dd>{opTarget.p.purchaserName}</dd></div>
-              <div><dt>会員番号</dt><dd>{opTarget.p.memberCode || "ゲスト"}</dd></div>
-              <div><dt>利用時間</dt><dd>{formatDuration(opTarget.p.durationMinutes)}</dd></div>
-              <div><dt>金額</dt><dd>{formatYen(opTarget.p.price)}</dd></div>
-              <div><dt>購入日時</dt><dd>{formatDateTime(opTarget.p.purchasedAt)}</dd></div>
-            </dl>
-            {opTarget.op === "use" && (
-              <div className="otp-modal-endfield">
-                <label>利用した期間（利用時間 {formatDuration(opTarget.p.durationMinutes)}）</label>
-                <div className="otp-period-row">
-                  <input type="datetime-local" value={opStartDt} max={nowJstLocal()} onChange={(e) => onChangeOpStart(e.target.value)} />
-                  <span className="otp-period-tilde">〜</span>
-                  <input type="datetime-local" value={opEndDt} min={opStartDt} onChange={(e) => setOpEndDt(e.target.value)} />
-                </div>
-                <span className="otp-modal-hint">開始を選ぶと終了は「開始＋利用時間」に自動設定されます（終了は手動調整も可）。</span>
-              </div>
-            )}
-            <div className="otp-modal-actions">
-              <button type="button" className="otp-modal-cancel" disabled={opBusy} onClick={() => setOpTarget(null)}>
-                キャンセル
-              </button>
-              <button type="button" className={`otp-modal-confirm tone-${OP_META[opTarget.op].tone}`} disabled={opBusy || (opTarget.op === "use" && (!opStartDt || !opEndDt))} onClick={runOp}>
-                {opBusy ? "処理中…" : OP_META[opTarget.op].confirm}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
@@ -2280,11 +2170,7 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
             <span>メニューへ戻る</span>
           </Link>
           <h1 className="otp-page-title">1dayパス / One Time Pass</h1>
-          <div className="otp-header-right">
-            {tab === "settings" && (
-              <span className="otp-readonly-badge">参照のみ（EnjoyTimePass管理）</span>
-            )}
-          </div>
+          <div className="otp-header-right" />
         </div>
       </header>
 
@@ -2318,17 +2204,7 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
             </svg>
-            管理画面
-          </button>
-          <button
-            type="button"
-            className={`otp-tab ${tab === "dashboard" ? "active" : ""}`}
-            onClick={() => setTab("dashboard")}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-            </svg>
-            ダッシュボード
+            料金設定
           </button>
           <button
             type="button"
@@ -2340,17 +2216,33 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
             </svg>
             ダイナミックプライシング
           </button>
+          <button
+            type="button"
+            className={`otp-tab ${tab === "dashboard" ? "active" : ""}`}
+            onClick={() => setTab("dashboard")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+            </svg>
+            実績確認
+          </button>
+          <button
+            type="button"
+            className={`otp-tab ${tab === "checkoff" ? "active" : ""}`}
+            onClick={() => setTab("checkoff")}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" style={{ width: 16, height: 16 }}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            消し込み
+          </button>
         </div>
 
         {tab === "settings" && (
-          <SettingsTab
-            brand={brand}
-            durations={durations}
-            setDurations={setDurations}
-            readOnly
-          />
+          isJoyfit(brand)
+            ? <JoyfitOneTimePassEditor clubCode={clubCode} />
+            : <Fit365OneDayPassEditor clubCode={clubCode} />
         )}
-        {tab === "dashboard" && <DashboardTab clubCode={clubCode} brand={brand} />}
         {tab === "pricing" && (
           <PricingTab
             clubCode={clubCode}
@@ -2360,6 +2252,12 @@ function OneTimePassEditor({ clubCode, initialTab }: { clubCode: string; initial
             onApplySeasonal={handleApplySeasonal}
             onApplyAllSeasonal={handleApplyAllSeasonal}
           />
+        )}
+        {tab === "dashboard" && <DashboardTab clubCode={clubCode} brand={brand} mode="analytics" />}
+        {tab === "checkoff" && (
+          isJoyfit(brand)
+            ? <DashboardTab clubCode={clubCode} brand={brand} mode="checkoff" />
+            : <OneDayCheckoffEditor clubCode={clubCode} />
         )}
       </main>
 
@@ -3014,7 +2912,10 @@ function OneTimePassRouter() {
   const clubCode = searchParams.get("clubCode");
   const viewParam = searchParams.get("view");
   const tab: TabKey =
-    viewParam === "dashboard" ? "dashboard" : viewParam === "pricing" ? "pricing" : "settings";
+    viewParam === "dashboard" ? "dashboard"
+    : viewParam === "pricing" ? "pricing"
+    : viewParam === "checkoff" ? "checkoff"
+    : "settings";
 
   if (!clubCode) {
     return (

@@ -1641,8 +1641,6 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
 
   const isJoyfit = String(store?.brand || "").toUpperCase().startsWith("JOYFIT");
   const PASS_ICON = "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z";
-  const CHECK_ICON = "M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z";
-  const CHART_ICON = "M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z";
   // カテゴリごとに機能を集約したメニュー
   const menuGroups = [
     {
@@ -1652,24 +1650,12 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
           iconPath: "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z" },
       ],
     },
-    isJoyfit
-      ? {
-          category: "OneTimePass（JOYFIT）",
-          items: [
-            { title: "OneTimePass 金額設定", desc: "時間別(30〜210分)の通常価格・予約価格を設定します。", href: `/store-settings/joyfit-onetimepass`, color: "#7c3aed", iconPath: "M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" },
-            { title: "利用状況・消し込み", desc: "EnjoyTimePass の購入分析、チケットの消し込み(利用済/取消)を行います。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=dashboard`, color: "#f59e0b", iconPath: PASS_ICON },
-            { title: "ダイナミックプライシング", desc: "売上傾向・需要(繁忙期/閑散期)に基づく価格提案を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=pricing`, color: "#0ea5e9", iconPath: CHART_ICON },
-          ],
-        }
-      : {
-          category: "1dayパス（FIT365）",
-          items: [
-            { title: "1dayパス 金額設定", desc: "通常価格・キャンペーン価格を設定します。", href: `/store-settings/fit365-onedaypass`, color: "#f59e0b", iconPath: PASS_ICON },
-            { title: "利用状況・詳細", desc: "1dayパスの購入分析・利用状況の詳細を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=dashboard`, color: "#7c3aed", iconPath: CHART_ICON },
-            { title: "ダイナミックプライシング", desc: "売上傾向・需要(繁忙期/閑散期)に基づく価格提案を確認します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=pricing`, color: "#0ea5e9", iconPath: CHART_ICON },
-            { title: "チケット消し込み", desc: "未使用の1dayパスを消し込み（使用済に）します。", href: `/store-settings/oneday-checkoff`, color: "#10b981", iconPath: CHECK_ICON },
-          ],
-        },
+    {
+      category: isJoyfit ? "OneTimePass" : "1dayパス",
+      items: [
+        { title: isJoyfit ? "OneTimePass 管理" : "1dayパス 管理", desc: "料金設定・ダイナミックプライシング・実績確認・消し込みをまとめて管理します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=settings`, color: "#f59e0b", iconPath: PASS_ICON },
+      ],
+    },
     {
       category: "未納金",
       items: [
