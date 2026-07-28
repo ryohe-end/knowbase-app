@@ -426,51 +426,118 @@ export async function GET(req: Request) {
     return NextResponse.json({ ...hit.body, cached: true });
   }
 
-  const sql = `
-    select
-      coalesce(u.name,'') as name, u.mail_address as mail, u.tel as tel,
-      u.cust_code as member_code, u.sex as sex, u.birthday as birthday,
-      t.max_hour as dur, t.amount as amount, t.insert_dt as purchased_at,
-      t.start_dt as used_at,
-      t.ticket_stat as stat, t.res_pay_method as pay,
-      coalesce(t.order_id, t.seq::text) as id,
-      (t.insert_dt = (select min(t2.insert_dt) from t1pass.ticket_tbl t2 where t2.access_key = t.access_key)) as is_first
-    from t1pass.ticket_tbl t
-    left join t1pass.user_tbl u on u.access_key = t.access_key
-    where t.club_cd = $1 and t.insert_dt >= $2::date and t.insert_dt < ($3::date + interval '1 day')
-    order by t.insert_dt desc
-    limit ${LIVE_ROW_LIMIT}`;
-  const res = await sshQuery(TARGET_ONETIMEPASS, sql, [Number(clubCode), fromClamped, to]);
-  if (!res.ok) {
-    return NextResponse.json({ error: `購入データの取得に失敗しました: ${res.error}`, purchases: [], summary: emptySummary(from, to) }, { status: 502 });
-  }
   const asOf = new Date(`${to}T00:00:00Z`);
-  const purchases: Purchase[] = res.rows.map((r: any) => {
-    const age = ageFromBirthday(r.birthday, asOf);
-    return {
-      id: String(r.id),
-      purchaserName: r.name || "—",
-      purchaserEmail: r.mail || null,
-      purchaserPhone: r.tel || null,
-      memberCode: r.member_code ? String(r.member_code) : null,
-      gender: r.sex === "1" ? "male" : r.sex === "2" ? "female" : "unknown",
-      age,
-      ageGroup: ageToGroup(age),
-      isFirstPurchase: !!r.is_first,
-      durationMinutes: Number(r.dur) || 0,
-      price: Number(r.amount) || 0,
-      purchasedAt: r.purchased_at ? new Date(r.purchased_at).toISOString() : "",
-      usedAt: r.used_at ? new Date(r.used_at).toISOString() : null,
-      status: mapTicketStatus(r.stat),
-      rawStat: String(r.stat || ""), // 生の ticket_stat (消し込み対象=B の判定用)
-      paymentMethod: r.pay || "—",
-    };
-  });
+  const isJoyfit = brand.toUpperCase().startsWith("JOYFIT");
+  let purchases: Purchase[];
+  let source: string;
+
+  if (isJoyfit) {
+    // JOYFIT: EnjoyTimePass t1pass (Postgres)
+    const sql = `
+      select
+        coalesce(u.name,'') as name, u.mail_address as mail, u.tel as tel,
+        u.cust_code as member_code, u.sex as sex, u.birthday as birthday,
+        t.max_hour as dur, t.amount as amount, t.insert_dt as purchased_at,
+        t.start_dt as used_at,
+        t.ticket_stat as stat, t.res_pay_method as pay,
+        coalesce(t.order_id, t.seq::text) as id,
+        (t.insert_dt = (select min(t2.insert_dt) from t1pass.ticket_tbl t2 where t2.access_key = t.access_key)) as is_first
+      from t1pass.ticket_tbl t
+      left join t1pass.user_tbl u on u.access_key = t.access_key
+      where t.club_cd = $1 and t.insert_dt >= $2::date and t.insert_dt < ($3::date + interval '1 day')
+      order by t.insert_dt desc
+      limit ${LIVE_ROW_LIMIT}`;
+    const res = await sshQuery(TARGET_ONETIMEPASS, sql, [Number(clubCode), fromClamped, to]);
+    if (!res.ok) {
+      return NextResponse.json({ error: `購入データの取得に失敗しました: ${res.error}`, purchases: [], summary: emptySummary(from, to) }, { status: 502 });
+    }
+    purchases = res.rows.map((r: any) => {
+      const age = ageFromBirthday(r.birthday, asOf);
+      return {
+        id: String(r.id),
+        purchaserName: r.name || "—",
+        purchaserEmail: r.mail || null,
+        purchaserPhone: r.tel || null,
+        memberCode: r.member_code ? String(r.member_code) : null,
+        gender: r.sex === "1" ? "male" : r.sex === "2" ? "female" : "unknown",
+        age,
+        ageGroup: ageToGroup(age),
+        isFirstPurchase: !!r.is_first,
+        durationMinutes: Number(r.dur) || 0,
+        price: Number(r.amount) || 0,
+        purchasedAt: r.purchased_at ? new Date(r.purchased_at).toISOString() : "",
+        usedAt: r.used_at ? new Date(r.used_at).toISOString() : null,
+        status: mapTicketStatus(r.stat),
+        rawStat: String(r.stat || ""), // 生の ticket_stat (消し込み対象=B の判定用)
+        paymentMethod: r.pay || "—",
+      };
+    });
+    source = "EnjoyTimePass (t1pass)";
+  } else {
+    // FIT365 1day: 入会DB fit365entry.one_day_ticket (MySQL)。会員は member 結合、
+    // 価格は キャンペーン価格(one_day_cp_price) 優先→定価(one_day_shop_price_classification)。
+    const casio6 = String(clubCode).replace(/\D/g, "").padStart(6, "0").slice(-6);
+    const fromYmd = fromClamped.replace(/-/g, "");
+    const toYmd = to.replace(/-/g, "");
+    const sql = `
+      select
+        concat(t.token,'-',t.serial_number) as id,
+        m.own_name_js as name, coalesce(m.pc_mail_address, m.mobile_mail_address) as mail, m.co_tel as tel,
+        t.member_no as member_code, m.sex as sex, m.birthday as birthday,
+        coalesce(
+          (select cp.price from one_day_cp_price cp
+             where cp.shop_id = t.shop_id and cp.delete_flg = 0
+               and cp.cp_start_date <= t.purchase_date and cp.cp_end_date >= t.purchase_date
+             order by cp.seq desc limit 1),
+          cl.price) as amount,
+        concat(t.purchase_date, lpad(coalesce(nullif(t.purchase_time,''),'0'),6,'0')) as purchased_at,
+        case when t.use_date is not null and t.use_date<>''
+             then concat(t.use_date, lpad(coalesce(nullif(t.use_time,''),'0'),6,'0')) else null end as used_at,
+        t.is_expired as is_expired, t.del_flg as del_flg, t.use_date as use_date,
+        (t.insert_date = (select min(t2.insert_date) from one_day_ticket t2 where t2.shop_id=t.shop_id and t2.member_no=t.member_no)) as is_first
+      from one_day_ticket t
+      inner join shop_convert_view spv on spv.town_shop_id = t.shop_id
+      left join one_day_shop_price_classification cl on cl.shop_id = t.shop_id
+      left join member m on m.shop_id = t.shop_id and m.member_no = t.member_no
+      where spv.casio_shop_id = ? and t.purchase_date between ? and ? and t.del_flg = 0 and t.payment_flg = 1
+      order by t.purchase_date desc, t.purchase_time desc
+      limit ${LIVE_ROW_LIMIT}`;
+    const res = await sshQuery(TARGET_FIT365ENTRY, sql, [casio6, fromYmd, toYmd]);
+    if (!res.ok) {
+      return NextResponse.json({ error: `購入データの取得に失敗しました: ${res.error}`, purchases: [], summary: emptySummary(from, to) }, { status: 502 });
+    }
+    purchases = res.rows.map((r: any) => {
+      const age = ageFromBirthday(r.birthday, asOf);
+      const used = r.use_date != null && String(r.use_date) !== "";
+      const status: PurchaseStatus =
+        Number(r.del_flg) === 1 ? "refunded" : used ? "used" : Number(r.is_expired) === 1 ? "expired" : "purchased";
+      return {
+        id: String(r.id),
+        purchaserName: r.name || "—",
+        purchaserEmail: r.mail || null,
+        purchaserPhone: r.tel || null,
+        memberCode: r.member_code != null ? String(r.member_code) : null,
+        gender: r.sex === "1" ? "male" : r.sex === "2" ? "female" : "unknown",
+        age,
+        ageGroup: ageToGroup(age),
+        isFirstPurchase: !!r.is_first,
+        durationMinutes: 1440,
+        price: Number(r.amount) || 0,
+        purchasedAt: jst14ToIso(r.purchased_at) || "",
+        usedAt: jst14ToIso(r.used_at),
+        status,
+        rawStat: "",
+        paymentMethod: "—",
+      };
+    });
+    source = "1dayパス (fit365entry)";
+  }
+
   const body = {
     purchases,
     summary: buildSummary(purchases, fromClamped, to),
     isDemo: false,
-    source: "EnjoyTimePass (t1pass)",
+    source,
     rangeClamped: fromClamped !== from,
   };
   _cache.set(cacheKey, { at: Date.now(), body });
@@ -479,6 +546,15 @@ export async function GET(req: Request) {
 }
 
 const TARGET_ONETIMEPASS = "onetimepass";
+const TARGET_FIT365ENTRY = "fit365entry";
+
+// char14 'YYYYMMDDHHMMSS'(JST壁時計) → ISO文字列。不正/空は null。
+function jst14ToIso(s: any): string | null {
+  const m = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(String(s ?? ""));
+  if (!m) return null;
+  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+09:00`);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
 // EnjoyTimePass ticket_stat の正式マッピング:
 //   B=未使用 / N=未使用(購入直後・標準) / U=利用中 / Z=使用済 / E=期限切 / D=削除済
 function mapTicketStatus(stat: string): PurchaseStatus {
