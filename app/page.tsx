@@ -518,7 +518,7 @@ export default function HomePage() {
 
   /* ========= ユーザー情報 ========= */
   // ✅ userId を追加
-  type Me = { userId?: string; name?: string; email?: string; role?: string; groupId?: string; mustChangePassword?: boolean };
+  type Me = { userId?: string; name?: string; email?: string; role?: string; groupId?: string; mustChangePassword?: boolean; canViewAccounting?: boolean };
 
   const [me, setMe] = useState<Me | null>(null);
   const isAdmin = useMemo(() => me?.role === "admin", [me]);
@@ -1502,6 +1502,11 @@ export default function HomePage() {
           {me && (
             <button className={`kb-tab ${isAdmin ? "kb-tab-active" : ""}`} style={{ cursor: "pointer" }} onClick={handleAdminClick}>
               管理画面
+            </button>
+          )}
+          {me?.canViewAccounting && (
+            <button className="kb-tab" style={{ cursor: "pointer" }} onClick={() => (window.location.href = "/accounting")}>
+              経理
             </button>
           )}
         </div>

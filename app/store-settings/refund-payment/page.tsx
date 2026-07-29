@@ -74,28 +74,7 @@ export default function RefundPaymentTopPage() {
         // 入金は承認ステップ不要 (店舗→経理) のためここには出さない
       ],
     },
-    {
-      key: "finance",
-      role: "経理処理",
-      badge: "FINANCE",
-      icon: <Calculator size={18} />,
-      desc: "経理部が最終確認を行い、Oracle側へ実データを反映します。",
-      color: "#8b5cf6",
-      items: [
-        {
-          title: "返金 経理処理",
-          href: "/store-settings/refund-payment/refund/finance",
-          icon: <Calculator size={26} />,
-          bullets: ["承認済み申請の最終確認", "振込実行・参照番号登録", "Oracle 売上控除連携"],
-        },
-        {
-          title: "入金 経理処理",
-          href: "/store-settings/refund-payment/deposit/finance",
-          icon: <Calculator size={26} />,
-          bullets: ["入金登録の最終確認", "Oracle 消込処理", "月次サマリ"],
-        },
-      ],
-    },
+    // 経理処理は経理管理画面(/accounting)へ移設したため、店舗設定の返金ハブには出さない。
   ];
 
   // 権限に応じて表示するセクションを絞る

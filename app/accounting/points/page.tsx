@@ -41,7 +41,7 @@ export default function PointsAccountingPage() {
     setLoading(true); setErr("");
     try {
       const params = new URLSearchParams({ from, to, brand });
-      const res = await fetch(`/api/admin/points-accounting?${params}`, { cache: "no-store" });
+      const res = await fetch(`/api/accounting/points-accounting?${params}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取得に失敗しました（権限をご確認ください）");
       setRows(data.rows || []); setByArea(data.byArea || []); setMonthly(data.monthly || []);
@@ -57,7 +57,7 @@ export default function PointsAccountingPage() {
   const runImport = async () => {
     setImpBusy(true); setImpMsg("");
     try {
-      const res = await fetch("/api/admin/points-accounting/fund-import", {
+      const res = await fetch("/api/accounting/points-accounting/fund-import", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: impText, month: impMonth }),
       });
@@ -105,7 +105,7 @@ export default function PointsAccountingPage() {
   return (
     <div style={{ maxWidth: 1160, margin: "0 auto", padding: "24px 16px" }}>
       <div style={{ marginBottom: 8 }}>
-        <Link href="/admin" style={{ color: "#64748b", textDecoration: "none", fontSize: 13 }}>← 管理者ダッシュボード</Link>
+        <Link href="/accounting" style={{ color: "#64748b", textDecoration: "none", fontSize: 13 }}>← 経理管理</Link>
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div>

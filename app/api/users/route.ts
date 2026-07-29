@@ -17,7 +17,7 @@ export type KbUserRole = "admin" | "sv" | "editor" | "viewer" | "store" | "finan
 
 // permissions は機能単位の特殊権限。
 // role: admin と独立しており、admin でも明示付与が必要。
-export type KbPermission = "member_search" | "public_pdf";
+export type KbPermission = "member_search" | "public_pdf" | "accounting";
 
 export type KbUser = {
   userId: string;
@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
   resetPassword ? true :
   (existing?.mustChangePassword ?? false);
 
-const KNOWN_PERMISSIONS: KbPermission[] = ["member_search", "public_pdf"];
+const KNOWN_PERMISSIONS: KbPermission[] = ["member_search", "public_pdf", "accounting"];
 const requestedPermissions = Array.isArray(user.permissions) ? user.permissions : [];
 const sanitizedPermissions = KNOWN_PERMISSIONS.filter((p) =>
   requestedPermissions.includes(p)

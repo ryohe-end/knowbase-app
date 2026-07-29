@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { verifySignedValue } from "@/lib/auth";
+import { canViewAccounting } from "@/lib/accountingAuth";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE_USERS = "yamauchi-Users";
@@ -18,6 +19,7 @@ export type RefundUser = {
   email: string;
   role: string;
   dept?: string;
+  permissions: string[];   // yamauchi-Users.permissions (例: "accounting")
   clubCodes: string[];     // yamauchi-Users.clubCodes (空=全クラブ)
 };
 
@@ -44,8 +46,8 @@ export async function getRefundUser(): Promise<RefundUser | null> {
         KeyConditionExpression: "email = :email",
         ExpressionAttributeValues: { ":email": email },
         Limit: 1,
-        ProjectionExpression: "userId, #n, email, #r, dept, clubCodes, areas, isActive",
-        ExpressionAttributeNames: { "#n": "name", "#r": "role" },
+        ProjectionExpression: "userId, #n, email, #r, dept, clubCodes, areas, #p, isActive",
+        ExpressionAttributeNames: { "#n": "name", "#r": "role", "#p": "permissions" },
       })
     );
     const u = res.Items?.[0] as any;
@@ -59,6 +61,7 @@ export async function getRefundUser(): Promise<RefundUser | null> {
       email: String(u.email ?? ""),
       role: String(u.role ?? ""),
       dept: typeof u.dept === "string" ? u.dept : undefined,
+      permissions: normArr(u.permissions),
       clubCodes,
     };
   } catch (e) {
@@ -80,8 +83,8 @@ export function canApprove(user: RefundUser): boolean {
   return user.role === "admin" || user.role === "sv" || user.role === "approver";
 }
 export function canFinance(user: RefundUser): boolean {
-  // 経理のみ。管理者(admin)は経理メニュー/処理を持たない。
-  return user.role === "finance";
+  // 経理系(role=finance / permission=accounting / 許可メール)。管理者(admin)は経理処理を持たない。
+  return canViewAccounting({ role: user.role, permissions: user.permissions, email: user.email });
 }
 // クラブスコープ判定 (clubCodes が空なら全クラブ、そうでなければ含まれる必要あり)
 export function isClubInScope(user: RefundUser, clubCode: string): boolean {

@@ -9,7 +9,7 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { isAdminRequest } from "@/lib/auth";
+import { requireAccounting } from "@/lib/accountingAuth";
 import { listClubs } from "@/lib/unpaid";
 import { loadClubAreaLookup } from "@/lib/clubAreas";
 
@@ -81,7 +81,7 @@ async function loadAllSummaries(): Promise<any[]> {
 }
 
 export async function GET(req: Request) {
-  if (!(await isAdminRequest(req))) {
+  if (!(await requireAccounting())) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   const sp = new URL(req.url).searchParams;

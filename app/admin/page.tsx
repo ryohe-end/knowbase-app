@@ -105,13 +105,6 @@ export default function AdminHome() {
       color: "#0d9488",
     },
     {
-      href: "/admin/points",
-      label: "4-D. ACCOUNTING",
-      title: "ポイント会計ダッシュボード",
-      desc: "各店舗のポイント取得・使用・残高を会計向けに集計し、CSV出力します",
-      color: "#0f766e",
-    },
-    {
       href: "/admin/users",
       label: "5. ACCOUNT",
       title: "ユーザー管理",

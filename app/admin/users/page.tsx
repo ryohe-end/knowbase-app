@@ -6,7 +6,7 @@ import AdminLoadingOverlay from "@/components/AdminLoadingOverlay";
 
 /* ========= 型 ========= */
 export type KbUserRole = "admin" | "sv" | "editor" | "viewer" | "store" | "finance";
-export type KbPermission = "member_search" | "public_pdf";
+export type KbPermission = "member_search" | "public_pdf" | "accounting";
 export type KbUser = {
   userId: string;
   name: string;
@@ -43,6 +43,11 @@ const PERMISSION_OPTIONS: { value: KbPermission; label: string; desc: string }[]
     value: "public_pdf",
     label: "外部公開 PDF 管理",
     desc: "S3 への PDF アップロードと公開 URL 発行 (/admin/public-pdfs)",
+  },
+  {
+    value: "accounting",
+    label: "経理（会計）",
+    desc: "経理管理画面 (/accounting)。ポイント会計・返金/入金の経理処理を閲覧・処理",
   },
 ];
 

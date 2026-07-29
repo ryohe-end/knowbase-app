@@ -8,7 +8,8 @@
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
-import { isAdminRequest, verifySignedValue, parseCookieHeader } from "@/lib/auth";
+import { verifySignedValue, parseCookieHeader } from "@/lib/auth";
+import { requireAccounting } from "@/lib/accountingAuth";
 import { writeAudit, clientIp } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
@@ -37,7 +38,7 @@ async function actorEmail(req: Request): Promise<string> {
 }
 
 export async function POST(req: Request) {
-  if (!(await isAdminRequest(req))) {
+  if (!(await requireAccounting())) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
   let body: { text?: string; month?: string };
