@@ -319,10 +319,10 @@ export async function POST(req: Request) {
     deliverableCount, // 実際に配信可能な件数
     members,
     // 未適用フィルタの明示 (UI で注意表示できるように)
-    // visitCount は入館ログ表が KNOWBIE_RO に未付与のため現状適用不可 (Lambdaが visitCountIgnored を返す)。
+    // visitCount は VISIT_TABLE 未設定時のみ適用不可 (Lambdaが visitCountIgnored を返す)。
+    // 入会日/退会日/未納は Lambda で適用済み。
     notApplied: {
       visitCount: !!payload.visitCountIgnored,
-      hasUnpaidOnly: !!body.hasUnpaidOnly,
     },
   });
 }

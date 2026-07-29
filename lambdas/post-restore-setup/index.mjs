@@ -192,6 +192,33 @@ async function discover(adminCfg) {
   }
 }
 
+// 指定テーブルの列名/型を管理者権限で取得 (SQL組み立て前の型確認用)。
+// event.columns = [{table, column}]  → data_type を返す
+async function describeColumns(adminCfg, cols) {
+  const conn = await oracledb.getConnection({
+    user: adminCfg.user,
+    password: adminCfg.password,
+    connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+  });
+  try {
+    const out = [];
+    for (const { table, column } of cols) {
+      const r = await conn.execute(
+        `SELECT column_name AS NAME, data_type AS TYPE, data_length AS LEN FROM all_tab_columns
+          WHERE owner='FIT_ADMIN' AND table_name = :t AND column_name LIKE :c ORDER BY column_name`,
+        { t: table, c: `%${column}%` },
+        { outFormat: oracledb.OUT_FORMAT_OBJECT }
+      );
+      out.push({ table, query: column, columns: (r.rows || []).map((x) => ({ name: x.NAME, type: x.TYPE, len: x.LEN })) });
+    }
+    return { ok: true, described: out };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { await conn.close(); } catch (_) { /* noop */ }
+  }
+}
+
 // 指定テーブル名の配列に SELECT を grant する (存在確認付き)。
 async function grantTables(adminCfg, roCfg, tables) {
   const conn = await oracledb.getConnection({
@@ -228,6 +255,12 @@ export const handler = async (event) => {
   if (event && event.action === "discover") {
     const r = await discover(adminCfg);
     console.log("discover result", r);
+    return r;
+  }
+
+  if (event && event.action === "describe" && Array.isArray(event.columns)) {
+    const r = await describeColumns(adminCfg, event.columns);
+    console.log("describe result", JSON.stringify(r));
     return r;
   }
 

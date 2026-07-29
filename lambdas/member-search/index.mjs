@@ -1203,6 +1203,29 @@ export const handler = async (event) => {
           conds.push(`(${range.join(" AND ")})`);
         }
       }
+      // 入会日範囲(joinDateFrom/To, YYYYMMDD): 会員クラブ契約."Tクラブ入会年月日"(NUMBER)で絞る。
+      if (g.joinDateFrom || g.joinDateTo) {
+        const jc = [];
+        if (g.joinDateFrom) { const k = `jf${bi++}`; binds[k] = Number(g.joinDateFrom); jc.push(`jc."Tクラブ入会年月日" >= :${k}`); }
+        if (g.joinDateTo) { const k = `jt${bi++}`; binds[k] = Number(g.joinDateTo); jc.push(`jc."Tクラブ入会年月日" <= :${k}`); }
+        conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."会員クラブ契約" jc WHERE jc.契約者SEQ = b.契約者SEQ AND jc.クラブコード IN (${clubIn}) AND ${jc.join(" AND ")})`);
+      }
+      // 退会日範囲(leaveDateFrom/To, YYYYMMDD): 会員契約.退会日(NUMBER, 99999999=在籍sentinel)で絞る。
+      if (g.leaveDateFrom || g.leaveDateTo) {
+        const lc = [`lc.退会日 IS NOT NULL`, `lc.退会日 <> 99999999`];
+        if (g.leaveDateFrom) { const k = `lf${bi++}`; binds[k] = Number(g.leaveDateFrom); lc.push(`lc.退会日 >= :${k}`); }
+        if (g.leaveDateTo) { const k = `lt${bi++}`; binds[k] = Number(g.leaveDateTo); lc.push(`lc.退会日 <= :${k}`); }
+        conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."会員契約" lc WHERE lc.契約者SEQ = b.契約者SEQ AND lc.クラブコード IN (${clubIn}) AND ${lc.join(" AND ")})`);
+      }
+      // 未納のみ(hasUnpaidOnly): 振替失敗(振替結果コード≠0)かつ会員入金歴で未納(入金区分コード=4)がある会員。
+      // (未納画面の「現行未納」判定と同一ロジック)
+      if (g.hasUnpaidOnly) {
+        conds.push(`EXISTS (SELECT 1 FROM FIT_ADMIN."振替契約別" fu
+                      WHERE fu.契約者SEQ = b.契約者SEQ AND fu.クラブコード IN (${clubIn})
+                        AND TRIM(fu.振替結果コード) <> '0'
+                        AND EXISTS (SELECT 1 FROM FIT_ADMIN."会員入金歴" au
+                                     WHERE au.契約SEQ = fu.契約SEQ AND au.対応年月 = fu.振替年月 AND au.入金区分コード = 4))`);
+      }
       return conds.length > 0 ? `(${conds.join(" AND ")})` : "(1=1)";
     });
     const groupWhere = groups.length > 1 ? `(${groupSql.join(` ${groupOp} `)})` : groupSql[0];
