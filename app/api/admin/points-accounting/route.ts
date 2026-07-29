@@ -11,6 +11,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import { isAdminRequest } from "@/lib/auth";
 import { listClubs } from "@/lib/unpaid";
+import { loadClubAreaLookup } from "@/lib/clubAreas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,12 @@ const num = (v: any): number => {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
 };
+// 'YYYY-MM' に delta ヶ月を足す
+function addMonths(ym: string, delta: number): string {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
 const normBrand = (b: string): "FIT365" | "JOYFIT" =>
   String(b || "").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365";
 
@@ -63,8 +70,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "DB error" }, { status: 500 });
   }
 
-  // 店舗名/ブランドの補完
-  const clubs = await listClubs().catch(() => [] as any[]);
+  // 店舗名/ブランド/エリアの補完
+  const [clubs, areaLookup] = await Promise.all([
+    listClubs().catch(() => [] as any[]),
+    loadClubAreaLookup().catch(() => ({} as Record<string, { area: string; block: string; territory: string }>)),
+  ]);
   const nameByClub = new Map<string, string>();
   const bizByClub = new Map<string, string>();
   for (const c of clubs) {
@@ -73,34 +83,39 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; granted: number; used: number; balance: number; memberCount: number };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; balance: number; memberCount: number };
   const byClub = new Map<string, Row>();
+  // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used}
+  const monthAgg = new Map<string, { granted: number; used: number }>();
+  const inBrand = (b: "FIT365" | "JOYFIT") => !(brandFilter === "FIT365" || brandFilter === "JOYFIT") || b === brandFilter;
+
   for (const it of items) {
     const clubCode = String(it.clubCode ?? "");
     const ym = String(it.yyyymm ?? "");
     if (!clubCode || !/^\d{4}-\d{2}$/.test(ym)) continue;
-    if (ym > to) continue; // 対象月末より後は残高に含めない
+    if (ym > to) continue; // 対象月末より後は残高/推移に含めない
     const brand = normBrand(it.brand || bizByClub.get(clubCode) || "");
-    let row = byClub.get(clubCode);
-    if (!row) {
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, granted: 0, used: 0, balance: 0, memberCount: 0 };
-      byClub.set(clubCode, row);
-    }
+    if (!inBrand(brand)) continue;
     const g = num(it.granted);
     const u = num(it.used);
-    row.balance += g - u; // 期首〜to の累積
-    if (ym >= from && ym <= to) {
-      row.granted += g;
-      row.used += u;
+
+    // 月次推移(全期間・ブランドフィルタ後)
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0 };
+    ma.granted += g; ma.used += u; monthAgg.set(ym, ma);
+
+    // 店舗別
+    let row = byClub.get(clubCode);
+    if (!row) {
+      const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, balance: 0, memberCount: 0 };
+      byClub.set(clubCode, row);
     }
+    row.balance += g - u; // 期首〜to の累積
+    if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
     if (ym === to) row.memberCount = num(it.memberCount);
   }
 
-  let rows = [...byClub.values()];
-  if (brandFilter === "FIT365" || brandFilter === "JOYFIT") {
-    rows = rows.filter((r) => r.brand === brandFilter);
-  }
-  rows.sort((a, b) => b.balance - a.balance || a.clubCode.localeCompare(b.clubCode));
+  const rows = [...byClub.values()].sort((a, b) => b.balance - a.balance || a.clubCode.localeCompare(b.clubCode));
 
   const totals = rows.reduce(
     (t, r) => { t.granted += r.granted; t.used += r.used; t.balance += r.balance; return t; },
@@ -108,5 +123,27 @@ export async function GET(req: Request) {
   );
   totals.stores = rows.length;
 
-  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, balanceMethod: "cumulative(granted-used)" });
+  // エリア別ロールアップ(期間内 granted/used + to累積残高 + 店舗数)
+  const areaMap = new Map<string, { area: string; granted: number; used: number; balance: number; stores: number }>();
+  for (const r of rows) {
+    const a = areaMap.get(r.area) || { area: r.area, granted: 0, used: 0, balance: 0, stores: 0 };
+    a.granted += r.granted; a.used += r.used; a.balance += r.balance; a.stores += 1;
+    areaMap.set(r.area, a);
+  }
+  const byArea = [...areaMap.values()].sort((a, b) => b.balance - a.balance || a.area.localeCompare(b.area, "ja"));
+
+  // 月次推移: to から遡って12ヶ月。各月の granted/used と、その月末までの累積残高。
+  const monthly: { ym: string; granted: number; used: number; balance: number }[] = [];
+  let running = 0;
+  const start12 = addMonths(to, -11);
+  // 累積残高の起点(start12より前)を先に足し込む
+  for (const [ym, ma] of monthAgg) if (ym < start12) running += ma.granted - ma.used;
+  for (let i = 0; i < 12; i++) {
+    const ym = addMonths(start12, i);
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0 };
+    running += ma.granted - ma.used;
+    monthly.push({ ym, granted: ma.granted, used: ma.used, balance: running });
+  }
+
+  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, balanceMethod: "cumulative(granted-used)" });
 }
