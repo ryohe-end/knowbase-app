@@ -18,7 +18,30 @@ export const dynamic = "force-dynamic";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const SUMMARY_TABLE = process.env.SUMMARY_TABLE || "yamauchi-PointSummary";
+const FUND_TABLE = process.env.POINT_FUND_TABLE || "knowbie-point-fund";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
+
+// 原資(真残高) knowbie-point-fund を clubCode → {expired, balance, ...} で読む
+async function loadFund(): Promise<Map<string, { issued: number; consumed: number; expired: number; balance: number; snapshotAt: string }>> {
+  const out = new Map<string, any>();
+  let lastKey: any = undefined;
+  try {
+    do {
+      const res: any = await ddb.send(new ScanCommand({ TableName: FUND_TABLE, ExclusiveStartKey: lastKey }));
+      for (const it of res.Items || []) {
+        out.set(String(it.clubCode), {
+          issued: Number(it.issued) || 0, consumed: Number(it.consumed) || 0,
+          expired: Number(it.expired) || 0, balance: Number(it.balance) || 0,
+          snapshotAt: String(it.snapshotAt || ""),
+        });
+      }
+      lastKey = res.LastEvaluatedKey;
+    } while (lastKey);
+  } catch (e: any) {
+    console.warn("[points-accounting] fund read failed:", e?.message);
+  }
+  return out;
+}
 
 const CACHE_TTL_MS = 5 * 60_000;
 let _cache: { at: number; items: any[] } | null = null;
@@ -70,10 +93,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "DB error" }, { status: 500 });
   }
 
-  // 店舗名/ブランド/エリアの補完
-  const [clubs, areaLookup] = await Promise.all([
+  // 店舗名/ブランド/エリア/原資 の補完
+  const [clubs, areaLookup, fund] = await Promise.all([
     listClubs().catch(() => [] as any[]),
     loadClubAreaLookup().catch(() => ({} as Record<string, { area: string; block: string; territory: string }>)),
+    loadFund(),
   ]);
   const nameByClub = new Map<string, string>();
   const bizByClub = new Map<string, string>();
@@ -83,7 +107,7 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; balance: number; memberCount: number };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "cumulative"; memberCount: number };
   const byClub = new Map<string, Row>();
   // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used}
   const monthAgg = new Map<string, { granted: number; used: number }>();
@@ -107,27 +131,34 @@ export async function GET(req: Request) {
     let row = byClub.get(clubCode);
     if (!row) {
       const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, balance: 0, memberCount: 0 };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "cumulative", memberCount: 0 };
       byClub.set(clubCode, row);
     }
-    row.balance += g - u; // 期首〜to の累積
+    row.balance += g - u; // 期首〜to の累積(A方式)
     if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
     if (ym === to) row.memberCount = num(it.memberCount);
+  }
+
+  // 原資(真残高 B方式)で上書き: 失効を反映し balance=発行−消費−失効 に。原資が無い店は累積(A)のまま。
+  for (const row of byClub.values()) {
+    const f = fund.get(row.clubCode);
+    if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceSource = "fund"; }
   }
 
   const rows = [...byClub.values()].sort((a, b) => b.balance - a.balance || a.clubCode.localeCompare(b.clubCode));
 
   const totals = rows.reduce(
-    (t, r) => { t.granted += r.granted; t.used += r.used; t.balance += r.balance; return t; },
-    { granted: 0, used: 0, balance: 0, stores: 0 }
+    (t, r) => { t.granted += r.granted; t.used += r.used; t.expired += r.expired; t.balance += r.balance; return t; },
+    { granted: 0, used: 0, expired: 0, balance: 0, stores: 0 }
   );
   totals.stores = rows.length;
+  const fundStores = rows.filter((r) => r.balanceSource === "fund").length;
 
-  // エリア別ロールアップ(期間内 granted/used + to累積残高 + 店舗数)
-  const areaMap = new Map<string, { area: string; granted: number; used: number; balance: number; stores: number }>();
+  // エリア別ロールアップ(期間内 granted/used + 失効 + 残高 + 店舗数)
+  const areaMap = new Map<string, { area: string; granted: number; used: number; expired: number; balance: number; stores: number }>();
   for (const r of rows) {
-    const a = areaMap.get(r.area) || { area: r.area, granted: 0, used: 0, balance: 0, stores: 0 };
-    a.granted += r.granted; a.used += r.used; a.balance += r.balance; a.stores += 1;
+    const a = areaMap.get(r.area) || { area: r.area, granted: 0, used: 0, expired: 0, balance: 0, stores: 0 };
+    a.granted += r.granted; a.used += r.used; a.expired += r.expired; a.balance += r.balance; a.stores += 1;
     areaMap.set(r.area, a);
   }
   const byArea = [...areaMap.values()].sort((a, b) => b.balance - a.balance || a.area.localeCompare(b.area, "ja"));
@@ -145,5 +176,5 @@ export async function GET(req: Request) {
     monthly.push({ ym, granted: ma.granted, used: ma.used, balance: running });
   }
 
-  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, balanceMethod: "cumulative(granted-used)" });
+  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, balanceMethod: fundStores > 0 ? "fund(発行-消費-失効) + cumulative fallback" : "cumulative(granted-used)" });
 }
