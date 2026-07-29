@@ -25,7 +25,7 @@ import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dyn
 import { getRefundUser, canApprove, canFinance, isClubInScope } from "@/lib/refundAuth";
 import { isAdminLike } from "@/lib/roles";
 import { writeAudit, clientIp } from "@/lib/auditLog";
-import { notifyRefundRejected } from "@/lib/refundNotify";
+import { notifyRefundRejected, notifyRefundSubmitted, notifyRefundReadyForFinance, notifyRefundCompleted } from "@/lib/refundNotify";
 import type {
   RefundApplication,
   ApprovalStep,
@@ -337,11 +337,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       throw e;
     }
 
-    // 差戻し通知: 申請者へメール (失敗しても遷移は成功扱い)。transfer(失敗)も差戻しなので通知。
-    if (app.status === "差戻し") {
-      await notifyRefundRejected(app, comment || app.failureDetail || "").catch((err) =>
-        console.error("[refund notify] reject email failed", err)
-      );
+    // ワークフロー通知メール (役割ベース。送信失敗しても遷移は成功扱い)。
+    //   申請/再申請 → 承認者、承認者承認 → 経理、振込完了 → 申請者、差戻し/振込失敗 → 申請者。
+    try {
+      if (app.status === "差戻し") {
+        await notifyRefundRejected(app, comment || app.failureDetail || "");
+      } else if (action === "submit") {
+        await notifyRefundSubmitted(app);
+      } else if (action === "approve" && findStep(app, "finance")?.state === "対応中") {
+        await notifyRefundReadyForFinance(app);
+      } else if (app.status === "承認済み") {
+        await notifyRefundCompleted(app);
+      }
+    } catch (err) {
+      console.error("[refund notify] email failed", err);
     }
 
     void writeAudit({

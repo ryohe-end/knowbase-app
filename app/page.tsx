@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ManualList from "@/components/ManualList";
 import SeriesScroll from "@/components/SeriesScroll";
+import RefundTasksPanel from "@/components/RefundTasksPanel";
 import ContactList from "@/components/ContactList";
 import Tour, { type TourStep } from "@/components/Tour";
 import HelpModal from "@/components/HelpModal";
@@ -1766,6 +1767,8 @@ export default function HomePage() {
               </div>
             )}
           </div>
+
+          <RefundTasksPanel />
 
           <div className="kb-card kb-manual-card">
             <div className="kb-card-header">
