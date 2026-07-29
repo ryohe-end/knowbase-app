@@ -52,9 +52,12 @@ async function cpss(brand, action, args) {
 // 店舗の当月履歴を全ページ取得 (キャンセル除外は呼び出し側で判定)
 async function fetchShopHistory(brand, shopid, sdate, edate) {
   const rows = [];
+  // 本番CPSSの shopid は6桁ゼロ埋め(例 clubCode 505 → "000505")。raw だと 003-001-000(存在しない)。
+  // stg は raw で登録済みのため prod のみパディングする。
+  const sid = CPSS_ENV === "prod" ? String(shopid).replace(/\D/g, "").padStart(6, "0") : String(shopid);
   let page = 1, pages = 1;
   do {
-    const r = await cpss(brand, "getHistoryShopTimeSpan", { shopid, sdate, edate, lines: LINES, page, order: "asc" });
+    const r = await cpss(brand, "getHistoryShopTimeSpan", { shopid: sid, sdate, edate, lines: LINES, page, order: "asc" });
     const h = Array.isArray(r?.history) ? r.history : [];
     rows.push(...h);
     pages = Number(r?.pages) || 1;

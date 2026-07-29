@@ -56493,9 +56493,10 @@ async function cpss(brand, action, args) {
 }
 async function fetchShopHistory(brand, shopid, sdate, edate) {
   const rows = [];
+  const sid = CPSS_ENV === "prod" ? String(shopid).replace(/\D/g, "").padStart(6, "0") : String(shopid);
   let page = 1, pages = 1;
   do {
-    const r8 = await cpss(brand, "getHistoryShopTimeSpan", { shopid, sdate, edate, lines: LINES, page, order: "asc" });
+    const r8 = await cpss(brand, "getHistoryShopTimeSpan", { shopid: sid, sdate, edate, lines: LINES, page, order: "asc" });
     const h8 = Array.isArray(r8?.history) ? r8.history : [];
     rows.push(...h8);
     pages = Number(r8?.pages) || 1;
