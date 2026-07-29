@@ -56,18 +56,24 @@ const csvCell = (v: unknown) => {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-function defaultYm(): string {
-  // 先月を既定(締めた月を出すことが多いため)
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+// 振替データの確定ルール: 振替年月 M のデータは「翌月4日以降」に確定する。
+//   例) 6月分(202606)は 7/4 以降に確定 / 7月分(202607)は 8/4 以降に確定。
+// よって「最新の確定月」= 当月の4日を過ぎていれば前月、まだなら前々月。
+function latestConfirmedMonth(now: Date): { y: number; m: number; ym: string } {
+  // 前月1日を基準に、当月4日前ならさらに1か月戻す
+  const back = now.getDate() < 4 ? 2 : 1;
+  const d = new Date(now.getFullYear(), now.getMonth() - back, 1);
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  return { y, m, ym: `${y}-${String(m).padStart(2, "0")}` };
 }
 
 export default function MonthlyFurikaePage() {
   const router = useRouter();
   const [authState, setAuthState] = useState<"loading" | "ok" | "forbidden">("loading");
-  const [month, setMonth] = useState<string>(defaultYm());
+  // 最新の確定月 (翌月4日以降に確定)。既定選択・選択可能な上限として使う。
+  const confirmed = useMemo(() => latestConfirmedMonth(new Date()), []);
+  const [month, setMonth] = useState<string>(confirmed.ym);
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +98,8 @@ export default function MonthlyFurikaePage() {
   const ym = month.replace("-", ""); // YYYYMM
   const [y, m] = month.split("-");
   const title = `経理連携${y}年${m}月`;
+  // 選択月が確定済みか (未確定月はデータが揃わないためダウンロード不可)
+  const isConfirmed = month <= confirmed.ym;
 
   const totals = useMemo(() => {
     const t = { 振替合計: 0, 年管理費合計: 0, 会費合計: 0, 割引合計: 0 };
@@ -125,7 +133,7 @@ export default function MonthlyFurikaePage() {
   }
 
   function download() {
-    if (!rows || rows.length === 0) return;
+    if (!rows || rows.length === 0 || !isConfirmed) return;
     const header = COLUMNS.map((c) => c.label).join(",");
     const lines = rows.map((r) => COLUMNS.map((c) => csvCell(r[c.key])).join(","));
     const csv = [header, ...lines].join("\r\n") + "\r\n";
@@ -158,18 +166,29 @@ export default function MonthlyFurikaePage() {
           <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>対象月の振替契約別サマリ(クラブ×振替結果×税率)をCSV(Shift-JIS)で出力します。</p>
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 24, display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 12, display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>対象月（振替年月）</span>
-            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, color: "#0f172a" }} />
+            <input type="month" value={month} max={confirmed.ym} onChange={(e) => setMonth(e.target.value)} style={{ padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, color: "#0f172a" }} />
           </label>
           <button onClick={load} disabled={loading} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
             {loading ? "取得中…" : "集計を表示"}
           </button>
-          <button onClick={download} disabled={!rows || rows.length === 0} style={{ padding: "10px 20px", background: rows && rows.length ? "#0f766e" : "#e2e8f0", color: rows && rows.length ? "#fff" : "#94a3b8", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: rows && rows.length ? "pointer" : "default" }}>
+          <button onClick={download} disabled={!rows || rows.length === 0 || !isConfirmed} title={!isConfirmed ? "未確定月はダウンロードできません" : undefined} style={{ padding: "10px 20px", background: rows && rows.length && isConfirmed ? "#0f766e" : "#e2e8f0", color: rows && rows.length && isConfirmed ? "#fff" : "#94a3b8", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: rows && rows.length && isConfirmed ? "pointer" : "default" }}>
             ⬇ {title}.csv をダウンロード
           </button>
         </div>
+
+        {/* 確定ルールの案内 + 未確定月を選んだ場合の警告 */}
+        {isConfirmed ? (
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 24 }}>
+            振替データは<strong>翌月4日以降</strong>に確定します。ダウンロード可能な最新の確定月は <strong>{confirmed.y}年{String(confirmed.m).padStart(2, "0")}月</strong> です。
+          </div>
+        ) : (
+          <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px", marginBottom: 24, color: "#b45309", fontSize: 12, lineHeight: 1.6 }}>
+            ⚠️ 選択中の <strong>{y}年{m}月</strong> はまだ<strong>確定していません</strong>（振替データは翌月4日以降に確定）。データが揃わないためダウンロードできません。ダウンロード可能な最新の確定月は <strong>{confirmed.y}年{String(confirmed.m).padStart(2, "0")}月</strong> です。
+          </div>
+        )}
 
         {error && (
           <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "14px 18px", marginBottom: 20, color: "#b91c1c", fontSize: 13 }}>
