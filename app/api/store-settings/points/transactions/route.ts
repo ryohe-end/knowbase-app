@@ -34,6 +34,9 @@ export const dynamic = "force-dynamic";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const TABLE = process.env.DYNAMO_POINT_TRANSACTIONS_TABLE || "yamauchi-PointTransactions";
 const CPSS_ENV = (process.env.CPSS_ENV as "stg" | "prod") || "stg";
+// 本番CPSSの shopid は6桁ゼロ埋め clubCode(例 505→"000505")。raw だと 003-001-000(存在しない)。
+// stg は raw 登録なので prod のときだけパディングする(夜間集計 points-summary と同一方針)。
+const cpssShopId = (c: string) => (CPSS_ENV === "prod" ? String(c).replace(/\D/g, "").padStart(6, "0") : String(c));
 // 外部(CPSS由来)取消の取消可能期間(日)。これより古い取引は画面から取り消せない。
 const EXTERNAL_CANCEL_MAX_AGE_DAYS = Number(process.env.POINTS_EXTERNAL_CANCEL_MAX_AGE_DAYS || 92);
 
@@ -177,7 +180,7 @@ export async function POST(req: Request) {
       // CPSS へ手動付与 (shopid=会員所属クラブ, reqid=transactionId で冪等)。CPSS が真実。
       const cp = await cpssCall(brand, CPSS_ENV, "givePoint", {
         aid: body.memberCode,
-        shopid: club,
+        shopid: cpssShopId(club),
         point: points,
         reqid: transactionId,
         scode: "MANUAL",
@@ -260,7 +263,7 @@ export async function POST(req: Request) {
       if (source.hid) {
         const cp = await cpssCall(brand, CPSS_ENV, "cancelPoint", {
           hid: source.hid,
-          shopid: club,
+          shopid: cpssShopId(club),
           reason: body.note || "店舗操作による取消",
           reqid: `${source.transactionId}-C`,
         });
@@ -358,7 +361,7 @@ export async function POST(req: Request) {
       // CPSS 取消 (hid指定, reqid=hid由来で冪等=二重取消防止)
       const cp = await cpssCall(brand, CPSS_ENV, "cancelPoint", {
         hid,
-        shopid: club,
+        shopid: cpssShopId(club),
         reason: note,
         reqid: `ext-${hid}`,
       });
