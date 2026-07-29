@@ -445,7 +445,7 @@ export default function RefundFinancePage() {
     // 全銀データ (見本「全銀データ作成見本.csv」準拠)
     //   6列: 銀行コード, 支店コード, 預金種別(1=普通/2=当座), 口座番号, 口座名義(半角カナ), 金額
     //   文字コード: Shift_JIS(CP932) / 改行: CRLF / BOM無し / 末尾にも改行
-    const zenginHeader = ["銀行コード", "支店コード", "預金種別", "口座番号", "口座名義", "金額"];
+    //   ※ ヘッダー行は付けない(データ行のみ)。
     const zenginRows = selectedApps.map((a) => [
       a.account.bankCode ?? "",             // 保存値そのまま(ゼロ除去なし)
       a.account.branchCode ?? "",           // 保存値そのまま(ゼロ除去なし)
@@ -454,8 +454,7 @@ export default function RefundFinancePage() {
       toHankakuKana(a.account.holderName),  // 口座名義は半角
       String(a.totalAmount),
     ]);
-    const csv =
-      [zenginHeader, ...zenginRows].map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
+    const csv = zenginRows.map((r) => r.map(csvField).join(",")).join("\r\n") + "\r\n";
     downloadSjis(`zengin_data_${stampShort}.csv`, csv);
 
     // 銀行別内訳サマリ CSV (社内管理用)
