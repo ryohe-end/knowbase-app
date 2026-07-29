@@ -32,6 +32,7 @@ export default function PointsAccountingPage() {
   const [err, setErr] = useState("");
   // 原資インポート
   const [impOpen, setImpOpen] = useState(false);
+  const [impMonth, setImpMonth] = useState(thisMonth());
   const [impText, setImpText] = useState("");
   const [impBusy, setImpBusy] = useState(false);
   const [impMsg, setImpMsg] = useState("");
@@ -58,11 +59,11 @@ export default function PointsAccountingPage() {
     try {
       const res = await fetch("/api/admin/points-accounting/fund-import", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: impText }),
+        body: JSON.stringify({ text: impText, month: impMonth }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || "取込に失敗しました");
-      setImpMsg(`取込: ${data.imported}件 / 無視: ${data.skipped}件`);
+      setImpMsg(`${data.month} に取込: ${data.imported}件 / 無視: ${data.skipped}件`);
       setImpText("");
       await load();
     } catch (e: any) { setImpMsg(`エラー: ${e?.message || e}`); }
@@ -114,7 +115,7 @@ export default function PointsAccountingPage() {
             未取込店は「取得−使用」の累積（近似）で表示します。
           </p>
         </div>
-        <button onClick={() => { setImpOpen(true); setImpMsg(""); }} style={{ ...btn, background: "#334155", color: "#fff" }}>原資インポート</button>
+        <button onClick={() => { setImpOpen(true); setImpMsg(""); setImpMonth(to); }} style={{ ...btn, background: "#334155", color: "#fff" }}>原資インポート</button>
       </div>
       {fundStores > 0 && <div style={{ fontSize: 11, color: "#0f766e", background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 8, padding: "6px 10px", display: "inline-block", marginBottom: 12 }}>
         原資(真残高)取込済み: {fundStores}店。未取込店は累積近似です。
@@ -222,9 +223,13 @@ export default function PointsAccountingPage() {
           <div style={modal} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 6px" }}>原資インポート（真残高）</h3>
             <p style={{ fontSize: 12, color: "#64748b", margin: "0 0 10px" }}>
-              CPSS管理コンソールの発行原資を貼り付けてください。1行 = <code>shop_000101_issue:FND[TAB]発行[TAB]件数[TAB]消費[TAB]失効</code>。
-              真残高 = 発行 − 消費 − 失効。既存店は上書きされます。
+              CPSS管理コンソールで<b>対象月を指定してエクスポート</b>した発行原資を貼り付けてください。1行 = <code>shop_000101_issue:FND[TAB]発行[TAB]件数[TAB]消費[TAB]失効</code>。
+              真残高 = 発行 − 消費 − 失効。同じ月の既存データは上書きされます。
             </p>
+            <div style={{ marginBottom: 10 }}>
+              <label style={lbl}>対象月</label>
+              <input type="month" value={impMonth} onChange={(e) => setImpMonth(e.target.value)} style={inp} />
+            </div>
             <textarea value={impText} onChange={(e) => setImpText(e.target.value)} placeholder={"shop_000101_issue:FND\t424095\t34199\t174013\t73411\n..."}
               style={{ width: "100%", minHeight: 200, fontFamily: "monospace", fontSize: 12, border: "1px solid #cbd5e1", borderRadius: 8, padding: 10, boxSizing: "border-box" }} />
             {impMsg && <div style={{ fontSize: 12, marginTop: 8, color: impMsg.startsWith("エラー") ? "#b91c1c" : "#0f766e" }}>{impMsg}</div>}

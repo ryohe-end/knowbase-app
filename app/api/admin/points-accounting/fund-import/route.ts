@@ -3,7 +3,8 @@
 // CPSS管理コンソールの発行原資(shop_<6桁>_issue:FND)エクスポートを貼り付けて取り込む(admin専用)。
 // 各行: 原資ID  発行合計  発行件数  消費合計  失効合計  → 真残高 = 発行 − 消費 − 失効。
 // 保存: DynamoDB knowbie-point-fund (PK=clubCode)。ポイント会計ダッシュボードの残高(B方式)に使う。
-//   POST { text: "shop_000101_issue:FND\t424095\t34199\t174013\t73411\n..." , snapshotAt?: "YYYY-MM-DD" }
+//   POST { month: "YYYY-MM", text: "shop_000101_issue:FND\t424095\t34199\t174013\t73411\n..." }
+//   ※ month はその原資エクスポートの対象月。店舗×月(clubCode/yyyymm)で保存する。
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
@@ -39,13 +40,15 @@ export async function POST(req: Request) {
   if (!(await isAdminRequest(req))) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
-  let body: { text?: string; snapshotAt?: string };
+  let body: { text?: string; month?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
   const text = String(body?.text || "");
   if (!text.trim()) return NextResponse.json({ ok: false, error: "貼り付けデータが空です" }, { status: 400 });
-  const snapshotAt = /^\d{4}-\d{2}-\d{2}$/.test(body?.snapshotAt || "")
-    ? (body!.snapshotAt as string)
-    : new Date().toISOString().slice(0, 10);
+  const yyyymm = String(body?.month || "");
+  if (!/^\d{4}-\d{2}$/.test(yyyymm)) {
+    return NextResponse.json({ ok: false, error: "対象月(YYYY-MM)を指定してください" }, { status: 400 });
+  }
+  const importedAt = new Date().toISOString();
 
   const rows: any[] = [];
   const seen = new Set<string>();
@@ -56,7 +59,7 @@ export async function POST(req: Request) {
     if (!r) { skipped++; continue; }
     if (seen.has(r.clubCode)) continue;
     seen.add(r.clubCode);
-    rows.push({ ...r, snapshotAt, source: "cpss-console" });
+    rows.push({ ...r, yyyymm, importedAt, source: "cpss-console" });
   }
   if (rows.length === 0) {
     return NextResponse.json({ ok: false, error: "取り込める行がありません（形式: shop_000101_issue:FND<TAB>発行<TAB>件数<TAB>消費<TAB>失効）", skipped }, { status: 400 });
@@ -76,7 +79,7 @@ export async function POST(req: Request) {
   const email = await actorEmail(req);
   void writeAudit({
     userId: email, action: "pointFund.import", targetCount: rows.length,
-    detail: { imported: rows.length, skipped, snapshotAt }, ip: clientIp(req), result: "ok",
+    detail: { imported: rows.length, skipped, month: yyyymm }, ip: clientIp(req), result: "ok",
   });
-  return NextResponse.json({ ok: true, imported: rows.length, skipped, snapshotAt });
+  return NextResponse.json({ ok: true, imported: rows.length, skipped, month: yyyymm });
 }

@@ -21,18 +21,22 @@ const SUMMARY_TABLE = process.env.SUMMARY_TABLE || "yamauchi-PointSummary";
 const FUND_TABLE = process.env.POINT_FUND_TABLE || "knowbie-point-fund";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
-// 原資(真残高) knowbie-point-fund を clubCode → {expired, balance, ...} で読む
-async function loadFund(): Promise<Map<string, { issued: number; consumed: number; expired: number; balance: number; snapshotAt: string }>> {
+// 原資(真残高) knowbie-point-fund を 対象月(yyyymm)で clubCode → {expired, balance, ...} に読む
+async function loadFund(month: string): Promise<Map<string, { issued: number; consumed: number; expired: number; balance: number }>> {
   const out = new Map<string, any>();
   let lastKey: any = undefined;
   try {
     do {
-      const res: any = await ddb.send(new ScanCommand({ TableName: FUND_TABLE, ExclusiveStartKey: lastKey }));
+      const res: any = await ddb.send(new ScanCommand({
+        TableName: FUND_TABLE,
+        FilterExpression: "yyyymm = :m",
+        ExpressionAttributeValues: { ":m": month },
+        ExclusiveStartKey: lastKey,
+      }));
       for (const it of res.Items || []) {
         out.set(String(it.clubCode), {
           issued: Number(it.issued) || 0, consumed: Number(it.consumed) || 0,
           expired: Number(it.expired) || 0, balance: Number(it.balance) || 0,
-          snapshotAt: String(it.snapshotAt || ""),
         });
       }
       lastKey = res.LastEvaluatedKey;
@@ -97,7 +101,7 @@ export async function GET(req: Request) {
   const [clubs, areaLookup, fund] = await Promise.all([
     listClubs().catch(() => [] as any[]),
     loadClubAreaLookup().catch(() => ({} as Record<string, { area: string; block: string; territory: string }>)),
-    loadFund(),
+    loadFund(to),
   ]);
   const nameByClub = new Map<string, string>();
   const bizByClub = new Map<string, string>();
