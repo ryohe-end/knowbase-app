@@ -276,6 +276,7 @@ export default function RefundFinancePage() {
   const [confirmTransfer, setConfirmTransfer] = useState<string | null>(null); // batchId
   const [completeOne, setCompleteOne] = useState<string | null>(null);          // appId
   const [failureModal, setFailureModal] = useState<{ appId: string; reason: FailureReason; detail: string } | null>(null);
+  const [batchFailureModal, setBatchFailureModal] = useState<{ batchId: string; reason: FailureReason; detail: string } | null>(null);
 
   const filtered = useMemo(() => {
     return apps.filter((a) => {
@@ -619,6 +620,39 @@ export default function RefundFinancePage() {
     setFailureModal(null);
   };
 
+  // バッチ全件まとめて振込失敗 → 差戻し (API)。同一理由を一括適用。
+  const submitBatchFailure = async () => {
+    if (!batchFailureModal) return;
+    const { batchId, reason, detail } = batchFailureModal;
+    const targets = apps.filter((a) => a.batchId === batchId && a.status === "振込手配中");
+    const results = await Promise.all(
+      targets.map(async (a) => {
+        try {
+          const res = await fetch(`/api/store-settings/refund-payment/applications/${encodeURIComponent(a.id)}/transition`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "transfer", result: "失敗", failureReason: reason, failureDetail: detail || undefined, expectedUpdatedAt: a.updatedAt }),
+          });
+          const json = await res.json().catch(() => null);
+          if (!res.ok || !json?.ok) return { app: a, ok: false, error: (json?.error as string) || `HTTP ${res.status}` };
+          return { app: a, ok: true, error: "" };
+        } catch (e: any) {
+          return { app: a, ok: false, error: e?.message || "通信エラー" };
+        }
+      })
+    );
+    await reload();
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length > 0) {
+      const lines = failed.map((r) => `・${r.app.id}（${r.app.memberName}）: ${r.error}`).join("\n");
+      alert(
+        `差戻しへの更新に失敗した申請が ${failed.length}/${targets.length} 件あります。\n` +
+        `他の担当者が同時操作した可能性があります。最新状態を確認し、残った件を個別に処理してください:\n\n${lines}`
+      );
+    }
+    setBatchFailureModal(null);
+  };
+
   // 権限ガード: 経理(finance)のみ。判定中/不許可は本体を描画しない。
   if (guardAllowed !== true) {
     return (
@@ -897,11 +931,16 @@ export default function RefundFinancePage() {
                         {b.status}
                       </span>
                     </span>
-                    <span onClick={(e) => e.stopPropagation()}>
+                    <span onClick={(e) => e.stopPropagation()} style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center" }}>
                       {bd.arranged > 0 ? (
-                        <button className="rff-btn primary sm" onClick={() => setConfirmTransfer(b.id)}>
-                          <CheckCircle2 size={12} /> 残り{bd.arranged}件 完了
-                        </button>
+                        <>
+                          <button className="rff-btn primary sm" onClick={() => setConfirmTransfer(b.id)}>
+                            <CheckCircle2 size={12} /> 振込完了 {bd.arranged}
+                          </button>
+                          <button className="rff-btn danger sm" onClick={() => setBatchFailureModal({ batchId: b.id, reason: FAILURE_REASONS[0], detail: "" })}>
+                            <AlertCircle size={12} /> 失敗差戻し
+                          </button>
+                        </>
                       ) : (
                         <span style={{ color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>{isOpen ? "▲ 閉じる" : "▼ 詳細"}</span>
                       )}
@@ -1131,6 +1170,55 @@ export default function RefundFinancePage() {
                 <button className="rff-btn ghost" onClick={() => setFailureModal(null)}>キャンセル</button>
                 <button className="rff-btn danger" onClick={submitFailure}>
                   <AlertCircle size={14} /> 失敗記録 → 自動差戻し
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* バッチ一括 振込失敗 → 差戻し */}
+      {batchFailureModal && (() => {
+        const b = batches.find((x) => x.id === batchFailureModal.batchId);
+        if (!b) return null;
+        const cnt = apps.filter((a) => a.batchId === b.id && a.status === "振込手配中").length;
+        return (
+          <div className="rff-modal-bg" onClick={() => setBatchFailureModal(null)}>
+            <div className="rff-modal large" onClick={(e) => e.stopPropagation()}>
+              <button className="rff-modal-close" onClick={() => setBatchFailureModal(null)}><X size={18} /></button>
+              <h3 style={{ color: "#dc2626" }}><AlertCircle size={20} /> バッチ一括 振込失敗 → 差戻し</h3>
+              <p>
+                バッチ <strong className="mono">{b.id}</strong> のうち「振込手配中」の <strong>{cnt} 件</strong> を、同じ理由で振込失敗として記録し、
+                <strong>即座に申請者へ差戻し</strong>ます。個別に失敗記録済みの行には影響しません。
+              </p>
+              <div className="rff-form-row">
+                <label>失敗理由 <span className="req">*</span></label>
+                <select
+                  value={batchFailureModal.reason}
+                  onChange={(e) => setBatchFailureModal({ ...batchFailureModal, reason: e.target.value as FailureReason })}
+                  style={{ padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13 }}
+                >
+                  {FAILURE_REASONS.map((r) => <option key={r}>{r}</option>)}
+                </select>
+              </div>
+              <div className="rff-form-row">
+                <label>詳細・コメント</label>
+                <textarea
+                  rows={3}
+                  value={batchFailureModal.detail}
+                  onChange={(e) => setBatchFailureModal({ ...batchFailureModal, detail: e.target.value })}
+                  placeholder="例) 全銀データが銀行より一括返却。再送手配のため差戻し。"
+                  style={{ padding: "10px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, fontFamily: "inherit" }}
+                />
+              </div>
+              <div className="rff-modal-hint">
+                <AlertCircle size={14} />
+                <span>{cnt} 件すべてに同じ失敗理由が記録され申請者へ差戻されます。理由が件ごとに異なる場合はバッチを展開して1件ずつ処理してください。</span>
+              </div>
+              <div className="rff-modal-actions">
+                <button className="rff-btn ghost" onClick={() => setBatchFailureModal(null)}>キャンセル</button>
+                <button className="rff-btn danger" onClick={submitBatchFailure}>
+                  <AlertCircle size={14} /> {cnt} 件を失敗 → 差戻し
                 </button>
               </div>
             </div>
