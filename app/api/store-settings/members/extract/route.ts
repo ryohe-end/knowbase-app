@@ -239,6 +239,7 @@ export async function POST(req: Request) {
       email?: string | null; // 個人テーブルのメール (DM用)
     }>;
     totalCount?: number;
+    visitCountIgnored?: boolean; // 来館回数指定があったが入館ログ表未付与で適用不可
   };
   const oracleRows = Array.isArray(payload.results) ? payload.results : [];
   const totalCount = typeof payload.totalCount === "number" ? payload.totalCount : oracleRows.length;
@@ -318,8 +319,9 @@ export async function POST(req: Request) {
     deliverableCount, // 実際に配信可能な件数
     members,
     // 未適用フィルタの明示 (UI で注意表示できるように)
+    // visitCount は入館ログ表が KNOWBIE_RO に未付与のため現状適用不可 (Lambdaが visitCountIgnored を返す)。
     notApplied: {
-      visitCount: !!(body.visitCountFrom || body.visitCountTo),
+      visitCount: !!payload.visitCountIgnored,
       hasUnpaidOnly: !!body.hasUnpaidOnly,
     },
   });

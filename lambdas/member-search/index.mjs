@@ -940,6 +940,47 @@ export const handler = async (event) => {
     } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
 
+  // 経理連携: 振替契約別の月次集計 (クラブ×振替結果×税率×委託先×企業)。月次処理CSV用。
+  if (type === "furikae_summary") {
+    const ym = Number(params.ym || 0);
+    if (!ym || String(params.ym).length !== 6) return resp(400, { error: "missing_params", required: ["ym(YYYYMM)"] });
+    const sql = `
+      SELECT
+        a.クラブコード AS クラブコード,
+        i.クラブ略称 AS クラブ略称,
+        i.業態 AS 業態,
+        i.企業名 AS 企業名,
+        a.振替年月 AS 振替年月,
+        h.委託先名 AS 委託先名,
+        CASE WHEN a.振替結果コード = '0' THEN '入金済み' ELSE '未回収' END AS 振替結果,
+        e.税率 AS 税率,
+        SUM(a.振替金額) AS 振替合計,
+        SUM(a.年管理費金額) AS 年管理費合計,
+        SUM(a.会費金額) AS 会費合計,
+        SUM(a.割引金額) AS 割引合計
+      FROM FIT_ADMIN."振替契約別" a
+      LEFT JOIN FIT_ADMIN."振替結果" b ON a.振替結果コード = b.振替結果コード
+      INNER JOIN FIT_ADMIN."契約形態" c ON a.契約形態コード = c.契約形態コード
+      INNER JOIN FIT_ADMIN."商品" d ON c.会費商品コード = d.商品コード
+      INNER JOIN FIT_ADMIN."税" e ON d.税コード = e.税コード
+      INNER JOIN FIT_ADMIN."クラブ情報" g ON a.クラブコード = g.クラブコード
+      INNER JOIN FIT_ADMIN."委託先" h ON a.委託先コード = h.委託先コード
+      LEFT JOIN FIT_ADMIN."クラブ情報" i ON a.クラブコード = i.クラブコード
+      WHERE a.振替年月 = :ym
+        AND e.適用終了月 = 999999
+        AND a.振替結果コード IS NOT NULL
+      GROUP BY a.クラブコード, a.振替結果コード, a.振替年月, e.税率, h.委託先名, i.クラブ略称, i.業態, i.企業名
+      ORDER BY a.クラブコード, a.振替結果コード, e.税率`;
+    let conn;
+    try {
+      const pool = await getPool(); conn = await pool.getConnection();
+      const r = await conn.execute(sql, { ym }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      return resp(200, { ym, rows: r.rows || [] });
+    } catch (err) {
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // 未納管理 ダッシュボード全体数値 (クラブ複数可・エリア合算用)
   if (type === "unpaid_summary") {
     const clubs = (params.clubCodes || params.clubCode || "")
@@ -1115,6 +1156,10 @@ export const handler = async (event) => {
     let bi = 0;
     const inList = (vals, cast) => vals.map((v) => { const k = `b${bi++}`; binds[k] = cast ? cast(v) : v; return `:${k}`; }).join(",");
     const clubIn = clubCodesArr.map((c) => { const k = `cl${bi++}`; binds[k] = c; return `:${k}`; }).join(",");
+    // 来館回数(入館トラン)テーブル。KNOWBIE_RO に未付与のため既定は無効。
+    // DBAが会員別入館ログ表への SELECT を付与したら VISIT_TABLE='FIT_ADMIN."入館トラン"' 等を設定して有効化する。
+    const VISIT_TABLE = process.env.VISIT_TABLE || "";
+    let visitCountIgnored = false; // 来館回数指定があったが表未設定で適用できなかった場合 true
     // 各条件は会員(b.契約者SEQ)単位の EXISTS。契約(会員区分)と契約形態が別契約でも会員で結合。
     const groupSql = groups.map((g) => {
       const conds = [];
@@ -1137,6 +1182,26 @@ export const handler = async (event) => {
                       JOIN FIT_ADMIN."会員契約明細" d ON d.契約SEQ = c2.契約SEQ
                       JOIN FIT_ADMIN."契約形態" e ON d.契約形態コード = e.契約形態コード
                     WHERE c2.契約者SEQ = b.契約者SEQ AND c2.クラブコード IN (${clubIn}) AND e.契約形態名 IN (${inList(cfs)}))`);
+      }
+      // 来館回数(visitCountFrom/To): 対象期間(visitFrom/To, YYYYMMDD)内の入館ログ件数で絞る。
+      // COUNT(*) を使うため「契約はあるが入館ログが無い人 = 0回」も自然に評価できる(0回抽出対応)。
+      // 入館ログ表は KNOWBIE_RO 未付与のため、VISIT_TABLE が設定されている時のみ適用する。
+      const vMin = Number.isFinite(Number(g.visitCountFrom)) ? Number(g.visitCountFrom) : null;
+      const vMax = Number.isFinite(Number(g.visitCountTo)) ? Number(g.visitCountTo) : null;
+      if (vMin !== null || vMax !== null) {
+        if (!VISIT_TABLE) {
+          visitCountIgnored = true; // 表未設定: この条件は無視(件数に反映されない)
+        } else {
+          const dateConds = [];
+          if (g.visitFrom) { const k = `vf${bi++}`; binds[k] = Number(g.visitFrom); dateConds.push(`gv.営業年月日 >= :${k}`); }
+          if (g.visitTo) { const k = `vt${bi++}`; binds[k] = Number(g.visitTo); dateConds.push(`gv.営業年月日 <= :${k}`); }
+          const dateWhere = dateConds.length ? ` AND ${dateConds.join(" AND ")}` : "";
+          const cntExpr = `(SELECT COUNT(*) FROM ${VISIT_TABLE} gv WHERE gv.会員番号 = b.会員番号 AND gv.クラブコード IN (${clubIn})${dateWhere})`;
+          const range = [];
+          if (vMin !== null) { const k = `vn${bi++}`; binds[k] = vMin; range.push(`${cntExpr} >= :${k}`); }
+          if (vMax !== null) { const k = `vx${bi++}`; binds[k] = vMax; range.push(`${cntExpr} <= :${k}`); }
+          conds.push(`(${range.join(" AND ")})`);
+        }
       }
       return conds.length > 0 ? `(${conds.join(" AND ")})` : "(1=1)";
     });
@@ -1200,7 +1265,7 @@ export const handler = async (event) => {
         withdrawnAt: (x.WITHDRAWN != null && String(x.WITHDRAWN).trim() !== "" && String(x.WITHDRAWN).trim() !== "99999999") ? String(x.WITHDRAWN).trim() : null,
         email: x.EMAIL || null,
       }));
-      return resp(200, { results, totalCount: results.length });
+      return resp(200, { results, totalCount: results.length, visitCountIgnored });
     } catch (err) {
       console.error("member_extract error", err);
       return resp(500, { error: "internal_error", message: err.message });

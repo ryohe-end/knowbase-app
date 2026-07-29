@@ -14,6 +14,12 @@ const MENU: MenuItem[] = [
     color: "#0f766e",
   },
   {
+    href: "/accounting/monthly",
+    title: "月次処理（経理連携CSV）",
+    desc: "対象月を選び、振替契約別サマリ（クラブ×振替結果×税率）を経理連携CSV（Shift-JIS）としてダウンロードします。",
+    color: "#7c3aed",
+  },
+  {
     href: "/store-settings/refund-payment/refund/finance",
     title: "返金の経理処理",
     desc: "承認済みの返金申請について、経理としての処理（確認・完了）を行います。",

@@ -97,6 +97,7 @@ function DmSettingsInner() {
   const storeBrand = (selectedStore?.brand || "JOYFIT").toUpperCase().startsWith("JOYFIT") ? "JOYFIT" : "FIT365";
   const storeName = selectedStore?.clubName ?? "";
   const [extractError, setExtractError] = useState("");
+  const [extractWarning, setExtractWarning] = useState("");
 
   // モーダル・表示モード
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -289,6 +290,7 @@ function DmSettingsInner() {
     if (selectedClubs.length === 0) { setExtractError("担当店舗を選択してください。"); return; }
     setIsExtracting(true);
     setExtractError("");
+    setExtractWarning("");
     try {
       const res = await fetch("/api/store-settings/members/extract", {
         method: "POST",
@@ -323,6 +325,10 @@ function DmSettingsInner() {
       // CSV 由来は残し、抽出分を統合 (メール重複排除)
       mergeRecipients(recs);
       setCurrentPage(1);
+      // 来館回数は入館ログ表が会員DB(KNOWBIE_RO)に未付与のため、現状この条件は件数に反映されない。
+      if (data?.notApplied?.visitCount) {
+        setExtractWarning("来館回数の条件は現在ご利用いただけません（会員DBの入館ログ権限が未付与のため、抽出件数に反映されていません）。他の条件のみで抽出しています。");
+      }
     } catch {
       setExtractError("抽出リクエストに失敗しました。");
     } finally {
@@ -742,6 +748,7 @@ function DmSettingsInner() {
                         <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 4 }}>列: 会員番号, メールアドレス, 氏名（メール必須）</div>
 
                         {extractError && <div style={{ color: "#dc2626", fontSize: 11, marginTop: 8 }}>{extractError}</div>}
+                        {extractWarning && <div style={{ color: "#b45309", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 10px", fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>⚠️ {extractWarning}</div>}
                       </div>
                     </div>
                   ) : (

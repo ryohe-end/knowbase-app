@@ -76,6 +76,11 @@ async function setup(adminCfg, roCfg) {
       "会員契約者口座",
       // ビーコン日次同期用 (ゲート/ビーコン系)
       "ゲートコントロールマスタ", "BEACONQRマスタ", "PDAゲートNO変換", "クラブWS", "エリア入室設定",
+      // 月次処理(経理連携CSV: furikae_summary)の JOIN 先。振替契約別 と結合して税率/委託先/クラブ情報を出す。
+      "商品", "税", "委託先", "クラブ情報", "振替結果",
+      // DM/Push ターゲティングの来館回数(visitCount)フィルタ用: 会員別入館ログ。
+      // member-search の env VISIT_TABLE='FIT_ADMIN."入館トラン"' で有効化している。
+      "入館トラン",
     ];
     for (const tbl of roTables) {
       await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
@@ -158,12 +163,79 @@ async function grantContractForms(adminCfg, roCfg) {
   }
 }
 
+// FIT_ADMIN 配下のテーブルを管理者権限で探索する (grant前の名称確認用)。
+// - 振替サマリ(月次処理)の JOIN 先候補: 商品/税/委託先/クラブ情報/振替結果
+// - 会員別 入館/来館ログ候補: 入館/来館/入退館/利用 系
+async function discover(adminCfg) {
+  const conn = await oracledb.getConnection({
+    user: adminCfg.user,
+    password: adminCfg.password,
+    connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+  });
+  try {
+    const r = await conn.execute(
+      `SELECT table_name AS NAME FROM all_tables
+        WHERE owner = 'FIT_ADMIN'
+          AND (table_name IN ('商品','税','委託先','クラブ情報','振替結果')
+               OR table_name LIKE '%入館%' OR table_name LIKE '%来館%' OR table_name LIKE '%入退館%'
+               OR table_name LIKE '%入退室%' OR table_name LIKE '%利用履歴%' OR table_name LIKE '%利用実績%'
+               OR table_name LIKE '%利用トラン%' OR table_name LIKE '%入館トラン%')
+        ORDER BY table_name`,
+      {},
+      { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    );
+    return { ok: true, tables: (r.rows || []).map((x) => x.NAME) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { await conn.close(); } catch (_) { /* noop */ }
+  }
+}
+
+// 指定テーブル名の配列に SELECT を grant する (存在確認付き)。
+async function grantTables(adminCfg, roCfg, tables) {
+  const conn = await oracledb.getConnection({
+    user: adminCfg.user,
+    password: adminCfg.password,
+    connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+  });
+  const out = { granted: [], errors: [] };
+  try {
+    for (const tbl of tables) {
+      try {
+        await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
+        out.granted.push(tbl);
+      } catch (e) {
+        out.errors.push(`${tbl}: ${e.message}`);
+      }
+    }
+    await conn.commit();
+    return { ok: true, ...out };
+  } catch (err) {
+    return { ok: false, ...out, error: err.message };
+  } finally {
+    try { await conn.close(); } catch (_) { /* noop */ }
+  }
+}
+
 // --- メインハンドラ ----------------------------------------------------------
 export const handler = async (event) => {
   console.log("trigger event", JSON.stringify(event));
 
   const adminCfg = await getSecret(process.env.ORACLE_ADMIN_SECRET_ARN);
   const roCfg    = await getSecret(process.env.ORACLE_RO_SECRET_ARN);
+
+  if (event && event.action === "discover") {
+    const r = await discover(adminCfg);
+    console.log("discover result", r);
+    return r;
+  }
+
+  if (event && event.action === "grant_tables" && Array.isArray(event.tables)) {
+    const r = await grantTables(adminCfg, roCfg, event.tables);
+    console.log("grant_tables result", r);
+    return r;
+  }
 
   if (event && event.action === "grant_contract_forms") {
     const r = await grantContractForms(adminCfg, roCfg);
