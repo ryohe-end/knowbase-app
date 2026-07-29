@@ -225,7 +225,7 @@ export default function DepositFinancePage() {
       <header className="dpf-header">
         <div className="dpf-header-inner">
           <div className="dpf-brand">
-            <Link href="/store-settings/refund-payment" className="dpf-back-link"><ArrowLeft size={20} /></Link>
+            <Link href="/accounting" className="dpf-back-link"><ArrowLeft size={20} /></Link>
             <div>
               <h1 className="dpf-main-title">入金申請 経理処理</h1>
               <p className="dpf-sub-title">本部 経理部 ／ Oracle 消込担当</p>

@@ -633,7 +633,7 @@ export default function RefundFinancePage() {
       <header className="rff-header">
         <div className="rff-header-inner">
           <div className="rff-brand">
-            <Link href="/store-settings/refund-payment" className="rff-back-link"><ArrowLeft size={20} /></Link>
+            <Link href="/accounting" className="rff-back-link"><ArrowLeft size={20} /></Link>
             <div className="rff-title-group">
               <h1 className="rff-main-title">返金申請 経理処理</h1>
               <p className="rff-sub-title">本部 経理部 ／ 担当: {APPROVERS.finance.name}</p>
