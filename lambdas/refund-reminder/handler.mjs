@@ -81,14 +81,18 @@ function digestHtml(title, color, items, linkPath, linkLabel) {
 }
 
 export const handler = async () => {
-  const [apps, users] = await Promise.all([scanAll(REFUND_TABLE), scanAll(USERS_TABLE)]);
+  const [allApps, users] = await Promise.all([scanAll(REFUND_TABLE), scanAll(USERS_TABLE)]);
   const active = users.filter((u) => u.isActive !== false && u.email);
+
+  // サンプル/デモ申請(applicationId に "SEED" を含む)はリマインド対象外。
+  const apps = allApps.filter((it) => !/SEED/i.test(String(it.applicationId || "")));
 
   const approverPending = apps.filter((it) => stepState(it, "approver") === "対応中");
   const financePending = apps.filter((it) => stepState(it, "finance") === "対応中");
   const rejected = apps.filter((it) => it.status === "差戻し");
 
-  const inScope = (clubs, clubCode) => clubs.length === 0 || clubs.includes(String(clubCode));
+  // ★ 対象店舗の担当者のみに送る。clubCodes が空(全社管理者)には送らない。
+  const inScope = (clubs, clubCode) => clubs.includes(String(clubCode));
   const out = { approverMails: 0, financeMails: 0, applicantMails: 0 };
 
   // 承認者: 各承認者のスコープ内の承認待ちをダイジェスト

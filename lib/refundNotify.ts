@@ -26,6 +26,7 @@ function esc(s: string): string {
 export async function notifyRefundRejected(app: RefundApplication, comment: string): Promise<void> {
   const sg = initSendGrid();
   if (!sg) return;
+  if (isSampleApp(app)) return; // サンプル/デモは送らない
   const applicant = app.steps?.find((s) => s.role === "applicant");
   const to = applicant?.email;
   if (!to) return;
@@ -87,14 +88,21 @@ async function scanActiveUsers(): Promise<any[]> {
   return out;
 }
 
-// 承認者(admin/sv/approver)で、対象クラブがスコープ内(clubCodes空=全) の email。
+// サンプル/デモ申請(applicationId に "SEED" を含む)は通知しない。
+function isSampleApp(app: RefundApplication): boolean {
+  return /SEED/i.test(String(app?.applicationId ?? ""));
+}
+
+// 承認者(admin/sv/approver)で、対象店舗(clubCode)を担当する人の email。
+// ★ 対象店舗の責任者のみに送る。clubCodes が空(全社管理者)には送らない
+//   (全管理者へメールが飛ぶのを防ぐ)。
 async function resolveApproverEmails(clubCode: string): Promise<string[]> {
   const set = new Set<string>();
   for (const u of await scanActiveUsers()) {
     if (u.isActive === false || !u.email) continue;
     if (!["admin", "sv", "approver"].includes(String(u.role || ""))) continue;
     const clubs = normArr(u.clubCodes);
-    if (clubs.length > 0 && !clubs.includes(String(clubCode))) continue;
+    if (!clubs.includes(String(clubCode))) continue; // 該当店舗の担当者のみ
     set.add(String(u.email));
   }
   return [...set];
@@ -149,6 +157,7 @@ function actionCard(title: string, color: string, app: RefundApplication, note: 
 
 // 申請/再申請 → 承認者へ「承認依頼」
 export async function notifyRefundSubmitted(app: RefundApplication): Promise<void> {
+  if (isSampleApp(app)) return; // サンプル/デモは送らない
   const to = await resolveApproverEmails(String(app.clubCode));
   await sendTo(to, `【承認依頼】返金申請 ${app.applicationId}（${app.memberName}）`,
     actionCard("返金申請の承認をお願いします", "#0f172a", app,
@@ -158,6 +167,7 @@ export async function notifyRefundSubmitted(app: RefundApplication): Promise<voi
 
 // 承認者承認 → 経理へ「経理処理依頼」
 export async function notifyRefundReadyForFinance(app: RefundApplication): Promise<void> {
+  if (isSampleApp(app)) return; // サンプル/デモは送らない
   const to = await resolveFinanceEmails();
   await sendTo(to, `【経理処理依頼】返金申請 ${app.applicationId}（${app.memberName}）`,
     actionCard("返金の経理処理をお願いします", "#2563eb", app,
@@ -167,6 +177,7 @@ export async function notifyRefundReadyForFinance(app: RefundApplication): Promi
 
 // 振込完了 → 申請者へ「完了」
 export async function notifyRefundCompleted(app: RefundApplication): Promise<void> {
+  if (isSampleApp(app)) return; // サンプル/デモは送らない
   const applicant = app.steps?.find((s) => s.role === "applicant");
   if (!applicant?.email) return;
   await sendTo([applicant.email], `【振込完了】返金申請 ${app.applicationId}`,
