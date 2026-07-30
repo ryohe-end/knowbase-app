@@ -464,7 +464,10 @@ const unpaidCurrentBase = (clubClause) => `
     TRIM(f.振替結果コード) AS RESULT_CODE,
     ${UNPAID_NET_EXPR}   AS OUTSTANDING,
     NVL(f.年管理費金額,0) AS ANNUAL_FEE,
+    NVL(f.会費金額,0)     AS FEE_AMOUNT,
     k.会員区分名          AS PLAN_NAME,
+    c.会員区分コード      AS PLAN_CODE,
+    ff.契約形態名         AS FORM_NAME,
     c.退会日             AS WITHDRAWN_DATE,
     c.退会理由コード1     AS WITHDRAW_REASON1
   FROM FIT_ADMIN."振替契約別" f
@@ -472,6 +475,7 @@ const unpaidCurrentBase = (clubClause) => `
   INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
   LEFT  JOIN FIT_ADMIN."会員契約" c ON c.契約SEQ   = f.契約SEQ
   LEFT  JOIN FIT_ADMIN."会員区分" k ON k.会員区分コード = c.会員区分コード
+  LEFT  JOIN FIT_ADMIN."契約形態" ff ON ff.契約形態コード = f.契約形態コード
   WHERE ${clubClause}
     AND f.振替年月 >= :fromYm
     AND TRIM(f.振替結果コード) <> '0'
@@ -728,7 +732,10 @@ function buildUnpaidFurikae(type, rows) {
     resultCode: r.RESULT_CODE != null ? String(r.RESULT_CODE).trim() : null,
     outstanding: Number(r.OUTSTANDING) || 0,
     annualFee: Number(r.ANNUAL_FEE) || 0,        // ⑦ FIT365 セキュリティ費 = 年管理費
-    plan: r.PLAN_NAME ?? null,                    // ① 会員区分
+    feeAmount: Number(r.FEE_AMOUNT) || 0,        // 会費金額
+    plan: r.PLAN_NAME ?? null,                    // ① 会員区分(会員区分名)
+    planCode: r.PLAN_CODE != null ? Number(r.PLAN_CODE) : null, // 会員区分コード(1=会費/基本)
+    formName: r.FORM_NAME != null ? String(r.FORM_NAME).trim() || null : null, // 契約形態名
     // 退会日 99999999 は未退会(現役)のセンチネル → null 扱い
     withdrawnDate: (r.WITHDRAWN_DATE != null && String(r.WITHDRAWN_DATE).trim() !== "" && String(r.WITHDRAWN_DATE).trim() !== "99999999") ? String(r.WITHDRAWN_DATE).trim() : null,
     withdrawReason1: r.WITHDRAW_REASON1 != null ? String(r.WITHDRAW_REASON1).trim() : null,
@@ -743,10 +750,11 @@ function buildUnpaidFurikae(type, rows) {
       m = {
         memberNo: it.memberNo, memberName: it.memberName, kana: it.kana, email: it.email, phone: it.phone,
         clubCode: it.clubCode, plan: it.plan,
+        baseFormName: null, // 会員区分1(基本会費)の契約形態名
         unpaidCount: 0, outstanding: 0, annualFeeTotal: 0,
         oldestMonth: it.furikaeMonth, latestMonth: it.furikaeMonth,
         withdrawn: false, forced: false, withdrawReason1: null,
-        _contracts: new Set(), _months: new Map(),
+        _contracts: new Set(), _months: new Map(), _forms: new Map(),
       };
       byMember.set(key, m);
     }
@@ -760,13 +768,24 @@ function buildUnpaidFurikae(type, rows) {
     if (it.contractSeq != null) m._contracts.add(it.contractSeq);
     // 月別内訳 (振替年月ごとに純額を合算)
     if (it.furikaeMonth) m._months.set(it.furikaeMonth, (m._months.get(it.furikaeMonth) || 0) + it.outstanding);
+    // 会員区分1(基本会費)の契約形態名を会員区分列に使う
+    if (it.planCode === 1 && it.formName && !m.baseFormName) m.baseFormName = it.formName;
+    // 契約形態名別の内訳 (会費金額・未納純額を合算)。基本会費(区分1)＋オプション(区分90等)を分けて表示する。
+    const fkey = it.formName || it.plan || "その他";
+    let fb = m._forms.get(fkey);
+    if (!fb) { fb = { formName: it.formName || it.plan || "その他", planCode: it.planCode, isBase: it.planCode === 1, feeAmount: 0, outstanding: 0 }; m._forms.set(fkey, fb); }
+    fb.feeAmount += it.feeAmount; fb.outstanding += it.outstanding;
   }
   const members = [...byMember.values()]
     .map((m) => {
-      const { _contracts, _months, ...rest } = m;
+      const { _contracts, _months, _forms, ...rest } = m;
       rest.contractCount = _contracts.size;
+      // 会員区分列: 会員区分1(基本会費)の契約形態名。無ければ従来の会員区分名にフォールバック。
+      rest.plan = m.baseFormName || m.plan || null;
       // 月別内訳: 新しい順 (④ 1か月目/2か月目…)
       rest.monthlyBreakdown = [..._months.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)).map(([month, amount]) => ({ month, amount }));
+      // 契約形態別内訳: 基本会費(区分1)を先頭、以降オプションを金額降順。会費金額を主に表示。
+      rest.formBreakdown = [..._forms.values()].sort((a, b) => (b.isBase ? 1 : 0) - (a.isBase ? 1 : 0) || b.feeAmount - a.feeAmount);
       rest.unpaidMonths = _months.size; // 未納月数
       // ② ステータス: 過去強制退会(退会理由コード=42・暫定)→貸倒予定 / それ以外は未納月数
       rest.status = m.forced ? "貸倒予定" : `${_months.size}か月目`;

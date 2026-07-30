@@ -31,11 +31,13 @@ interface Summary {
   byMonth: MonthRow[];
   followup?: Followup; // ②未納(初回振替失敗)のその後
 }
+interface FormBreakdown { formName: string; planCode: number | null; isBase: boolean; feeAmount: number; outstanding: number }
 interface Member {
   memberNo: string; memberName: string | null; kana: string | null;
   email: string | null; phone: string | null; plan: string | null;
   status: string; outstanding: number; unpaidCount: number; unpaidMonths: number;
   monthlyBreakdown: { month: string; amount: number }[];
+  formBreakdown?: FormBreakdown[];
   annualFeeTotal: number; hasSecurityFee: boolean;
 }
 interface Schedule {
@@ -241,10 +243,12 @@ function UnpaidManager() {
     const d = await res.json();
     let rows: Member[] = d.members || [];
     if (bucket === "current" && statusFilter !== "all") rows = rows.filter((m) => statusCat(m.status) === statusFilter);
-    const header = ["会員番号", "名前", "未納金額", "電話番号", "メールアドレス", "会員区分", "ステータス", "セキュリティ費(年管理費)"];
+    const header = ["会員番号", "名前", "未納金額", "電話番号", "メールアドレス", "会員区分", "内訳(契約形態別・会費)", "ステータス", "セキュリティ費(年管理費)"];
     const lines = rows.map((m) => [
       m.memberNo, m.memberName ?? "", m.outstanding, m.phone ?? "", m.email ?? "",
-      m.plan ?? "", m.status, m.annualFeeTotal,
+      m.plan ?? "",
+      (m.formBreakdown ?? []).map((f) => `${f.isBase ? "会費" : "OP"}:${f.formName} ${f.feeAmount}`).join(" / "),
+      m.status, m.annualFeeTotal,
     ].map(csvEscape).join(","));
     const csv = "﻿" + [header.join(","), ...lines].join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -575,7 +579,7 @@ function UnpaidManager() {
                     <div className="up-panel-h">{mode === "club" ? clubName : mode === "area" ? (territory || area) : brand}（{filteredMembers.length}名{filteredMembers.length !== members.length ? ` / 全${members.length}名` : ""} ／ {listClubCodes.length}店舗） {tab === "csv" && <span className="up-muted">— CSV出力ボタンで上記条件のCSVをダウンロード</span>}</div>
                     <div style={{ overflowX: "auto" }}>
                       <table className="up-table">
-                        <thead><tr><th>会員区分</th><th>ステータス</th><th>会員番号</th><th>名前</th><th>未納金額</th><th>月別内訳</th><th>電話</th><th>メール</th><th>ｾｷｭﾘﾃｨ費</th></tr></thead>
+                        <thead><tr><th>会員区分</th><th>ステータス</th><th>会員番号</th><th>名前</th><th>未納金額</th><th>内訳（契約形態別・会費）</th><th>月別内訳</th><th>電話</th><th>メール</th><th>ｾｷｭﾘﾃｨ費</th></tr></thead>
                         <tbody>
                           {filteredMembers.map((m) => (
                             <tr key={m.memberNo}>
@@ -584,6 +588,15 @@ function UnpaidManager() {
                               <td><code>{m.memberNo}</code></td>
                               <td>{m.memberName}</td>
                               <td className="up-red">{yen(m.outstanding)}</td>
+                              <td className="up-bd">
+                                <div className="up-bd-wrap">
+                                  {(m.formBreakdown || []).map((f, i) => (
+                                    <span className="up-bd-chip" key={i} style={f.isBase ? { background: "#eef2ff", borderColor: "#c7d2fe", color: "#3730a3", fontWeight: 700 } : undefined} title={f.isBase ? "基本会費(会員区分1)" : "オプション"}>
+                                      {f.isBase ? "会費 " : "OP "}{f.formName} <b>{yen(f.feeAmount)}</b>
+                                    </span>
+                                  ))}
+                                </div>
+                              </td>
                               <td className="up-bd">
                                 <div className="up-bd-wrap">
                                   {(m.monthlyBreakdown || []).map((x) => (
@@ -596,7 +609,7 @@ function UnpaidManager() {
                               <td>{m.hasSecurityFee ? yen(m.annualFeeTotal) : "—"}</td>
                             </tr>
                           ))}
-                          {filteredMembers.length === 0 && <tr><td colSpan={9} className="up-muted">該当者がいません</td></tr>}
+                          {filteredMembers.length === 0 && <tr><td colSpan={10} className="up-muted">該当者がいません</td></tr>}
                         </tbody>
                       </table>
                     </div>

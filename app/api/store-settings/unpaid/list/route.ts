@@ -17,12 +17,14 @@ export interface UnpaidMember {
   email: string | null;
   phone: string | null;
   clubCode: string | null;
-  plan: string | null;                 // ① 会員区分
+  plan: string | null;                 // ① 会員区分 = 会員区分1(基本会費)の契約形態名
   status: string;                      // ② 1か月目/2か月目/貸倒予定
   outstanding: number;                 // ④ 未納合計
   unpaidCount: number;
   unpaidMonths: number;
   monthlyBreakdown: { month: string; amount: number }[]; // ④ 月別内訳
+  // 契約形態別内訳: 基本会費(区分1)＋オプション(区分90等)ごとの 会費金額・未納純額
+  formBreakdown: { formName: string; planCode: number | null; isBase: boolean; feeAmount: number; outstanding: number }[];
   annualFeeTotal: number;              // ⑦ FIT365 セキュリティ費(=年管理費)
   hasSecurityFee: boolean;
   contractCount: number;
