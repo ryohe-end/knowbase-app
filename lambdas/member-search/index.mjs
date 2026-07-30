@@ -1021,6 +1021,63 @@ export const handler = async (event) => {
     let conn;
     try {
       const pool = await getPool(); conn = await pool.getConnection();
+      // 全件CSVエクスポート: クエリを1回だけ実行し resultSet でストリーム構築 → gzip して base64 で返す。
+      // 会員単位31万行でも gzip 後は数MBに収まり Lambda応答6MB制限を回避できる(呼び出し側で解凍)。
+      if (params.gzip === "1") {
+        const zlib = await import("node:zlib");
+        const exSql = `
+          SELECT
+            a.対応年月 AS Y, a.委託先コード AS I, c.クラブコード AS CC, c.クラブ略称 AS CN,
+            c.カンパニー名 AS CO, b.会員番号 AS MN,
+            CASE a.入金区分コード WHEN 3 THEN '入金済み' WHEN 4 THEN '未納' END AS K,
+            COUNT(*) AS CNT, SUM(a.請求額) AS AMT
+          FROM FIT_ADMIN."会員入金歴" a
+          INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
+          INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
+          INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+          WHERE a.対応年月 = :ym AND a.入金区分コード IN (${kubunIn})
+          GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+          HAVING SUM(a.請求額) > 0
+          ORDER BY c.クラブコード, b.会員番号, a.入金区分コード`;
+        const t0 = Date.now();
+        const rs = (await conn.execute(exSql, { ym }, { outFormat: oracledb.OUT_FORMAT_OBJECT, resultSet: true })).resultSet;
+        const cell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+        const parts = ["対応年月,委託先コード,クラブコード,クラブ略称,カンパニー名,会員番号,集計種別,件数,請求額合計\r\n"];
+        let count = 0;
+        for (;;) {
+          const batch = await rs.getRows(2000);
+          if (batch.length === 0) break;
+          let chunk = "";
+          for (const x of batch) {
+            chunk += [x.Y, x.I, x.CC, cell(x.CN), cell(x.CO), x.MN, x.K, x.CNT, x.AMT].join(",") + "\r\n";
+          }
+          parts.push(chunk);
+          count += batch.length;
+        }
+        await rs.close();
+        const gz = zlib.gzipSync(Buffer.from(parts.join(""), "utf-8"));
+        return resp(200, { ym, count, queryMs: Date.now() - t0, gzB64: gz.toString("base64") });
+      }
+      if (params.countOnly === "1") {
+        const t0 = Date.now();
+        // 種別(入金済み/未納)ごとの 件数・金額の内訳を返す (会員×区分の集計行を種別で再集計)。
+        const cq = await conn.execute(
+          `SELECT 集計種別 AS K, COUNT(*) AS 件数, SUM(請求額合計) AS 金額 FROM (
+             SELECT CASE a.入金区分コード WHEN 3 THEN '入金済み' WHEN 4 THEN '未納' END AS 集計種別,
+                    SUM(a.請求額) AS 請求額合計
+             FROM FIT_ADMIN."会員入金歴" a
+             INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
+             INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
+             INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+             WHERE a.対応年月 = :ym AND a.入金区分コード IN (${kubunIn})
+             GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+             HAVING SUM(a.請求額) > 0
+           ) GROUP BY 集計種別`,
+          { ym }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+        const breakdown = (cq.rows || []).map((x) => ({ 集計種別: x.K, 件数: Number(x.件数) || 0, 金額: Number(x.金額) || 0 }));
+        const total = breakdown.reduce((s, x) => s + x.件数, 0);
+        return resp(200, { ym, total, breakdown, queryMs: Date.now() - t0 });
+      }
       const r = await conn.execute(sql, { ym, maxRow: offset + limit, off: offset }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       const rows = r.rows || [];
       return resp(200, { ym, offset, limit, rows, hasMore: rows.length === limit });
