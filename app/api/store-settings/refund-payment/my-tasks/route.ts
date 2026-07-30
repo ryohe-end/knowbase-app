@@ -38,7 +38,10 @@ export async function GET() {
   let items: RefundApplication[] = [];
   try {
     const res = await ddb.send(new ScanCommand({ TableName: TABLE }));
-    items = ((res.Items ?? []) as RefundApplication[]).filter((it) => isClubInScope(user, it.clubCode || ""));
+    items = ((res.Items ?? []) as RefundApplication[])
+      // サンプル/デモ(applicationId に "SEED" を含む)は対応依頼に出さない
+      .filter((it) => !/SEED/i.test(String(it.applicationId ?? "")))
+      .filter((it) => isClubInScope(user, it.clubCode || ""));
   } catch (e: any) {
     console.error("[refund my-tasks] scan error:", e?.message);
     return NextResponse.json({ ok: false, error: "DB error" }, { status: 500 });
@@ -47,8 +50,10 @@ export async function GET() {
   const sortNew = (a: RefundApplication, b: RefundApplication) => (b.createdAt || "").localeCompare(a.createdAt || "");
   const stepState = (it: RefundApplication, role: string) => it.steps?.find((s) => s.role === role)?.state;
 
+  // ★ 対応依頼(承認)は該当店舗の担当者のみに表示。clubCodes が空(全社管理者)には出さない。
+  const isStoreManagerFor = (clubCode: string) => user.clubCodes.length > 0 && user.clubCodes.includes(String(clubCode));
   const approverItems = canApprove(user)
-    ? items.filter((it) => stepState(it, "approver") === "対応中" && it.createdBy !== user.userId).sort(sortNew)
+    ? items.filter((it) => isStoreManagerFor(String(it.clubCode ?? "")) && stepState(it, "approver") === "対応中" && it.createdBy !== user.userId).sort(sortNew)
     : [];
   const financeItems = canFinance(user)
     ? items.filter((it) => stepState(it, "finance") === "対応中").sort(sortNew)
