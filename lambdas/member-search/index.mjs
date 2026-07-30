@@ -981,6 +981,54 @@ export const handler = async (event) => {
     } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
 
+  // 貸倒処理(経理連携): 対応年月ごとに 会員別の 入金済み(区分3)/未納(区分4) 請求額を集計。
+  // 未納(区分4)が貸倒処理の対象。委託先/クラブ/カンパニー単位で会員別に一覧化する。
+  // 会員単位のため行数が多く Lambda 応答上限(6MB)を超えるので offset/limit でページングする。
+  // 呼び出し側(API)が hasMore を見て全ページを取得し CSV に結合する。
+  if (type === "writeoff_summary") {
+    const ym = Number(params.ym || 0);
+    if (!ym || String(params.ym).length !== 6) return resp(400, { error: "missing_params", required: ["ym(YYYYMM)"] });
+    const limit = Math.min(Math.max(Number(params.limit) || 10000, 1), 20000);
+    const offset = Math.max(Number(params.offset) || 0, 0);
+    // 既定は貸倒対象=未納(入金区分4)のみ。includePaid=1 で入金済み(区分3)も含む(件数が桁違いに増える)。
+    const kubunIn = params.includePaid === "1" ? "3, 4" : "4";
+    // グループ化結果を ROWNUM ウィンドウでページング (Oracle)。
+    const sql = `
+      SELECT 対応年月, 委託先コード, クラブコード, クラブ略称, カンパニー名, 会員番号, 集計種別, 件数, 請求額合計
+      FROM (
+        SELECT g.*, ROWNUM rn FROM (
+          SELECT
+            a.対応年月 AS 対応年月,
+            a.委託先コード AS 委託先コード,
+            c.クラブコード AS クラブコード,
+            c.クラブ略称 AS クラブ略称,
+            c.カンパニー名 AS カンパニー名,
+            b.会員番号 AS 会員番号,
+            CASE a.入金区分コード WHEN 3 THEN '入金済み' WHEN 4 THEN '未納' END AS 集計種別,
+            COUNT(*) AS 件数,
+            SUM(a.請求額) AS 請求額合計
+          FROM FIT_ADMIN."会員入金歴" a
+          INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
+          INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
+          INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+          WHERE a.対応年月 = :ym
+            AND a.入金区分コード IN (${kubunIn})
+          GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+          HAVING SUM(a.請求額) > 0
+          ORDER BY c.クラブコード, b.会員番号, a.入金区分コード
+        ) g WHERE ROWNUM <= :maxRow
+      ) WHERE rn > :off`;
+    let conn;
+    try {
+      const pool = await getPool(); conn = await pool.getConnection();
+      const r = await conn.execute(sql, { ym, maxRow: offset + limit, off: offset }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      const rows = r.rows || [];
+      return resp(200, { ym, offset, limit, rows, hasMore: rows.length === limit });
+    } catch (err) {
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // 未納管理 ダッシュボード全体数値 (クラブ複数可・エリア合算用)
   if (type === "unpaid_summary") {
     const clubs = (params.clubCodes || params.clubCode || "")

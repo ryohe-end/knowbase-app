@@ -103,6 +103,23 @@ async function setup(adminCfg, roCfg) {
       log.push("idx_kojin_email already exists");
     }
 
+    // ③-2 貸倒処理(会員入金歴の月×入金区分 集計)の高速化インデックス。
+    // 会員入金歴 は 対応年月 単独で使える索引が無くフルスキャン(≈38s)になるため、
+    // (対応年月, 入金区分コード) を作成すると ≈1s に短縮できる(API Gateway 29s 制限内に収まる)。
+    // 注: 大テーブルのため作成に ~140秒かかる。Lambda timeout は 300s に設定済み。
+    const nyukinIdxExists = await exists(
+      conn,
+      `SELECT COUNT(*) FROM all_indexes
+        WHERE table_owner = 'FIT_ADMIN' AND table_name = '会員入金歴' AND index_name = 'IDX_NYUKIN_YM_KUBUN'`,
+      {}
+    );
+    if (!nyukinIdxExists) {
+      await conn.execute(`CREATE INDEX FIT_ADMIN.IDX_NYUKIN_YM_KUBUN ON FIT_ADMIN."会員入金歴"("対応年月", "入金区分コード")`);
+      log.push("idx_nyukin_ym_kubun created");
+    } else {
+      log.push("idx_nyukin_ym_kubun already exists");
+    }
+
     // ④ 統計情報更新 (オプティマイザのため)
     await conn.execute(
       `BEGIN DBMS_STATS.GATHER_TABLE_STATS('FIT_ADMIN', '個人'); END;`
@@ -219,6 +236,31 @@ async function describeColumns(adminCfg, cols) {
   }
 }
 
+// 指定テーブルのインデックス(列構成)を管理者権限で取得。event.table
+async function listIndexes(adminCfg, table) {
+  const conn = await oracledb.getConnection({
+    user: adminCfg.user,
+    password: adminCfg.password,
+    connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+  });
+  try {
+    const r = await conn.execute(
+      `SELECT i.index_name AS IDX, c.column_name AS COL, c.column_position AS POS
+         FROM all_indexes i JOIN all_ind_columns c
+           ON c.index_owner = i.owner AND c.index_name = i.index_name
+        WHERE i.table_owner = 'FIT_ADMIN' AND i.table_name = :t
+        ORDER BY i.index_name, c.column_position`,
+      { t: table }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+    const byIdx = {};
+    for (const x of r.rows || []) { (byIdx[x.IDX] ||= []).push(x.COL); }
+    return { ok: true, indexes: Object.entries(byIdx).map(([name, cols]) => ({ name, cols })) };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    try { await conn.close(); } catch (_) { /* noop */ }
+  }
+}
+
 // 指定テーブル名の配列に SELECT を grant する (存在確認付き)。
 async function grantTables(adminCfg, roCfg, tables) {
   const conn = await oracledb.getConnection({
@@ -262,6 +304,32 @@ export const handler = async (event) => {
     const r = await describeColumns(adminCfg, event.columns);
     console.log("describe result", JSON.stringify(r));
     return r;
+  }
+
+  if (event && event.action === "indexes" && event.table) {
+    const r = await listIndexes(adminCfg, event.table);
+    console.log("indexes result", JSON.stringify(r));
+    return r;
+  }
+
+  // 任意のインデックスを作成(存在時はスキップ)。作成時間を計測して返す。
+  // event = { action:"create_index", name, table, cols:"列1,列2" }
+  if (event && event.action === "create_index" && event.name && event.table && event.cols) {
+    const conn = await oracledb.getConnection({
+      user: adminCfg.user, password: adminCfg.password,
+      connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+    });
+    try {
+      const ex = await exists(conn, `SELECT COUNT(*) FROM all_indexes WHERE owner='FIT_ADMIN' AND index_name = :n`, { n: event.name });
+      if (ex) return { ok: true, skipped: "already exists" };
+      const t0 = Date.now();
+      const colList = String(event.cols).split(",").map((c) => `"${c.trim()}"`).join(", ");
+      await conn.execute(`CREATE INDEX FIT_ADMIN.${event.name} ON FIT_ADMIN."${event.table}"(${colList})`);
+      await conn.commit();
+      return { ok: true, created: event.name, ms: Date.now() - t0 };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    } finally { try { await conn.close(); } catch (_) {} }
   }
 
   if (event && event.action === "grant_tables" && Array.isArray(event.tables)) {

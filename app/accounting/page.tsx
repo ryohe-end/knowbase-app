@@ -20,6 +20,12 @@ const MENU: MenuItem[] = [
     color: "#7c3aed",
   },
   {
+    href: "/accounting/writeoff",
+    title: "貸倒処理（経理連携CSV）",
+    desc: "対応月を選び、会員別の入金済み・未納（＝貸倒対象）の請求額一覧を経理連携CSV（Shift-JIS）としてダウンロードします。",
+    color: "#b45309",
+  },
+  {
     href: "/store-settings/refund-payment/refund/finance",
     title: "返金の経理処理",
     desc: "承認済みの返金申請について、経理としての処理（確認・完了）を行います。",
