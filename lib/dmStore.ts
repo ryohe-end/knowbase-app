@@ -19,6 +19,7 @@ import {
   UpdateCommand,
   QueryCommand,
   BatchWriteCommand,
+  DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
@@ -29,14 +30,16 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
-export type DmCampaignStatus = "scheduled" | "sending" | "sent" | "failed" | "cancelled";
+export type DmCampaignStatus = "draft" | "scheduled" | "sending" | "sent" | "failed" | "cancelled";
 
 export interface DmCampaign {
   campaignId: string;
   clubCode: string;
+  clubCodes?: string[]; // 複数店舗配信の全店舗(下書き復元用)
   brand?: string;
   subject: string;
   body?: string;
+  bodyHtml?: string;    // 本文HTML(AI生成/ブロック。下書き復元用)
   imageUrl?: string;
   createdBy?: string;
   createdByName?: string;
@@ -106,6 +109,11 @@ export async function updateCampaignSendResult(
 }
 
 // 予約配信のキャンセル (status=cancelled)。
+// キャンペーンを削除 (下書きの破棄に使用)。宛先レコード(r#...)は残るが campaignId 単位で無害。
+export async function deleteCampaign(campaignId: string): Promise<void> {
+  await ddb.send(new DeleteCommand({ TableName: CAMPAIGNS_TABLE, Key: { campaignId } }));
+}
+
 export async function markCampaignCancelled(campaignId: string): Promise<void> {
   await ddb.send(new UpdateCommand({
     TableName: CAMPAIGNS_TABLE,

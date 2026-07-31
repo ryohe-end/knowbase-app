@@ -79,7 +79,7 @@ function DmSettingsInner() {
   const [sending, setSending] = useState(false);
   const [notifications, setNotifications] = useState<DmNotification[]>([]);
   const [histSearch, setHistSearch] = useState("");
-  const [histStatus, setHistStatus] = useState<"all" | "SENT" | "SCHEDULED">("all");
+  const [histStatus, setHistStatus] = useState<"all" | "DRAFT" | "SENT" | "SCHEDULED">("all");
   const filteredNotifications = useMemo(() => {
     const q = histSearch.trim().toLowerCase();
     return notifications.filter((n) => {
@@ -102,6 +102,7 @@ function DmSettingsInner() {
   // モーダル・表示モード
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"create" | "detail">("create");
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null); // 下書き再開中のID(保存/送信成功で旧下書きを削除)
   const [selectedHistory, setSelectedHistory] = useState<DmNotification | null>(null);
 
   // フォームState
@@ -248,7 +249,42 @@ function DmSettingsInner() {
     setHtmlBody("");
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
+    setEditingDraftId(null);
     setIsModalOpen(true);
+  };
+
+  // 下書きを再開: 保存内容(件名/本文HTML/店舗/宛先)を復元して編集フォームを開く。
+  const editDraft = async (n: DmNotification) => {
+    try {
+      const res = await fetch(`/api/store-settings/dm?id=${encodeURIComponent(n.id)}`, { cache: "no-store" });
+      const data = await res.json();
+      const d = data?.draft;
+      setViewMode("create");
+      setSelectedHistory(null);
+      setSubject(n.subject);
+      setBlocks([newTextBlock(n.body || "")]);
+      setHtmlBody(d?.bodyHtml || "");
+      if (Array.isArray(d?.clubCodes) && d.clubCodes.length) setSelectedClubs(d.clubCodes);
+      const recs: DmRecipient[] = (d?.recipients || [])
+        .filter((r: any) => r?.email)
+        .map((r: any) => ({ key: `d:${String(r.email).toLowerCase()}`, memberNo: "", name: r.name || "", email: r.email, contractType: "", status: "在籍中", source: "csv" as const, deliverable: true }));
+      setExtractedMembers(recs);
+      setSelectedMemberIds(new Set(recs.map((r) => r.key)));
+      setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
+      setEditingDraftId(n.id);
+      setIsModalOpen(true);
+    } catch { showToast("下書きの読み込みに失敗しました。", "error"); }
+  };
+
+  const deleteDraft = async (n: DmNotification) => {
+    if (!window.confirm("この下書きを削除しますか？")) return;
+    try {
+      const res = await fetch(`/api/store-settings/dm?campaignId=${encodeURIComponent(n.id)}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || "削除に失敗しました");
+      if (editingDraftId === n.id) setEditingDraftId(null);
+      fetchData();
+    } catch (e: any) { showToast(e?.message || "削除に失敗しました", "error"); }
   };
   // 予約配信の取り消し (SendGrid scheduled send をキャンセル)
   const cancelScheduledDm = async (n: DmNotification) => {
@@ -464,7 +500,8 @@ function DmSettingsInner() {
   const submit = async (isDraft: boolean) => {
     if (selectedClubs.length === 0) { showToast("担当店舗を選択してください。", "error"); return; }
     if (!subject || !bodyText) { showToast("件名と本文は必須です。", "error"); return; }
-    if (targetRecipients.length === 0) { showToast("配信可能な宛先(メール)がありません。", "error"); return; }
+    // 送信は宛先必須。下書きは宛先ゼロでも保存可(あとで抽出して再開できる)。
+    if (!isDraft && targetRecipients.length === 0) { showToast("配信可能な宛先(メール)がありません。", "error"); return; }
     // 送信前の確認 (下書きは除く)
     if (!isDraft) {
       const msg = isImmediate
@@ -504,6 +541,10 @@ function DmSettingsInner() {
           : `${data.sentCount}件に送信しました。`,
         "success"
       );
+      // 下書き再開から保存/送信した場合、元の下書きを削除(重複防止)。
+      if (editingDraftId && editingDraftId !== data.campaignId) {
+        await fetch(`/api/store-settings/dm?campaignId=${encodeURIComponent(editingDraftId)}`, { method: "DELETE" }).catch(() => {});
+      }
       setIsModalOpen(false);
       setSending(false);
       resetForm();
@@ -525,6 +566,7 @@ function DmSettingsInner() {
     setExtractedMembers([]); setSelectedMemberIds(new Set());
     setIsImmediate(true); setScheduledDate(""); setScheduledTime("");
     setExtractError("");
+    setEditingDraftId(null);
     if (csvInputRef.current) csvInputRef.current.value = "";
   };
 
@@ -558,7 +600,7 @@ function DmSettingsInner() {
           <div className="dm-hist-toolbar">
             <input className="dm-hist-search" placeholder="件名・クラブ・配信者で検索" value={histSearch} onChange={(e) => setHistSearch(e.target.value)} />
             <div className="dm-hist-tabs">
-              {([["all","すべて"],["SENT","完了"],["SCHEDULED","予約中"]] as const).map(([k, label]) => (
+              {([["all","すべて"],["DRAFT","下書き"],["SENT","完了"],["SCHEDULED","予約中"]] as const).map(([k, label]) => (
                 <button key={k} className={histStatus === k ? "on" : ""} onClick={() => setHistStatus(k)}>{label}</button>
               ))}
             </div>
@@ -584,20 +626,28 @@ function DmSettingsInner() {
                   <tr><td colSpan={9} className="empty-row">{notifications.length === 0 ? "配信履歴はありません" : "該当する配信はありません"}</td></tr>
                 ) : (
                   filteredNotifications.map((n) => (
-                    <tr key={n.id} onClick={() => openDetailModal(n)} className="clickable-row">
+                    <tr key={n.id} onClick={() => (n.status === 'DRAFT' ? editDraft(n) : openDetailModal(n))} className="clickable-row">
                       <td className="date-cell">{formatDate(n.scheduledAt)}</td>
                       <td className="subj-cell">{n.subject}</td>
                       <td className="club-cell" title={n.clubName || n.clubCode || ""}>{n.clubName || n.clubCode || "-"}</td>
                       <td className="sender-cell">{n.senderName || "-"}</td>
-                      <td><span className={`status-pill ${n.status.toLowerCase()}`}>{n.status === 'SENT' ? '完了' : '予約中'}</span></td>
+                      <td>{n.status === 'DRAFT'
+                        ? <span className="status-pill" style={{ background: '#fef3c7', color: '#b45309' }}>下書き</span>
+                        : <span className={`status-pill ${n.status.toLowerCase()}`}>{n.status === 'SENT' ? '完了' : '予約中'}</span>}</td>
                       <td>{n.stats?.targetCount || 0}</td>
-                      <td>{n.stats?.deliveredCount || 0}</td>
-                      <td>{n.stats && n.stats.deliveredCount > 0 ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
+                      <td>{n.status === 'DRAFT' ? '-' : (n.stats?.deliveredCount || 0)}</td>
+                      <td>{n.status !== 'DRAFT' && n.stats && n.stats.deliveredCount > 0 ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
                       <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                         {n.status === 'SCHEDULED' && (
                           <>
                             <button type="button" className="row-act edit" onClick={() => editScheduledDm(n)}>編集</button>
                             <button type="button" className="row-act del" onClick={() => cancelScheduledDm(n)}>削除</button>
+                          </>
+                        )}
+                        {n.status === 'DRAFT' && (
+                          <>
+                            <button type="button" className="row-act edit" onClick={() => editDraft(n)}>編集</button>
+                            <button type="button" className="row-act del" onClick={() => deleteDraft(n)}>削除</button>
                           </>
                         )}
                       </td>

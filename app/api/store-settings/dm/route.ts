@@ -20,6 +20,7 @@ import {
   listCampaigns,
   getCampaign,
   markCampaignCancelled,
+  deleteCampaign,
   listCampaignPeople,
   saveRecipients,
   newCampaignId,
@@ -101,7 +102,7 @@ function campaignToNotification(c: DmCampaign): DmNotification {
     body: c.body || "",
     imageUrl: c.imageUrl,
     targetType: "ALL",
-    status: c.status === "scheduled" ? "SCHEDULED" : "SENT",
+    status: c.status === "draft" ? "DRAFT" : c.status === "scheduled" ? "SCHEDULED" : "SENT",
     scheduledAt: c.scheduledAt || c.sentAt || c.createdAt,
     createdAt: c.createdAt,
     clubCode: c.clubCode,
@@ -142,7 +143,16 @@ export async function GET(req: Request) {
       const notification = campaignToNotification(c);
       notification.clubName = nameMap[c.clubCode] || c.clubCode;
       notification.people = people;
-      return NextResponse.json({ notification });
+      // 下書きは復元用データ(全店舗/本文HTML/宛先)を併せて返す。宛先は保存済みの people から復元。
+      const draft = c.status === "draft"
+        ? {
+            clubCodes: c.clubCodes && c.clubCodes.length ? c.clubCodes : [c.clubCode],
+            brand: c.brand,
+            bodyHtml: c.bodyHtml || "",
+            recipients: [...people.opened, ...people.unopened].map((p) => ({ email: p.email, name: p.name || "" })),
+          }
+        : undefined;
+      return NextResponse.json({ notification, draft });
     } catch (e: any) {
       console.error("[dm GET id] failed:", e?.message || e);
       return NextResponse.json({ notification: null });
@@ -226,13 +236,31 @@ export async function POST(req: Request) {
     .map((r) => ({ email: (r.email || "").trim(), name: (r.name || "").trim() }))
     .filter((r) => EMAIL_RE.test(r.email) && !seen.has(r.email) && seen.add(r.email));
 
-  if (recipients.length === 0) {
+  // 送信は宛先必須。下書きは宛先ゼロでも保存可。
+  if (!body.isDraft && recipients.length === 0) {
     return NextResponse.json({ ok: false, error: "有効な宛先メールがありません" }, { status: 400 });
   }
 
-  // 下書き: 送信せず件数だけ返す
+  // 下書き: DMキャンペーンとして status='draft' で保存(送信しない)。再開時に復元できるよう
+  // clubCodes / bodyHtml / 宛先も保存する。
   if (body.isDraft) {
-    return NextResponse.json({ ok: true, draft: true, targetCount: recipients.length });
+    const now = new Date();
+    const campaignId = newCampaignId(now);
+    try {
+      await createCampaign({
+        campaignId, clubCode, clubCodes, brand: body.brand,
+        subject, body: content, bodyHtml: body.bodyHtml || undefined, imageUrl: body.imageUrl,
+        createdBy: user.email, createdByName: (user as any).name,
+        targetCount: recipients.length, sentCount: 0, status: "draft",
+        createdAt: now.toISOString(),
+      } as DmCampaign);
+      if (recipients.length) await saveRecipients(campaignId, recipients);
+    } catch (e: any) {
+      console.error("[dm POST] draft save failed:", e?.message || e);
+      return NextResponse.json({ ok: false, error: "下書きの保存に失敗しました" }, { status: 500 });
+    }
+    void writeAudit({ userId: user.email, action: "dm.draft", clubCodes, targetCount: recipients.length, detail: { campaignId, subject }, ip: clientIp(req) });
+    return NextResponse.json({ ok: true, draft: true, campaignId, targetCount: recipients.length });
   }
 
   const sg = initSendGrid();
@@ -396,6 +424,12 @@ export async function DELETE(req: Request) {
   // 担当外クラブは不可 (admin=clubCodes空は全件)
   if (user.clubCodes.length > 0 && !user.clubCodes.includes(c.clubCode)) {
     return NextResponse.json({ ok: false, error: "担当外です" }, { status: 403 });
+  }
+  // 下書きは SendGrid 未登録なので即削除。
+  if (c.status === "draft") {
+    await deleteCampaign(campaignId).catch(() => {});
+    void writeAudit({ userId: user.email, action: "dm.draft.delete", clubCodes: [c.clubCode], detail: { campaignId }, ip: clientIp(req) });
+    return NextResponse.json({ ok: true, deleted: true });
   }
   if (c.status !== "scheduled") {
     return NextResponse.json({ ok: false, error: "予約中の配信のみ取り消せます（既に送信済み等）" }, { status: 409 });
