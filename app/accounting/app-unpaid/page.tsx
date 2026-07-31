@@ -47,13 +47,18 @@ export default function AppUnpaidPage() {
     setLoading(true); setError(null); setSummary(null);
     try {
       const res = await fetch(`/api/accounting/app-unpaid?from=${from}&to=${to}`, { cache: "no-store" });
-      const json = await res.json();
+      // 応答が空/非JSONでも落ちないよう安全にパースする
+      const text = await res.text();
+      let json: any = null;
+      try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+      if (!json) { setError("集計の取得がタイムアウトした可能性があります。時間をおいて「集計を表示」を押すか、CSVは下のボタンから直接ダウンロードできます。"); return; }
       if (!res.ok || !json.ok) { setError(json?.message || json?.error || `取得に失敗 (${res.status})`); return; }
       setSummary(json.summary || []);
     } catch (e: any) { setError(e?.message || "取得に失敗しました"); }
     finally { setLoading(false); }
   }
-  useEffect(() => { if (authState === "ok") loadSummary(); /* eslint-disable-next-line */ }, [authState]);
+  // ※ 集計は接続に時間がかかる場合があるため自動実行しない（CSVは集計なしでDL可）。
+  //   ユーザーが「集計を表示」を押したときだけ取得する。
 
   function downloadCsv(brand: string) {
     window.location.href = `/api/accounting/app-unpaid?format=csv&brand=${brand}&from=${from}&to=${to}`;
@@ -91,8 +96,9 @@ export default function AppUnpaidPage() {
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
           </label>
           <button onClick={loadSummary} disabled={loading} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
-            {loading ? "集計中…" : "集計を表示"}
+            {loading ? "集計中…（数秒〜十数秒）" : "件数・金額を集計"}
           </button>
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>※ 集計しなくても下のCSVはダウンロードできます</span>
         </div>
 
         {error && (

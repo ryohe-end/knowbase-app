@@ -20,6 +20,8 @@ const BASE_JOIN = `FROM unpaid_history uh
   INNER JOIN shop_convert_view spv ON spv.town_shop_id=sb.shop_id
   INNER JOIN shop sp ON sp.shop_id=sb.shop_id`;
 const MAX_ROWS = 100000;
+const SUMMARY_TTL = 5 * 60 * 1000;
+const summaryCache = new Map<string, { at: number; summary: any[] }>();
 
 const ymd = (s: string | null) => (s && /^\d{4}-?\d{2}-?\d{2}$/.test(s) ? s.replace(/-/g, "") : null);
 const csvCell = (v: unknown) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -74,7 +76,12 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // サマリ: ブランド別 件数・金額
+  // サマリ: ブランド別 件数・金額 (短期キャッシュ。踏み台SSHの立ち上げに時間がかかるため)
+  const cacheKey = `${from || ""}|${to || ""}`;
+  const cached = summaryCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < SUMMARY_TTL) {
+    return NextResponse.json({ ok: true, from, to, summary: cached.summary, cached: true });
+  }
   const summary = await Promise.all(Object.entries(TARGET).map(async ([brand, target]) => {
     try {
       const res = await sshBatch(target, [
@@ -87,5 +94,6 @@ export async function GET(req: NextRequest) {
       return { brand, count: 0, total: 0, error: e?.message || "error" };
     }
   }));
+  summaryCache.set(cacheKey, { at: Date.now(), summary });
   return NextResponse.json({ ok: true, from, to, summary });
 }
