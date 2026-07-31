@@ -87,6 +87,9 @@ export default function NewPushPage() {
   const [isImmediate, setIsImmediate] = useState(true);
   const [scheduledDate, setScheduledDate] = useState("");
   const [scheduledTime, setScheduledTime] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");     // 「詳しくはこちら」ボタンのURL(任意)
+  const [endDate, setEndDate] = useState("");       // 掲載終了日(任意。空=既定90日)
+  const [endTime, setEndTime] = useState("");       // 掲載終了時刻(任意。空=23:59)
   // テスト送信
   const [testMembers, setTestMembers] = useState("");
   const [testingPush, setTestingPush] = useState(false);
@@ -308,6 +311,8 @@ export default function NewPushPage() {
     try {
       const scheduledAt =
         !isImmediate && scheduledDate && scheduledTime ? `${scheduledDate} ${scheduledTime}` : undefined;
+      // 掲載終了(JST 'YYYY-MM-DD HH:mm')。日付のみ指定時は 23:59 まで。空なら未指定(APIが既定90日)。
+      const endAt = endDate ? `${endDate} ${endTime || "23:59"}` : undefined;
       const res = await fetch("/api/store-settings/push", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -318,10 +323,12 @@ export default function NewPushPage() {
           title,
           body: bodyText,
           contentHtml: noticeHtml || undefined, // AI生成HTML優先、無ければブロック本文HTML(画像位置指定)
+          linkUrl: linkUrl.trim() || undefined, // 「詳しくはこちら」ボタンのURL
           targetType: "CONDITION",
           appUserIds: targetAppUserIds,
           isImmediate,
           scheduledAt,
+          endAt,
           isDraft,
         }),
       });
@@ -529,6 +536,34 @@ export default function NewPushPage() {
               )}
               <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>
                 ※ 配信可能時間は 8:00〜21:00 です。NGワードを含む内容は送信できません。
+              </p>
+
+              {/* 掲載終了(お知らせの表示期間の終わり)。空なら既定90日。 */}
+              <div style={{ marginTop: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 4 }}>掲載終了日時（任意）</label>
+                <div className="push-row-2">
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                </div>
+                <p style={{ margin: "6px 0 0", fontSize: 11, color: "#94a3b8" }}>
+                  指定日時にアプリのお知らせ掲載を終了します。時刻を空にすると 23:59 まで。<b>未指定は約90日</b>で自動終了します。
+                </p>
+              </div>
+            </div>
+
+            {/* 「詳しくはこちら」ボタンのリンク先URL */}
+            <div className="push-step-group">
+              <div className="push-step-header"><div className="push-step-badge" style={{ background: "#8b5cf6" }}>→</div><h3>「詳しくはこちら」リンク（任意）</h3></div>
+              <input
+                type="url"
+                className="push-input"
+                placeholder="https://example.com/campaign （LPのURL）"
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                style={{ width: "100%" }}
+              />
+              <p style={{ margin: "6px 0 0", fontSize: 11, color: "#94a3b8" }}>
+                入力すると、アプリのお知らせに「詳しくはこちら」ボタンが表示され、このURL（LP等）へ遷移します。空欄ならボタンは表示されません。
               </p>
             </div>
 
