@@ -6,6 +6,18 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Encoding from "encoding-japanese";
+
+// Shift-JIS(CP932)・BOM無しでCSVをダウンロード(会計システム/Excel取込前提)
+function downloadSjis(filename: string, content: string) {
+  const sjis = Encoding.convert(Encoding.stringToCode(content), { to: "SJIS", from: "UNICODE" });
+  const blob = new Blob([new Uint8Array(sjis)], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+const csvCell = (v: unknown) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
 type Sum = { brand: string; count: number; total: number; error?: string };
 
@@ -60,8 +72,27 @@ export default function AppUnpaidPage() {
   // ※ 集計は接続に時間がかかる場合があるため自動実行しない（CSVは集計なしでDL可）。
   //   ユーザーが「集計を表示」を押したときだけ取得する。
 
-  function downloadCsv(brand: string) {
-    window.location.href = `/api/accounting/app-unpaid?format=csv&brand=${brand}&from=${from}&to=${to}`;
+  const [dl, setDl] = useState<string | null>(null);
+  const COLS = ["会員番号", "金額", "支払日", "支払時刻", "注文ID", "店舗コード", "店舗名", "ブランド"] as const;
+  async function downloadCsv(brand: string) {
+    setDl(brand); setError(null);
+    try {
+      const res = await fetch(`/api/accounting/app-unpaid?rows=1&brand=${brand}&from=${from}&to=${to}`, { cache: "no-store" });
+      const text = await res.text();
+      let json: any = null;
+      try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+      if (!json) { setError("明細の取得がタイムアウトした可能性があります。時間をおいて再度お試しください。"); return; }
+      if (!res.ok || !json.ok) { setError(json?.message || json?.error || `取得に失敗 (${res.status})`); return; }
+      const rows: any[] = json.rows || [];
+      const header = COLS.join(",");
+      // 注文IDは長い数値のためExcelで指数表記にならないよう ="..." でテキスト固定
+      const lines = rows.map((r) =>
+        COLS.map((c) => (c === "注文ID" ? `="${String(r[c]).replace(/"/g, '""')}"` : csvCell(r[c]))).join(",")
+      );
+      const csv = [header, ...lines].join("\r\n") + "\r\n";
+      downloadSjis(`${brand}_APP未納金支払_${month}.csv`, csv);
+    } catch (e: any) { setError(e?.message || "ダウンロードに失敗しました"); }
+    finally { setDl(null); }
   }
 
   if (authState === "loading") return <div style={{ padding: 40, color: "#94a3b8" }}>読み込み中…</div>;
@@ -124,8 +155,8 @@ export default function AppUnpaidPage() {
                   </div>
                 </div>
                 {s?.error && <div style={{ fontSize: 11, color: "#b91c1c", marginBottom: 8 }}>取得エラー: {s.error}</div>}
-                <button onClick={() => downloadCsv(b.key)} style={{ width: "100%", padding: "10px", background: b.color, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
-                  ⬇ {b.key} APP未納金支払 CSV
+                <button onClick={() => downloadCsv(b.key)} disabled={dl === b.key} style={{ width: "100%", padding: "10px", background: b.color, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: dl === b.key ? "default" : "pointer", opacity: dl === b.key ? 0.6 : 1 }}>
+                  {dl === b.key ? "作成中…（数秒〜十数秒）" : `⬇ ${b.key} APP未納金支払 CSV`}
                 </button>
               </div>
             );

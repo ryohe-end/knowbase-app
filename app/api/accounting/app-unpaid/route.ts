@@ -9,7 +9,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAccounting } from "@/lib/accountingAuth";
 import { sshBatch } from "@/lib/sshDbProxy";
-import Encoding from "encoding-japanese";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +23,6 @@ const SUMMARY_TTL = 5 * 60 * 1000;
 const summaryCache = new Map<string, { at: number; summary: any[] }>();
 
 const ymd = (s: string | null) => (s && /^\d{4}-?\d{2}-?\d{2}$/.test(s) ? s.replace(/-/g, "") : null);
-const csvCell = (v: unknown) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-const toSjis = (s: string) => new Uint8Array(Encoding.convert(Encoding.stringToCode(s), { to: "SJIS", from: "UNICODE" }));
 
 function whereClause(from: string | null, to: string | null) {
   const clauses = ["uh.path_type='APP'", "uh.paid_flg=1"];
@@ -44,8 +41,8 @@ export async function GET(req: NextRequest) {
   const to = ymd(sp.get("to"));
   const { sql, params } = whereClause(from, to);
 
-  // CSV: 指定ブランドの明細
-  if (sp.get("format") === "csv") {
+  // 明細取得(CSVは画面側でSJIS生成する。SSRのバイナリ応答はAmplify経由で文字化けし得るため)
+  if (sp.get("rows") === "1") {
     const brand = String(sp.get("brand") || "").toUpperCase();
     const target = TARGET[brand];
     if (!target) return NextResponse.json({ ok: false, error: "brand must be JOYFIT or FIT365" }, { status: 400 });
@@ -60,20 +57,13 @@ export async function GET(req: NextRequest) {
     } catch (e: any) {
       return NextResponse.json({ ok: false, error: "db_unreachable", message: e?.message || null }, { status: 502 });
     }
-    const header = ["会員番号", "金額", "支払日", "支払時刻", "注文ID", "店舗コード", "店舗名", "ブランド"];
-    const lines = rows.map((r) => [
-      r.uid, r.amount, r.insert_date, r.insert_time, r.order_id, r.casio_shop_id, r.name, brand,
-    ].map(csvCell).join(","));
-    const csv = [header.join(","), ...lines].join("\r\n") + "\r\n";
-    const period = `${from || "all"}-${to || "all"}`;
-    const filename = `${brand}_APP未納金支払_${period}.csv`;
-    return new Response(toSjis(csv) as any, {
-      headers: {
-        "Content-Type": "text/csv; charset=Shift_JIS",
-        "Content-Disposition": `attachment; filename="appUnpaid_${brand}_${period}.csv"; filename*=UTF-8''${encodeURIComponent(filename)}`,
-        "Cache-Control": "no-store",
-      },
-    });
+    const out = rows.map((r) => ({
+      会員番号: String(r.uid ?? ""), 金額: Number(r.amount) || 0,
+      支払日: String(r.insert_date ?? ""), 支払時刻: String(r.insert_time ?? ""),
+      注文ID: String(r.order_id ?? ""), 店舗コード: String(r.casio_shop_id ?? ""),
+      店舗名: String(r.name ?? ""), ブランド: brand,
+    }));
+    return NextResponse.json({ ok: true, brand, count: out.length, truncated: out.length >= MAX_ROWS, rows: out });
   }
 
   // サマリ: ブランド別 件数・金額 (短期キャッシュ。踏み台SSHの立ち上げに時間がかかるため)
