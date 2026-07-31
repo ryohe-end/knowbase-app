@@ -6,10 +6,10 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import Encoding from "encoding-japanese";
 
-// Shift-JIS(CP932)・BOM無しでCSVをダウンロード(会計システム/Excel取込前提)
-function downloadSjis(filename: string, content: string) {
+// Shift-JIS(CP932)・BOM無しでCSVをダウンロード。encoding-japanese は必要時に動的import。
+async function downloadSjis(filename: string, content: string) {
+  const Encoding = (await import("encoding-japanese")).default;
   const sjis = Encoding.convert(Encoding.stringToCode(content), { to: "SJIS", from: "UNICODE" });
   const blob = new Blob([new Uint8Array(sjis)], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
@@ -23,6 +23,7 @@ type Sum = { brand: string; count: number; total: number; error?: string };
 
 // 選択した年月(YYYY-MM) → その月の初日/末日(YYYY-MM-DD)
 function monthRange(month: string): { from: string; to: string } {
+  if (!/^\d{4}-\d{2}$/.test(month)) return { from: "", to: "" };
   const [y, m] = month.split("-").map(Number);
   const end = new Date(y, m, 0).getDate();
   return { from: `${month}-01`, to: `${month}-${String(end).padStart(2, "0")}` };
@@ -37,8 +38,10 @@ const BRANDS = [
 export default function AppUnpaidPage() {
   const router = useRouter();
   const [authState, setAuthState] = useState<"loading" | "ok" | "forbidden">("loading");
-  // 対象年月(既定は先月)
-  const [month, setMonth] = useState(() => defaultMonth(new Date()));
+  // 対象年月。SSRとクライアントで new Date() がズレるとハイドレーション不一致になるため、
+  // 初期は空にし、マウント後(クライアント)に既定=先月をセットする。
+  const [month, setMonth] = useState("");
+  useEffect(() => { if (!month) setMonth(defaultMonth(new Date())); }, [month]);
   const { from, to } = monthRange(month);
   const [summary, setSummary] = useState<Sum[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -90,7 +93,7 @@ export default function AppUnpaidPage() {
         COLS.map((c) => (c === "注文ID" ? `="${String(r[c]).replace(/"/g, '""')}"` : csvCell(r[c]))).join(",")
       );
       const csv = [header, ...lines].join("\r\n") + "\r\n";
-      downloadSjis(`${brand}_APP未納金支払_${month}.csv`, csv);
+      await downloadSjis(`${brand}_APP未納金支払_${month}.csv`, csv);
     } catch (e: any) { setError(e?.message || "ダウンロードに失敗しました"); }
     finally { setDl(null); }
   }
