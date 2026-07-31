@@ -1092,7 +1092,7 @@ function DmSettingsInner() {
         /* MODAL (3カラム) */
         .dm-modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.5); z-index: 2000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
         .dm-modal-window { background: #fff; width: 98vw; height: 92vh; max-height: 900px; border-radius: 16px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.4); }
-        .dm-modal-body-tri { flex: 1; display: grid; grid-template-columns: 360px 1fr 400px; min-height: 0; background: #f1f5f9; }
+        .dm-modal-body-tri { flex: 1; display: grid; grid-template-columns: 360px 1fr 400px; grid-template-rows: minmax(0, 1fr); min-height: 0; background: #f1f5f9; }
 
         /* COLUMN 1: CONFIG */
         .dm-col-config { background: #fff; border-right: 1px solid #e2e8f0; display: flex; flex-direction: column; height: 100%; overflow: hidden; }
