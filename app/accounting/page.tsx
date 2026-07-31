@@ -22,8 +22,14 @@ const MENU: MenuItem[] = [
   {
     href: "/accounting/writeoff",
     title: "貸倒処理（経理連携CSV）",
-    desc: "対応月を選び、会員別の入金済み・未納（＝貸倒対象）の請求額一覧を経理連携CSV（Shift-JIS）としてダウンロードします。",
+    desc: "会員別の未納（＝貸倒対象）一覧を、対象月の1年1ヶ月前の対応年月分でCSV（Shift-JIS）ダウンロードします（毎月1日に事前生成）。",
     color: "#b45309",
+  },
+  {
+    href: "/accounting/app-unpaid",
+    title: "APP未納金支払",
+    desc: "アプリで支払われた未納金の実績を、JOYFIT / FIT365 それぞれCSV（Shift-JIS）でダウンロードします。",
+    color: "#0ea5e9",
   },
   {
     href: "/store-settings/refund-payment/refund/finance",

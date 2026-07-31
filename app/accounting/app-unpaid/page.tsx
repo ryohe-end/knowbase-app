@@ -1,0 +1,133 @@
+"use client";
+
+// 経理: APP未納金支払。期間を選び、JOYFIT / FIT365 それぞれの明細CSVをダウンロードする。
+//   - データ源は入会DB(ecojoy/fit365entry)の unpaid_history(APP,paid) 実績。
+//   - サマリ(件数・金額)を表示し、ブランド別に2つのCSVダウンロードを提供。
+import React, { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+
+type Sum = { brand: string; count: number; total: number; error?: string };
+
+function firstOfMonth(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; }
+function lastOfMonth(d: Date) { const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`; }
+
+const BRANDS = [
+  { key: "JOYFIT", color: "#1d4ed8", bg: "#dbeafe" },
+  { key: "FIT365", color: "#be185d", bg: "#fce7f3" },
+];
+
+export default function AppUnpaidPage() {
+  const router = useRouter();
+  const [authState, setAuthState] = useState<"loading" | "ok" | "forbidden">("loading");
+  // 既定は先月
+  const prev = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
+  const [from, setFrom] = useState(firstOfMonth(prev));
+  const [to, setTo] = useState(lastOfMonth(prev));
+  const [summary, setSummary] = useState<Sum[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const json = await res.json();
+        if (res.ok && json?.user?.canViewAccounting) setAuthState("ok");
+        else { setAuthState("forbidden"); setTimeout(() => router.replace("/"), 1500); }
+      } catch { setAuthState("forbidden"); setTimeout(() => router.replace("/"), 1500); }
+    })();
+  }, [router]);
+
+  async function loadSummary() {
+    setLoading(true); setError(null); setSummary(null);
+    try {
+      const res = await fetch(`/api/accounting/app-unpaid?from=${from}&to=${to}`, { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || !json.ok) { setError(json?.message || json?.error || `取得に失敗 (${res.status})`); return; }
+      setSummary(json.summary || []);
+    } catch (e: any) { setError(e?.message || "取得に失敗しました"); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { if (authState === "ok") loadSummary(); /* eslint-disable-next-line */ }, [authState]);
+
+  function downloadCsv(brand: string) {
+    window.location.href = `/api/accounting/app-unpaid?format=csv&brand=${brand}&from=${from}&to=${to}`;
+  }
+
+  if (authState === "loading") return <div style={{ padding: 40, color: "#94a3b8" }}>読み込み中…</div>;
+  if (authState === "forbidden") {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>
+        <p style={{ fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>経理管理へのアクセス権がありません</p>
+        <p style={{ fontSize: 13 }}>経理担当・経理権限をお持ちの方のみ閲覧できます。トップへ戻ります…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#fcfdfe" }}>
+      <div style={{ height: 64, background: "rgba(255,255,255,0.9)", borderBottom: "1px solid #e2e8f0", display: "flex", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{ width: "100%", maxWidth: 1000, margin: "0 auto", padding: "0 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 800, color: "#0f172a" }}>APP未納金支払</div>
+          <Link href="/accounting" style={{ textDecoration: "none", background: "#fff", border: "1px solid #e2e8f0", padding: "6px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#64748b" }}>← 経理管理へ戻る</Link>
+        </div>
+      </div>
+
+      <main style={{ maxWidth: 1000, margin: "0 auto", padding: "40px 32px" }}>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "inline-block", fontSize: 10, fontWeight: 800, letterSpacing: "0.15em", color: "#0ea5e9", background: "#f0f9ff", padding: "4px 10px", borderRadius: 4, marginBottom: 12 }}>APP UNPAID</div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: "#0f172a", margin: "0 0 6px" }}>APP未納金支払</h1>
+          <p style={{ fontSize: 14, color: "#64748b", margin: 0 }}>アプリで支払われた未納金の実績を、JOYFIT / FIT365 それぞれCSV（Shift-JIS）でダウンロードします。</p>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20, display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>期間（支払日）</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+              <span style={{ color: "#94a3b8" }}>〜</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
+            </div>
+          </label>
+          <button onClick={loadSummary} disabled={loading} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
+            {loading ? "集計中…" : "集計を表示"}
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "14px 18px", marginBottom: 20, color: "#b91c1c", fontSize: 13 }}>
+            <strong style={{ fontWeight: 800 }}>取得できませんでした。</strong> {error}
+          </div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
+          {BRANDS.map((b) => {
+            const s = summary?.find((x) => x.brand === b.key);
+            return (
+              <div key={b.key} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20 }}>
+                <div style={{ display: "inline-block", fontSize: 12, fontWeight: 800, color: b.color, background: b.bg, padding: "3px 12px", borderRadius: 999, marginBottom: 12 }}>{b.key}</div>
+                <div style={{ display: "flex", gap: 20, marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>件数</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{summary ? (s?.count ?? 0).toLocaleString() : "—"}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 700 }}>金額</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "#0f172a" }}>{summary ? `¥${(s?.total ?? 0).toLocaleString()}` : "—"}</div>
+                  </div>
+                </div>
+                {s?.error && <div style={{ fontSize: 11, color: "#b91c1c", marginBottom: 8 }}>取得エラー: {s.error}</div>}
+                <button onClick={() => downloadCsv(b.key)} style={{ width: "100%", padding: "10px", background: b.color, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: "pointer" }}>
+                  ⬇ {b.key} APP未納金支払 CSV
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <p style={{ fontSize: 11, color: "#94a3b8", marginTop: 16 }}>※ CSVは Shift-JIS。列: 会員番号 / 金額 / 支払日 / 支払時刻 / 注文ID / 店舗コード / 店舗名 / ブランド。全店対象・指定期間の全件（最大10万件）。</p>
+      </main>
+    </div>
+  );
+}
