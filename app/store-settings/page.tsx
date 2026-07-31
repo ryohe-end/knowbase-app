@@ -64,6 +64,17 @@ export default function StoreSettingsMenu() {
   // 目的別カテゴリでまとめる。配信 / 申請・お金 / 店舗・アプリ設定 の3グループ。
   const menuGroups = [
     {
+      category: "店舗・アプリ設定",
+      items: [
+        { title: "アプリ基本設定", desc: "店舗情報・機能フラグ・解錠機器・マシンリスト・ポイント/料金/未納などの店舗機能をまとめて管理します。", href: "/store-settings/basic", icon: <CogIcon />, color: "#3b82f6" },
+        { title: "規約管理", desc: "利用規約・プライバシーポリシーなどの法的文書を編集・更新します。", href: "/store-settings/terms", icon: <DocumentTextIcon />, color: "#8b5cf6" },
+        { title: "店舗詳細管理", desc: "Web入会システムの管理者メニュー（入会情報・退会機能・メール設定等）。", href: "/store-settings/admin-portal", icon: <StorefrontIcon />, color: "#e11d48", comingSoon: true },
+        ...(isAdmin
+          ? [{ title: "操作監査ログ", desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴（管理者専用）。", href: "/store-settings/audit", icon: <ShieldIcon />, color: "#64748b" }]
+          : []),
+      ],
+    },
+    {
       category: "会員への配信",
       items: [
         { title: "PUSH通知", desc: "会員向けPUSH通知の作成・配信・履歴を管理します。", href: "/store-settings/push", icon: <BellIcon />, color: "#10b981" },
@@ -74,17 +85,6 @@ export default function StoreSettingsMenu() {
       category: "申請・お金",
       items: [
         { title: "返金・入金申請", desc: "返金申請・未納金の入金登録と、その承認・経理処理を行います。", href: "/store-settings/refund-payment", icon: <BanknotesIcon />, color: "#0ea5e9", comingSoon: true },
-      ],
-    },
-    {
-      category: "店舗・アプリ設定",
-      items: [
-        { title: "アプリ基本設定", desc: "店舗情報・機能フラグ・解錠機器・マシンリスト・ポイント/料金/未納などの店舗機能をまとめて管理します。", href: "/store-settings/basic", icon: <CogIcon />, color: "#3b82f6" },
-        { title: "規約管理", desc: "利用規約・プライバシーポリシーなどの法的文書を編集・更新します。", href: "/store-settings/terms", icon: <DocumentTextIcon />, color: "#8b5cf6" },
-        { title: "店舗詳細管理", desc: "Web入会システムの管理者メニュー（入会情報・退会機能・メール設定等）。", href: "/store-settings/admin-portal", icon: <StorefrontIcon />, color: "#e11d48", comingSoon: true },
-        ...(isAdmin
-          ? [{ title: "操作監査ログ", desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴（管理者専用）。", href: "/store-settings/audit", icon: <ShieldIcon />, color: "#64748b" }]
-          : []),
       ],
     },
   ] as { category: string; items: { title: string; desc: string; href: string; icon: React.ReactNode; color: string; comingSoon?: boolean }[] }[];
