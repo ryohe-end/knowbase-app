@@ -173,10 +173,19 @@ CREATE PIPE pipe_clubs AUTO_INGEST = TRUE AS
 
 ## 6. 差分・冪等の方針
 - クラブ(A): 件数小（数百）→ **全件洗い替え**（S3に全件出力し Snowflake で TRUNCATE+COPY か MERGE）。
-- 1day/OTP(B/C/D): **`insert_date/insert_dt` の高水位で差分抽出**。`STATE_TABLE` に前回値を保持。
-- Snowflake 側は主キー（1day=`token+serial_number`、OTP=`access_key+seq`）で `MERGE` し、
-  更新（消し込み等でのステータス変化）も取り込む（差分は insert 基準なので、更新反映が必要なら
-  当日分＋直近N日を毎回洗い替える「ローリングウィンドウ」も検討）。
+- 1day/OTP/option(B/C/D): **「更新日時」高水位で差分抽出**。insert だけでなく状態変化の日時も含めた
+  各イベント日時の **最大(GREATEST) をカーソル**にして、消し込み等のステータス変化も差分で拾う。
+  - 1day: `GREATEST(insert_date+time, use_date+time)`（char14）。使用(use_date)を捕捉。
+  - OTP : `GREATEST(insert_dt, start_dt)`。使用(start_dt)を捕捉。
+  - option: `GREATEST(ticket_create_dt, payment_dt, consume_dt, cxl_date)`。購入/支払/使用/返金を捕捉。
+  - `STATE_TABLE` に前回の最大カーソル値を保持。
+- Snowflake 側は主キー（1day=`token+serial_number`、OTP=`access_key+seq`、option=`ticket_order_id+ticket_code`）で
+  `V_*` ビューが loaded_at 最新に重複排除（＝実質 MERGE）。更新行は新しい loaded_at で上書きされる。
+- **残差（日時が付かない状態変化）**: OTPの取消(`ticket_stat=D`)・1dayの期限切(`is_expired`)/削除(`del_flg`)は
+  タイムスタンプ列が無く上記カーソルでは拾えない。→ **ローリングウィンドウを実装済**: 差分パスに続けて
+  「直近N日に insert された行」を毎晩再取得する第2パスを OTP/1day に追加(高水位は動かさない)。N=`ROLLING_DAYS`(既定30)。
+  短命チケットなので30日で概ねカバー。dgtkは`cxl_date`等で返金まで差分で拾えるためローリング不要。
+  - 負荷: ローリングは直近N日分を毎晩再取得するため転送量は増えるが、ssh-db-proxyの1接続1クエリ・LIMITページングは維持(接続枯渇にはならない)。Nを詰めれば軽くなる。
 
 ---
 

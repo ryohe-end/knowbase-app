@@ -40,7 +40,10 @@ const ndjson = (rows) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
 let __partSeq = 0;
 async function putNdjson(source, dt, rows) {
   if (rows.length === 0) return { source, count: 0, key: null };
-  const key = `${source}/dt=${dt}/part-${Date.now()}-${__partSeq++}.ndjson.gz`;
+  // source の '#' は S3接頭辞では '/' に正規化。oneday#fit365→oneday/fit365, option#dgtk→option/dgtk
+  // これで Snowpipe(接頭辞 oneday/ , option/)に前方一致する(onetimepass/clubs/recess は '#' 無しで不変)。
+  const prefix = source.replace("#", "/");
+  const key = `${prefix}/dt=${dt}/part-${Date.now()}-${__partSeq++}.ndjson.gz`;
   await s3.send(new PutObjectCommand({
     Bucket: BUCKET, Key: key, Body: gzipSync(Buffer.from(ndjson(rows), "utf8")),
     ContentType: "application/x-ndjson", ContentEncoding: "gzip",
@@ -126,40 +129,63 @@ async function exportClubs(dt) {
 //    (ecojoy には one_day_ticket が無い)。Lambda応答6MB制限のため LIMIT 4000 でループ。
 const ONEDAY_LIMIT = 8000;    // 応答6MB制限内(約2.4MB)に収める
 const BATCH_SLEEP_MS = 2500;  // バッチ間の待機。踏み台sshd(MaxStartups)の連続接続を緩和
+// ローリングウィンドウ: 日時が付かない状態変化(OTP取消D / 1day期限切is_expired・削除del_flg)を担保するため
+//   直近N日にinsertされた行を毎晩再取得する(短命チケットなのでN=30日で概ねカバー)。高水位は動かさない。
+const ROLLING_DAYS = Number(process.env.ROLLING_DAYS || 30);
+const lookbackYmd = (days) => { const d = new Date(Date.now() + 9 * 3600e3 - days * 86400e3); const p = (n) => String(n).padStart(2, "0"); return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}`; }; // char8 JST
+const lookbackIso = (days) => new Date(Date.now() - days * 86400e3).toISOString();
 async function exportOneday(dt) {
   const results = [];
+  // 更新日時カーソル _upd = 挿入(insert_date+time) と 使用(use_date+time) の最大(char14 YYYYMMDDHHMMSS)。
+  //   消し込み(use_date/use_timeセット)も差分で再取得できる。※期限切(is_expired)/削除(del_flg)はフラグのみで
+  //   日時が無いため差分では拾えない→ローリングウィンドウで担保(後述)。
+  const INS_1DAY = `CONCAT(t.insert_date, LPAD(COALESCE(NULLIF(t.insert_time,''),'0'),6,'0'))`;   // 挿入 char14
+  const UPD_1DAY = `GREATEST(${INS_1DAY},
+        CONCAT(COALESCE(NULLIF(t.use_date,''),'00000000'), LPAD(COALESCE(NULLIF(t.use_time,''),'0'),6,'0')))`; // 挿入 vs 使用 の最大
+  // 金額: 店舗の1day価格を各チケットに相乗せ。base_price=定価(one_day_shop_price_classification)、
+  //   cp_price=購入日に有効だったキャンペーン価格(one_day_cp_price)。単価=COALESCE(cp,base)。
+  const COLS = `t.token, t.serial_number, t.uuid, t.shop_id, spv.casio_shop_id, t.member_no, t.cmember_no,
+                t.use_date, t.use_time, t.purchase_date, t.purchase_time, t.expiration_date, t.expiration_time,
+                t.is_expired, t.payment_flg, t.del_flg, t.insert_date, t.insert_time,
+                cl.price AS base_price,
+                (SELECT cp.price FROM one_day_cp_price cp
+                   WHERE cp.shop_id = t.shop_id AND cp.delete_flg = 0
+                     AND cp.cp_start_date <= t.purchase_date AND cp.cp_end_date >= t.purchase_date
+                   ORDER BY cp.seq DESC LIMIT 1) AS cp_price`;
+  const FROM = `FROM one_day_ticket t
+                LEFT JOIN shop_convert_view spv ON spv.town_shop_id = t.shop_id
+                LEFT JOIN one_day_shop_price_classification cl ON cl.shop_id = t.shop_id`;
   for (const [brand, target] of [["fit365", "fit365entry"]]) {
     const source = `oneday#${brand}`;
-    const startHw = await getHighWater(source);
-    let curDate = startHw || "00000000";
-    let curTime = "000000";
-    let maxHw = startHw || "00000000";
-    let got = 0;
+    const emit = (rows, key) => putNdjson(source, dt, rows.map((r) => { const { [key]: _drop, ...rest } = r; return { ...rest, brand }; }));
+    // (1) 差分パス: 更新日時 _upd > 前回高水位。新規＋使用(消し込み)を取得し高水位を前進。
+    let cur = (await getHighWater(source)) || "00000000000000";
+    let maxHw = cur, got = 0;
     while (true) {
-      const rows = await proxy(
-        target,
-        `SELECT t.token, t.serial_number, t.uuid, t.shop_id, spv.casio_shop_id, t.member_no, t.cmember_no,
-                t.use_date, t.use_time, t.purchase_date, t.purchase_time, t.expiration_date, t.expiration_time,
-                t.is_expired, t.payment_flg, t.del_flg, t.insert_date, t.insert_time
-           FROM one_day_ticket t
-           LEFT JOIN shop_convert_view spv ON spv.town_shop_id = t.shop_id
-          WHERE (t.insert_date > ?) OR (t.insert_date = ? AND t.insert_time > ?)
-          ORDER BY t.insert_date, t.insert_time
-          LIMIT ${ONEDAY_LIMIT}`,
-        [curDate, curDate, curTime]
-      );
+      const rows = await proxy(target,
+        `SELECT ${COLS}, ${UPD_1DAY} AS _upd ${FROM} WHERE ${UPD_1DAY} > ? ORDER BY _upd LIMIT ${ONEDAY_LIMIT}`, [cur]);
       if (rows.length === 0) break;
-      await putNdjson(source, dt, rows.map((r) => ({ ...r, brand })));
-      const last = rows[rows.length - 1];
-      curDate = String(last.insert_date);
-      curTime = String(last.insert_time);
-      if (curDate > maxHw) maxHw = curDate;
+      await emit(rows, "_upd");
+      cur = String(rows[rows.length - 1]._upd); if (cur > maxHw) maxHw = cur;
       got += rows.length;
       if (rows.length < ONEDAY_LIMIT) break;
       await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
     }
     await setHighWater(source, maxHw, got);
-    results.push({ source, count: got });
+    // (2) ローリングパス: 直近N日にinsertされた行を再取得(期限切/削除フラグ変化を担保)。高水位は動かさない。
+    const lb = lookbackYmd(ROLLING_DAYS);
+    let insCur = lb + "000000", rgot = 0;
+    while (true) {
+      const rows = await proxy(target,
+        `SELECT ${COLS}, ${INS_1DAY} AS _ins ${FROM} WHERE t.insert_date >= ? AND ${INS_1DAY} > ? ORDER BY _ins LIMIT ${ONEDAY_LIMIT}`,
+        [lb, insCur]);
+      if (rows.length === 0) break;
+      await emit(rows, "_ins");
+      insCur = String(rows[rows.length - 1]._ins); rgot += rows.length;
+      if (rows.length < ONEDAY_LIMIT) break;
+      await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
+    }
+    results.push({ source, count: got, rolling: rgot });
   }
   return results;
 }
@@ -169,32 +195,38 @@ const OTP_LIMIT = 8000;
 const OPTION_LIMIT = 5000;
 async function exportOnetimepass(dt) {
   const source = "onetimepass";
-  const startHw = await getHighWater(source);
-  let cur = startHw || "1970-01-01T00:00:00Z";
-  let maxHw = cur;
-  let got = 0;
+  // 更新日時カーソル: 挿入 と 使用(start_dt) の最大。使用への遷移(start_dtセット)も差分で拾う。
+  //   ※取消(ticket_stat=D)は日時が付かないため差分では拾えない→(2)ローリングウィンドウで担保。
+  const UPD_OTP = `greatest(t.insert_dt, coalesce(t.start_dt, t.insert_dt))`;
+  const COLS = `t.access_key, t.seq, t.club_cd, t.ticket_stat, t.max_hour, t.amount, t.order_id,
+                t.start_dt, t.end_dt, t.insert_dt, u.mail_address, u.name`;
+  const FROM = `from t1pass.ticket_tbl t left join t1pass.user_tbl u on u.access_key = t.access_key`;
+  // (1) 差分パス: 更新日時 > 前回高水位。新規＋使用を取得し高水位を前進。
+  let cur = (await getHighWater(source)) || "1970-01-01T00:00:00Z";
+  let maxHw = cur, got = 0;
   while (true) {
-    const rows = await proxy(
-      "onetimepass",
-      `select t.access_key, t.seq, t.club_cd, t.ticket_stat, t.max_hour, t.amount, t.order_id,
-              t.start_dt, t.end_dt, t.insert_dt, u.mail_address, u.name
-         from t1pass.ticket_tbl t
-         left join t1pass.user_tbl u on u.access_key = t.access_key
-        where t.insert_dt > $1::timestamptz
-        order by t.insert_dt
-        limit ${OTP_LIMIT}`,
-      [cur]
-    );
+    const rows = await proxy("onetimepass",
+      `select ${COLS}, ${UPD_OTP} as _upd_dt ${FROM} where ${UPD_OTP} > $1::timestamptz order by _upd_dt limit ${OTP_LIMIT}`, [cur]);
     if (rows.length === 0) break;
-    await putNdjson(source, dt, rows);
-    cur = rows[rows.length - 1].insert_dt;
-    if (cur > maxHw) maxHw = cur;
+    await putNdjson(source, dt, rows.map((r) => { const { _upd_dt, ...rest } = r; return rest; }));
+    cur = rows[rows.length - 1]._upd_dt; if (cur > maxHw) maxHw = cur;
     got += rows.length;
     if (rows.length < OTP_LIMIT) break;
     await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
   }
   await setHighWater(source, maxHw, got);
-  return { source, count: got };
+  // (2) ローリングパス: 直近N日insertを再取得(取消D等=日時なし変化を担保)。高水位は動かさない。
+  let insCur = lookbackIso(ROLLING_DAYS), rgot = 0;
+  while (true) {
+    const rows = await proxy("onetimepass",
+      `select ${COLS} ${FROM} where t.insert_dt > $1::timestamptz order by t.insert_dt limit ${OTP_LIMIT}`, [insCur]);
+    if (rows.length === 0) break;
+    await putNdjson(source, dt, rows);
+    insCur = rows[rows.length - 1].insert_dt; rgot += rows.length;
+    if (rows.length < OTP_LIMIT) break;
+    await new Promise((r) => setTimeout(r, BATCH_SLEEP_MS));
+  }
+  return { source, count: got, rolling: rgot };
 }
 
 // D) オプション都度利用(デジタルチケット OPTN): dgtk_sys.ticket を ticket_create_dt 高水位で差分。
@@ -207,15 +239,23 @@ async function exportOption(dt) {
   let maxHw = cur;
   let got = 0;
   while (true) {
+    // 更新日時カーソル _upd_dt = 各イベント日時の最大(購入/支払/使用/返金)。
+    //   これで消し込み(consume_dt)・返金(cxl_date)等の“状態変化”も差分で再取得できる(insert基準の穴を埋める)。
+    //   ※型は環境で date/timestamptz が混在しうるので ::timestamptz に正規化。有効化前にドライランで要検証。
+    const UPD_DGTK = `greatest(ticket_create_dt,
+              coalesce(ticket_payment_dt::timestamptz,'epoch'::timestamptz),
+              coalesce(ticket_consume_dt::timestamptz,'epoch'::timestamptz),
+              coalesce(ticket_cxl_date::timestamptz,'epoch'::timestamptz))`;
     const rows = await proxy(
       "dgtk_sys",
       `select ticket_order_id, ticket_code, ticket_holder_id, coupon_code, brand, usage,
               ticket_name, ticket_status, ticket_source, ticket_fix_club, ticket_sales_club,
               ticket_retail_price, club_income, ticket_create_dt, ticket_payment_dt,
-              ticket_start_dt, ticket_consume_dt, ticket_cxl_date, ticket_expire, ticket_sales_date
+              ticket_start_dt, ticket_consume_dt, ticket_cxl_date, ticket_expire, ticket_sales_date,
+              ${UPD_DGTK} as _upd_dt
          from dgtk_sys.ticket
-        where usage = 'OPTN' and ticket_create_dt > $1::timestamptz
-        order by ticket_create_dt
+        where usage = 'OPTN' and ${UPD_DGTK} > $1::timestamptz
+        order by _upd_dt
         limit ${OPTION_LIMIT}`,
       [cur]
     );
@@ -229,8 +269,8 @@ async function exportOption(dt) {
       const mrows = await proxy("pson", `select person_id, member_id from person_tbl where person_id in (${ph})`, chunk);
       for (const m of mrows) memberByHolder[String(m.person_id)] = m.member_id != null ? String(m.member_id) : null;
     }
-    await putNdjson(source, dt, rows.map((r) => ({ ...r, member_id: memberByHolder[String(r.ticket_holder_id)] ?? null })));
-    cur = rows[rows.length - 1].ticket_create_dt;
+    await putNdjson(source, dt, rows.map((r) => { const { _upd_dt, ...rest } = r; return { ...rest, member_id: memberByHolder[String(r.ticket_holder_id)] ?? null }; }));
+    cur = rows[rows.length - 1]._upd_dt;   // 更新日時カーソルで前進(状態変化も拾う)
     if (cur > maxHw) maxHw = cur;
     got += rows.length;
     if (rows.length < OPTION_LIMIT) break;
@@ -262,12 +302,22 @@ async function exportRecess(dt) {
 
 export const handler = async (event = {}) => {
   const dt = event.date || jstDate();
-  const out = [];
-  out.push(await exportClubs(dt));
-  out.push(...(await exportOneday(dt)));
-  out.push(await exportOnetimepass(dt));
-  out.push(await exportOption(dt));
-  out.push(await exportRecess(dt));
-  console.log("[snowflake-export]", JSON.stringify({ dt, out }));
-  return { ok: true, dt, results: out };
+  // event.sources=["option#dgtk", ...] で対象を絞れる(段階検証・部分再実行用)。未指定は全ソース。
+  const want = Array.isArray(event.sources) && event.sources.length ? new Set(event.sources) : null;
+  const enabled = (name) => !want || want.has(name);
+  const out = [], errors = [];
+  // ソース単位でエラー隔離(1ソースの失敗で他を止めない)
+  const run = async (name, fn) => {
+    if (!enabled(name)) return;
+    try { const r = await fn(); out.push(...(Array.isArray(r) ? r : [r])); }
+    catch (e) { errors.push({ source: name, error: e?.message || String(e) }); console.error(`[snowflake-export] ${name}:`, e?.message || e); }
+  };
+  await run("clubs", () => exportClubs(dt));
+  await run("oneday#fit365", () => exportOneday(dt));
+  await run("onetimepass", () => exportOnetimepass(dt));
+  await run("option#dgtk", () => exportOption(dt));
+  await run("recess", () => exportRecess(dt));
+  const res = { ok: errors.length === 0, dt, results: out, errors };
+  console.log("[snowflake-export]", JSON.stringify(res));
+  return res;
 };
