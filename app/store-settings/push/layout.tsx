@@ -166,16 +166,17 @@ export default function PushLayout({ children }: { children: React.ReactNode }) 
         .push-preview-badge.app { background: #E26E9D; }
 
         /* ロック画面 */
-        .push-phone-mockup.lock { height: auto; min-height: 300px; background: linear-gradient(180deg, #0b1120 0%, #1e293b 60%, #334155 100%); padding-bottom: 22px; }
+        .push-phone-mockup.lock { height: 500px; background: linear-gradient(180deg, #0b1120 0%, #1e293b 60%, #334155 100%); padding-bottom: 22px; }
         .push-screen.lock-screen { gap: 14px; }
         .push-lock-time { text-align: center; margin-top: 20px; color: #fff; }
         .push-lock-clock { font-size: 40px; font-weight: 800; line-height: 1; letter-spacing: 0.02em; }
         .push-lock-date { font-size: 12px; font-weight: 600; opacity: 0.85; margin-top: 4px; }
         .push-lock-hint { font-size: 10px; color: rgba(255,255,255,0.6); text-align: center; margin-top: 2px; }
 
-        /* アプリ内お知らせ */
-        .push-phone-mockup.app { height: auto; min-height: 360px; background: #0f172a; padding: 22px 10px 14px; }
-        .push-screen.app-screen { gap: 0; background: #f1f5f9; border-radius: 18px; overflow: hidden; margin-top: 14px; }
+        /* アプリ内お知らせ: スマホ枠は固定高さ。長いお知らせは枠内でスクロールさせる(枠が伸びない) */
+        .push-phone-mockup.app { height: 500px; display: flex; flex-direction: column; background: #0f172a; padding: 22px 10px 14px; }
+        .push-screen.app-screen { flex: 1; min-height: 0; gap: 0; background: #f1f5f9; border-radius: 18px; overflow-x: hidden; overflow-y: auto; margin-top: 14px; }
+        .push-app-bar { position: sticky; top: 0; z-index: 1; }
         .push-app-bar { display: grid; grid-template-columns: 24px 1fr 24px; align-items: center; padding: 12px 12px; color: #fff; }
         .push-app-bar-back { font-size: 20px; font-weight: 800; line-height: 1; }
         .push-app-bar-title { font-size: 13px; font-weight: 800; text-align: center; }
