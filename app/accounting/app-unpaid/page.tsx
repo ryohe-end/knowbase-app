@@ -9,8 +9,13 @@ import { useRouter } from "next/navigation";
 
 type Sum = { brand: string; count: number; total: number; error?: string };
 
-function firstOfMonth(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`; }
-function lastOfMonth(d: Date) { const e = new Date(d.getFullYear(), d.getMonth() + 1, 0); return `${e.getFullYear()}-${String(e.getMonth() + 1).padStart(2, "0")}-${String(e.getDate()).padStart(2, "0")}`; }
+// 選択した年月(YYYY-MM) → その月の初日/末日(YYYY-MM-DD)
+function monthRange(month: string): { from: string; to: string } {
+  const [y, m] = month.split("-").map(Number);
+  const end = new Date(y, m, 0).getDate();
+  return { from: `${month}-01`, to: `${month}-${String(end).padStart(2, "0")}` };
+}
+function defaultMonth(d: Date) { const p = new Date(d.getFullYear(), d.getMonth() - 1, 1); return `${p.getFullYear()}-${String(p.getMonth() + 1).padStart(2, "0")}`; }
 
 const BRANDS = [
   { key: "JOYFIT", color: "#1d4ed8", bg: "#dbeafe" },
@@ -20,10 +25,9 @@ const BRANDS = [
 export default function AppUnpaidPage() {
   const router = useRouter();
   const [authState, setAuthState] = useState<"loading" | "ok" | "forbidden">("loading");
-  // 既定は先月
-  const prev = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1);
-  const [from, setFrom] = useState(firstOfMonth(prev));
-  const [to, setTo] = useState(lastOfMonth(prev));
+  // 対象年月(既定は先月)
+  const [month, setMonth] = useState(() => defaultMonth(new Date()));
+  const { from, to } = monthRange(month);
   const [summary, setSummary] = useState<Sum[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,12 +87,8 @@ export default function AppUnpaidPage() {
 
         <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 20, marginBottom: 20, display: "flex", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>期間（支払日）</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
-              <span style={{ color: "#94a3b8" }}>〜</span>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
-            </div>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>対象年月（支払日）</span>
+            <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14 }} />
           </label>
           <button onClick={loadSummary} disabled={loading} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
             {loading ? "集計中…" : "集計を表示"}
