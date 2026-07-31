@@ -186,8 +186,8 @@ export default function StoreSettingsMenu() {
           margin-bottom: 14px;
         }
 
-        .kb-card-heading { font-size: 16px; font-weight: 800; margin: 0 0 8px 0; }
-        .kb-card-subtext { font-size: 12.5px; color: #64748b; line-height: 1.6; margin: 0; }
+        .kb-card-heading { font-size: 16px; font-weight: 800; margin: 0 0 8px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .kb-card-subtext { font-size: 12.5px; color: #64748b; line-height: 1.6; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 40px; }
         .kb-card-footer { padding: 12px 22px; background: #fcfdfe; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
         .kb-action-label { font-size: 12px; font-weight: 700; color: #94a3b8; }
         .kb-action-icon { font-size: 16px; color: #cbd5e1; }
