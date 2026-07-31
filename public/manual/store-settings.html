@@ -181,7 +181,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
     <div class="t">店舗設定<br>運用マニュアル</div>
   </div>
-  <div class="ver">VERSION 4.1 ／ 2026-07-31</div>
+  <div class="ver">VERSION 4.2 ／ 2026-08-01</div>
   <nav id="toc">
     <div class="lbl">はじめに</div>
     <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. 権限・クラブコード</a>
@@ -356,6 +356,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <li><div class="n">4</div><div class="c"><div class="t">③ ターゲットを抽出する</div><p>条件グループで対象を指定し <span class="ui pri">条件で名簿を作成</span> を押します。<b>在籍状況は既定で「在籍中」のみ</b>チェックされています。詳細は下の「ターゲット抽出」を参照。</p></div></li>
     <li><div class="n">5</div><div class="c"><div class="t">宛先リストを確認する</div><p>中央の宛先リストには<b>配信可能な人だけ</b>が並びます（通知トークン・許諾のない会員は自動で対象外）。チェックのオン/オフで最終的な送信対象を調整できます。</p></div></li>
     <li><div class="n">6</div><div class="c"><div class="t">④ 配信日時を決める</div><p><span class="ui">即時送信</span> または <span class="ui">予約配信</span>（日付・時刻を指定）を選びます。</p><p class="hint">配信可能時間は <b>8:00〜21:00</b>。21時以降・早朝は送信できません。</p></div></li>
+    <li><div class="n">7</div><div class="c"><div class="t">掲載終了日時・「詳しくはこちら」リンク（任意）</div><p><b>掲載終了日時</b>を指定すると、その日時でアプリの「お知らせ」掲載が自動終了します（時刻を空にするとその日の23:59まで、<b>未指定は約90日</b>で自動終了）。<br><b>「詳しくはこちら」リンク</b>にURL（LP等）を入れると、お知らせに<span class="ui">詳しくはこちら</span>ボタンが表示され、そのURLへ遷移します（空欄ならボタンなし）。</p><p class="hint">例：月初のクレカ変更案内で、確定時期の前日23:59を終了日時に設定し、案内LPをリンクに設定。</p></div></li>
     <li class="done"><div class="n">✓</div><div class="c"><div class="t">確認して送信</div><p><span class="ui">内容を確認する</span> でロック画面PUSHとお知らせの2種プレビューを確認し、<span class="ui pri">今すぐ送信する</span>（または <span class="ui pri">予約配信を確定する</span>）で確定します。</p><p class="hint">NGワードを含む・時間外の場合はエラーが表示され送信されません。<span class="ui">下書き保存</span> も可能です。</p></div></li>
   </ol>
 
@@ -384,25 +385,73 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg></div>
     <div><div class="kick">Section 3</div><h2>DM（メール配信）</h2></div>
   </div>
-  <p class="lead">会員へHTMLメールを配信し、開封率・クリック率を計測します。ターゲット抽出の考え方はPush通知と共通です。</p>
+  <p class="lead">会員へHTMLメールを配信し、開封率・クリック率を計測します。作成画面は<b>3カラム（左＝設定 / 中＝宛先リスト / 右＝メールプレビュー）</b>。ターゲット抽出の考え方はPush通知と共通です。</p>
   <div class="flow">
     <div class="node start">DM一覧</div><span class="arrow">→</span>
     <div class="node">新規作成</div><span class="arrow">→</span>
-    <div class="node">店舗選択</div><span class="arrow">→</span>
+    <div class="node">店舗・内容</div><span class="arrow">→</span>
     <div class="node">ターゲット</div><span class="arrow">→</span>
-    <div class="node">確認</div><span class="arrow">→</span>
+    <div class="node">今すぐ / 予約 / 下書き</div><span class="arrow">→</span>
     <div class="node end">送信</div><span class="arrow">→</span>
     <div class="node">開封率・クリック率</div>
+  </div>
+  <div class="shot">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span class="ttl">DM送信 › 新規作成</span><span class="url">store-settings › dm</span></div>
+    <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,sans-serif">
+      <rect width="720" height="360" fill="#f1f5f9"/>
+      <!-- 左: 設定カラム -->
+      <rect x="12" y="12" width="300" height="336" rx="10" fill="#fff" stroke="#e7e9ee"/>
+      <text x="28" y="36" font-size="12" font-weight="800" fill="#15181e">① 配信店舗（複数選択可）</text>
+      <rect x="28" y="44" width="268" height="26" rx="7" fill="#eef0ff" stroke="#d5d8ff"/><text x="40" y="61" font-size="10" fill="#3f37c9">FIT365 / 直営 / エリアで絞込 ＋ 検索</text>
+      <text x="28" y="92" font-size="12" font-weight="800" fill="#15181e">② 件名・本文</text>
+      <rect x="28" y="100" width="268" height="22" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="38" y="115" font-size="10" fill="#9aa1ac">件名</text>
+      <rect x="28" y="126" width="268" height="34" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="38" y="141" font-size="10" fill="#9aa1ac">本文</text>
+      <rect x="200" y="100" width="96" height="22" rx="6" fill="#e9f9f1" stroke="#b6ecd4"/><text x="248" y="115" font-size="9.5" font-weight="700" fill="#0f9d6b" text-anchor="middle">✦ AIでHTML</text>
+      <text x="28" y="182" font-size="12" font-weight="800" fill="#15181e">③ ターゲット抽出</text>
+      <rect x="28" y="190" width="128" height="20" rx="10" fill="#eef0ff"/><text x="92" y="204" font-size="9" fill="#3f37c9" text-anchor="middle">性別/来館/年代/在籍</text>
+      <rect x="160" y="190" width="136" height="20" rx="10" fill="#eef0ff"/><text x="228" y="204" font-size="9" fill="#3f37c9" text-anchor="middle">契約種別/形態/未納</text>
+      <rect x="28" y="216" width="268" height="26" rx="8" fill="#15181e"/><text x="162" y="233" font-size="10.5" font-weight="800" fill="#fff" text-anchor="middle">条件で名簿を作成</text>
+      <text x="28" y="266" font-size="12" font-weight="800" fill="#15181e">④ 配信タイミング</text>
+      <rect x="28" y="274" width="130" height="22" rx="7" fill="#eef2ff" stroke="#c7d2fe"/><text x="93" y="289" font-size="9.5" fill="#3730a3" text-anchor="middle">● 今すぐ</text>
+      <rect x="164" y="274" width="132" height="22" rx="7" fill="#f7f8fa" stroke="#e7e9ee"/><text x="230" y="289" font-size="9.5" fill="#6b7280" text-anchor="middle">○ 予約配信(日時)</text>
+      <!-- footer -->
+      <rect x="12" y="312" width="300" height="36" rx="0" fill="#fff" stroke="#eef0f4"/>
+      <rect x="150" y="320" width="74" height="22" rx="7" fill="#fff" stroke="#cbd5e1"/><text x="187" y="335" font-size="9.5" font-weight="700" fill="#475569" text-anchor="middle">下書き保存</text>
+      <rect x="230" y="320" width="70" height="22" rx="7" fill="#3b82f6"/><text x="265" y="335" font-size="9.5" font-weight="800" fill="#fff" text-anchor="middle">配信する</text>
+      <!-- 中: 宛先リスト -->
+      <rect x="322" y="12" width="200" height="336" rx="10" fill="#f8fafc" stroke="#e7e9ee"/>
+      <text x="338" y="36" font-size="11" font-weight="800" fill="#15181e">宛先リスト（メール保有）</text>
+      <text x="338" y="52" font-size="9" fill="#9aa1ac">配信可 128 名 / うち選択 128</text>
+      <g font-size="10" fill="#3d434e">
+        <rect x="332" y="62" width="180" height="24" rx="6" fill="#fff" stroke="#e7e9ee"/><text x="344" y="78">☑ 田中 太郎</text>
+        <rect x="332" y="90" width="180" height="24" rx="6" fill="#fff" stroke="#e7e9ee"/><text x="344" y="106">☑ 佐藤 花子</text>
+        <rect x="332" y="118" width="180" height="24" rx="6" fill="#fff" stroke="#e7e9ee"/><text x="344" y="134">☑ 鈴木 一郎</text>
+        <rect x="332" y="146" width="180" height="24" rx="6" fill="#fff" stroke="#e7e9ee"/><text x="344" y="162">☑ 高橋 実</text>
+      </g>
+      <text x="338" y="188" font-size="9" fill="#9aa1ac">…CSVアップロードでも追加可</text>
+      <!-- 右: メールプレビュー -->
+      <rect x="532" y="12" width="176" height="336" rx="10" fill="#cbd5e1" stroke="#e7e9ee"/>
+      <text x="548" y="34" font-size="11" font-weight="800" fill="#334155">メールプレビュー</text>
+      <rect x="548" y="44" width="144" height="286" rx="10" fill="#fff" stroke="#b8c2cf"/>
+      <rect x="560" y="56" width="120" height="52" rx="6" fill="#eef0ff"/><text x="620" y="86" font-size="9" fill="#3f37c9" text-anchor="middle">ヘッダー画像</text>
+      <rect x="560" y="116" width="120" height="12" rx="3" fill="#1e293b"/><text x="562" y="126" font-size="8" fill="#fff">件名テキスト</text>
+      <rect x="560" y="136" width="120" height="8" rx="2" fill="#e2e8f0"/>
+      <rect x="560" y="150" width="110" height="8" rx="2" fill="#e2e8f0"/>
+      <rect x="560" y="164" width="118" height="8" rx="2" fill="#e2e8f0"/>
+      <rect x="590" y="290" width="60" height="22" rx="6" fill="#3b82f6"/><text x="620" y="305" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">詳しくはこちら</text>
+    </svg>
+    <div class="cap"><b>左</b>＝設定（店舗/件名・本文/ターゲット/配信タイミング＋下書き保存）、<b>中</b>＝宛先リスト（メール保有者のみ・CSV追加可）、<b>右</b>＝HTMLメールのプレビュー。</div>
   </div>
 
   <h3 id="dm-ops">詳しい操作手順</h3>
   <ol class="ops">
-    <li><div class="n">1</div><div class="c"><div class="t">DMを新規作成</div><p><span class="path">店舗設定<span class="sep">›</span>DM送信</span> を開き <span class="ui pri">新規作成</span>。<span class="ui">件名</span> と <span class="ui">本文</span> を入力します。</p></div></li>
-    <li><div class="n">2</div><div class="c"><div class="t">画像・AIでリッチに（任意）</div><p>ヘッダー画像をアップロードすると、メール内に自動で埋め込まれます。<span class="ui go">✦ AIでHTMLメールを作成</span> でおしゃれなHTMLメールを生成できます。</p></div></li>
-    <li><div class="n">3</div><div class="c"><div class="t">配信店舗とターゲットを指定</div><p><b>配信店舗</b>は複数選択可。<b>ターゲット抽出</b>はPush通知と同じ条件で指定します。宛先リストには<b>有効なメールを持つ人だけ</b>が並びます。</p></div></li>
-    <li class="done"><div class="n">✓</div><div class="c"><div class="t">確認して送信・効果測定</div><p>内容を確認して <span class="ui pri">配信する</span>（または <span class="ui pri">予約配信する</span>）。送信後、履歴一覧で <b>開封率・クリック率</b> を確認できます（担当店舗の履歴のみ表示）。</p><p class="hint">配信可能時間 8:00〜21:00 / NGワード制限はPushと共通です。</p></div></li>
+    <li><div class="n">1</div><div class="c"><div class="t">DMを新規作成</div><p><span class="path">店舗設定<span class="sep">›</span>DM送信</span> を開き <span class="ui pri">新規作成</span>。<b>①配信店舗</b>（複数選択可）を選び、<span class="ui">件名</span>・<span class="ui">本文</span>を入力します。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">画像・AIでリッチに（任意）</div><p>ヘッダー画像をアップロードするとメールに埋め込まれます。<span class="ui go">✦ AIでHTMLメールを作成</span> に指示を入れると、デザインされたHTMLメールを自動生成し、右のプレビューに反映します（生成後も編集可・「解除」で元に戻せます）。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">ターゲットを抽出して宛先を確定</div><p><b>③ターゲット抽出</b>（性別・来館・年代・入会日・在籍・契約種別/形態・未納 など）で対象を絞り <span class="ui pri">条件で名簿を作成</span>。中央の宛先リストには<b>有効なメールを持つ人だけ</b>が並びます。<b>CSVアップロード</b>（会員番号/メール/氏名）でも宛先を追加できます。チェックで最終対象を調整します。</p></div></li>
+    <li><div class="n">4</div><div class="c"><div class="t">④ 配信タイミングを選ぶ</div><p><span class="ui">今すぐ</span> か <span class="ui">予約配信</span>（日付・時刻を指定）を選びます。配信可能時間は <b>8:00〜21:00</b>、NGワードを含む内容は送信できません（PUSHと共通）。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">送信・効果測定</div><p><span class="ui pri">配信する</span>（または <span class="ui pri">予約配信する</span>）で送信。送信後は履歴一覧で <b>開封率・クリック率</b> を確認できます（担当店舗のみ）。予約は履歴の <span class="ui">予約中</span> から送信前に編集・削除できます。</p></div></li>
   </ol>
-  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">下書き：</span><span class="ui">下書き保存</span> を使うと、送信せずに内容だけ保存できます（時間帯チェックは免除、NGワードは常に確認）。</div>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">下書き保存：</span><span class="ui">下書き保存</span> は送信せず内容だけ保存します（件名・本文・店舗・宛先も保存。宛先未確定でも保存可／時間帯チェック免除）。保存した下書きは履歴の <b>「下書き」</b>に表示され、<b>行クリックまたは「編集」で内容を復元して再開</b>、<b>「削除」</b>で破棄できます。</div>
 </section>
 
 <section id="points">
