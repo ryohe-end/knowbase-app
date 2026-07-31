@@ -76,8 +76,9 @@ async function setup(adminCfg, roCfg) {
       "会員契約者口座",
       // ビーコン日次同期用 (ゲート/ビーコン系)
       "ゲートコントロールマスタ", "BEACONQRマスタ", "PDAゲートNO変換", "クラブWS", "エリア入室設定",
-      // 月次処理(経理連携CSV: furikae_summary)の JOIN 先。振替契約別 と結合して税率/委託先/クラブ情報を出す。
-      "商品", "税", "委託先", "クラブ情報", "振替結果",
+      // 月次処理(経理連携CSV: furikae_summary)の JOIN 先。振替契約別 と結合して税率/委託先/クラブを出す。
+      // クラブ略称=「クラブ」, 業態/企業名=「クラブ情報」から補填。
+      "商品", "税", "委託先", "クラブ", "クラブ情報", "振替結果",
       // DM/Push ターゲティングの来館回数(visitCount)フィルタ用: 会員別入館ログ。
       // member-search の env VISIT_TABLE='FIT_ADMIN."入館トラン"' で有効化している。
       "入館トラン",
@@ -310,6 +311,22 @@ export const handler = async (event) => {
     const r = await listIndexes(adminCfg, event.table);
     console.log("indexes result", JSON.stringify(r));
     return r;
+  }
+
+  // FIT_ADMIN 配下で、指定した列名(部分一致)を持つテーブルを列挙する。
+  if (event && event.action === "find_column" && event.column) {
+    const conn = await oracledb.getConnection({
+      user: adminCfg.user, password: adminCfg.password,
+      connectString: `${adminCfg.host}:${adminCfg.port}/${adminCfg.service}`,
+    });
+    try {
+      const r = await conn.execute(
+        `SELECT table_name AS T, column_name AS C FROM all_tab_columns
+          WHERE owner='FIT_ADMIN' AND column_name LIKE :c ORDER BY table_name FETCH FIRST 100 ROWS ONLY`,
+        { c: `%${event.column}%` }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
+      return { ok: true, hits: (r.rows || []).map((x) => ({ table: x.T, column: x.C })) };
+    } catch (err) { return { ok: false, error: err.message }; }
+    finally { try { await conn.close(); } catch (_) {} }
   }
 
   // 任意のインデックスを作成(存在時はスキップ)。作成時間を計測して返す。

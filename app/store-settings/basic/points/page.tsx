@@ -1024,7 +1024,9 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
             <span>メニューへ戻る</span>
           </Link>
           <h1 className="pt-page-title">ポイント管理</h1>
-          <div style={{ width: 120 }} />
+          <Link href="/store-settings/basic/points/bulk" style={{ textDecoration: "none", background: "#047857", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, whiteSpace: "nowrap" }}>
+            ＋ 一括付与
+          </Link>
         </div>
       </header>
 

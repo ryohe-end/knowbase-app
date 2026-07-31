@@ -1,0 +1,6 @@
+{
+  "name": "knowbie-writeoff-batch",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": { "encoding-japanese": "^2.2.0" }
+}

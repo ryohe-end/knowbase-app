@@ -1641,37 +1641,33 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
 
   const isJoyfit = String(store?.brand || "").toUpperCase().startsWith("JOYFIT");
   const PASS_ICON = "M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z";
-  // カテゴリごとに機能を集約したメニュー
+  const ICON_COG = "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z";
+  // カテゴリを目的別に集約(店舗基本 / 料金・ポイント / 入金・未納 / 会員手続き)
+  const passLabel = isJoyfit ? "OneTimePass 管理" : "1dayパス 管理";
   const menuGroups = [
     {
-      category: "店舗情報",
+      category: "店舗基本",
       items: [
-        { title: "基本設定", desc: "店舗情報、ブランド、機能フラグ、解錠機器、マシンリストを管理します。", href: `/store-settings/basic?clubCode=${clubCode}&view=settings`, color: "#3b82f6",
-          iconPath: "M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z" },
+        { title: "基本設定", desc: "店舗情報・ブランド・機能フラグ・解錠機器・マシンリストを管理します。", href: `/store-settings/basic?clubCode=${clubCode}&view=settings`, color: "#3b82f6", iconPath: ICON_COG },
       ],
     },
     {
-      category: isJoyfit ? "OneTimePass" : "1dayパス",
+      category: "料金・ポイント",
       items: [
-        { title: isJoyfit ? "OneTimePass 管理" : "1dayパス 管理", desc: "料金設定・ダイナミックプライシング・実績確認・消し込みをまとめて管理します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=settings`, color: "#f59e0b", iconPath: PASS_ICON },
+        { title: passLabel, desc: "料金設定・ダイナミックプライシング・実績確認・消し込みをまとめて管理します。", href: `/store-settings/basic/onetime-pass?clubCode=${clubCode}&view=settings`, color: "#f59e0b", iconPath: PASS_ICON },
+        { title: "オプション都度利用", desc: "各オプションの都度利用料金・提供状況・販売実績を参照します（読み取り専用）。", href: `/store-settings/basic/option-usage?clubCode=${clubCode}`, color: "#8b5cf6", iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" },
+        { title: "ポイント管理", desc: "ポイント残高の確認・付与・調整と、条件抽出による一括付与（予約可）を行います。", href: `/store-settings/basic/points?clubCode=${clubCode}`, color: "#10b981", iconPath: "M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" },
       ],
     },
     {
-      category: "未納金",
+      category: "入金・未納",
       items: [
         { title: "未納金管理", desc: "会員別の未納金確認・督促状況の追跡と、全体の未納金サマリーを管理します。", href: `/store-settings/basic/unpaid?clubCode=${clubCode}`, color: "#ef4444", iconPath: "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" },
         { title: "APP未納金支払い実績", desc: "アプリで支払われた未納金の実績（サマリー・明細）を確認します。", href: `/store-settings/unpaid-app-payments`, color: "#0ea5e9", iconPath: "M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" },
       ],
     },
     {
-      category: "ポイント・オプション",
-      items: [
-        { title: "ポイント管理", desc: "ポイント付与ルール、有効期限、ポイント残高の確認・調整を行います。", href: `/store-settings/basic/points?clubCode=${clubCode}`, color: "#10b981", iconPath: "M9 12.75L11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 01-1.043 3.296 3.745 3.745 0 01-3.296 1.043A3.745 3.745 0 0112 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 01-3.296-1.043 3.745 3.745 0 01-1.043-3.296A3.745 3.745 0 013 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 011.043-3.296 3.746 3.746 0 013.296-1.043A3.746 3.746 0 0112 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 013.296 1.043 3.746 3.746 0 011.043 3.296A3.745 3.745 0 0121 12z" },
-        { title: "オプション都度利用", desc: "各オプションの都度利用料金・提供状況・販売実績を参照します（読み取り専用）。", href: `/store-settings/basic/option-usage?clubCode=${clubCode}`, color: "#8b5cf6", iconPath: "M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" },
-      ],
-    },
-    {
-      category: "休会",
+      category: "会員手続き",
       items: [
         { title: "休会申請 一覧・分析", desc: "月別の休会申請者一覧と分析（店舗別・推移・季節性）を確認します。", href: `/store-settings/recess`, color: "#6d28d9", iconPath: "M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" },
       ],
@@ -1765,8 +1761,8 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
         .kb-store-code { background: #1e293b; color: #fff; padding: 4px 10px; border-radius: 6px; font-size: 14px; font-family: "SF Mono", monospace; font-weight: 700; }
         .kb-page-header p { font-size: 14px; color: #64748b; margin: 0; }
         .kb-cat-section { margin-bottom: 32px; }
-        .kb-cat-title { font-size: 13px; font-weight: 800; color: #64748b; letter-spacing: 0.04em; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
-        .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+        .kb-cat-title { font-size: 13px; font-weight: 800; color: #475569; letter-spacing: 0.02em; margin: 0 0 14px; padding-left: 12px; border-left: 4px solid #cbd5e1; }
+        .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
         .kb-menu-disabled { cursor: not-allowed; }
         .kb-card-soon { filter: grayscale(0.15); position: relative; }
@@ -1778,18 +1774,18 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }
 
         .kb-accent-bar { height: 4px; width: 100%; }
-        .kb-card-body { padding: 32px; flex: 1; }
+        .kb-card-body { padding: 22px 22px 18px; flex: 1; }
 
         .kb-card-icon-wrapper {
-          width: 56px; height: 56px;
+          width: 48px; height: 48px;
           border-radius: 12px;
           display: flex; align-items: center; justify-content: center;
-          margin-bottom: 20px;
+          margin-bottom: 14px;
         }
 
-        .kb-card-heading { font-size: 18px; font-weight: 700; margin: 0 0 10px 0; }
-        .kb-card-subtext { font-size: 13px; color: #64748b; line-height: 1.6; margin: 0; }
-        .kb-card-footer { padding: 16px 32px; background: #fcfdfe; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+        .kb-card-heading { font-size: 16px; font-weight: 800; margin: 0 0 8px 0; }
+        .kb-card-subtext { font-size: 12.5px; color: #64748b; line-height: 1.6; margin: 0; }
+        .kb-card-footer { padding: 12px 22px; background: #fcfdfe; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
         .kb-action-label { font-size: 12px; font-weight: 700; color: #94a3b8; }
         .kb-action-icon { font-size: 16px; color: #cbd5e1; }
         .kb-modern-card:hover .kb-action-label { color: #3b82f6; }

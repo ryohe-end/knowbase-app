@@ -61,65 +61,33 @@ export default function StoreSettingsMenu() {
     return () => { alive = false; };
   }, []);
 
-  const menuItems = [
+  // 目的別カテゴリでまとめる。配信 / 申請・お金 / 店舗・アプリ設定 の3グループ。
+  const menuGroups = [
     {
-      title: "アプリ基本設定",
-      desc: "店舗情報、ブランド設定、各種URLや機能フラグを管理します。",
-      href: "/store-settings/basic",
-      icon: <CogIcon />,
-      color: "#3b82f6",
+      category: "会員への配信",
+      items: [
+        { title: "PUSH通知", desc: "会員向けPUSH通知の作成・配信・履歴を管理します。", href: "/store-settings/push", icon: <BellIcon />, color: "#10b981" },
+        { title: "DM送信", desc: "条件で会員を抽出し、ダイレクトメールを送信します。", href: "/store-settings/dm", icon: <EnvelopeIcon />, color: "#f59e0b" },
+      ],
     },
     {
-      title: "PUSH通知設定",
-      desc: "会員向けのPUSH通知の配信設定や履歴を確認します。",
-      href: "/store-settings/push",
-      icon: <BellIcon />,
-      color: "#10b981",
+      category: "申請・お金",
+      items: [
+        { title: "返金・入金申請", desc: "返金申請・未納金の入金登録と、その承認・経理処理を行います。", href: "/store-settings/refund-payment", icon: <BanknotesIcon />, color: "#0ea5e9", comingSoon: true },
+      ],
     },
     {
-      title: "DM送信",
-      desc: "特定の会員セグメントに対してダイレクトメッセージを送信します。",
-      href: "/store-settings/dm",
-      icon: <EnvelopeIcon />,
-      color: "#f59e0b",
+      category: "店舗・アプリ設定",
+      items: [
+        { title: "アプリ基本設定", desc: "店舗情報・機能フラグ・解錠機器・マシンリスト・ポイント/料金/未納などの店舗機能をまとめて管理します。", href: "/store-settings/basic", icon: <CogIcon />, color: "#3b82f6" },
+        { title: "規約管理", desc: "利用規約・プライバシーポリシーなどの法的文書を編集・更新します。", href: "/store-settings/terms", icon: <DocumentTextIcon />, color: "#8b5cf6" },
+        { title: "店舗詳細管理", desc: "Web入会システムの管理者メニュー（入会情報・退会機能・メール設定等）。", href: "/store-settings/admin-portal", icon: <StorefrontIcon />, color: "#e11d48", comingSoon: true },
+        ...(isAdmin
+          ? [{ title: "操作監査ログ", desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴（管理者専用）。", href: "/store-settings/audit", icon: <ShieldIcon />, color: "#64748b" }]
+          : []),
+      ],
     },
-    {
-      title: "規約管理",
-      desc: "利用規約、プライバシーポリシーなどの法的文書を編集・更新します。",
-      href: "/store-settings/terms",
-      icon: <DocumentTextIcon />,
-      color: "#8b5cf6",
-    },
-    ...(isAdmin
-      ? [
-          {
-            title: "操作監査ログ",
-            desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴を確認します（管理者専用）。",
-            href: "/store-settings/audit",
-            icon: <ShieldIcon />,
-            color: "#64748b",
-          },
-        ]
-      : []),
-    // ↓ 準備中(Coming Soon)はメニュー末尾へ集約
-    // 入会画面設定は一旦クローズ (後日開発)。ページ/APIは残置。
-    {
-      title: "店舗詳細管理",
-      desc: "Web入会システムの管理者メニュー（入会情報、退会機能、メール設定等）へアクセスします。",
-      href: "/store-settings/admin-portal",
-      icon: <StorefrontIcon />,
-      color: "#e11d48",
-      comingSoon: true,
-    },
-    {
-      title: "返金・入金申請",
-      desc: "対象月の返金申請、未納金の入金登録を行います。",
-      href: "/store-settings/refund-payment",
-      icon: <BanknotesIcon />,
-      color: "#0ea5e9",
-      comingSoon: true,
-    },
-  ];
+  ] as { category: string; items: { title: string; desc: string; href: string; icon: React.ReactNode; color: string; comingSoon?: boolean }[] }[];
 
   return (
     <div className="kb-store-root">
@@ -150,35 +118,37 @@ export default function StoreSettingsMenu() {
           <p>あなたの店舗のアプリ表示・機能を設定します。</p>
         </header>
 
-        <div className="kb-store-grid">
-          {menuItems.map((item) => {
-            const card = (
-              <div className={`kb-modern-card${item.comingSoon ? " kb-card-soon" : ""}`}>
-                <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
-                {item.comingSoon && <span className="kb-soon-badge">Coming Soon</span>}
-                <div className="kb-card-body">
-                  <div
-                    className="kb-card-icon-wrapper"
-                    style={{ color: item.color, background: `${item.color}15` }}
-                  >
-                    {item.icon}
+        {menuGroups.map((group) => (
+          <section key={group.category} className="kb-cat-section">
+            <h2 className="kb-cat-title">{group.category}</h2>
+            <div className="kb-store-grid">
+              {group.items.map((item) => {
+                const card = (
+                  <div className={`kb-modern-card${item.comingSoon ? " kb-card-soon" : ""}`}>
+                    <div className="kb-accent-bar" style={{ backgroundColor: item.color }} />
+                    {item.comingSoon && <span className="kb-soon-badge">Coming Soon</span>}
+                    <div className="kb-card-body">
+                      <div className="kb-card-icon-wrapper" style={{ color: item.color, background: `${item.color}15` }}>
+                        {item.icon}
+                      </div>
+                      <h3 className="kb-card-heading">{item.title}</h3>
+                      <p className="kb-card-subtext">{item.desc}</p>
+                    </div>
+                    <div className="kb-card-footer">
+                      <span className="kb-action-label">{item.comingSoon ? "準備中" : "設定を開く"}</span>
+                      <span className="kb-action-icon">→</span>
+                    </div>
                   </div>
-                  <h3 className="kb-card-heading">{item.title}</h3>
-                  <p className="kb-card-subtext">{item.desc}</p>
-                </div>
-                <div className="kb-card-footer">
-                  <span className="kb-action-label">{item.comingSoon ? "準備中" : "設定を開く"}</span>
-                  <span className="kb-action-icon">→</span>
-                </div>
-              </div>
-            );
-            return item.comingSoon ? (
-              <div key={item.title} className="kb-menu-link kb-menu-disabled" aria-disabled title="準備中です">{card}</div>
-            ) : (
-              <Link href={item.href} key={item.title} className="kb-menu-link">{card}</Link>
-            );
-          })}
-        </div>
+                );
+                return item.comingSoon ? (
+                  <div key={item.title} className="kb-menu-link kb-menu-disabled" aria-disabled title="準備中です">{card}</div>
+                ) : (
+                  <Link href={item.href} key={item.title} className="kb-menu-link">{card}</Link>
+                );
+              })}
+            </div>
+          </section>
+        ))}
       </main>
 
       <style jsx global>{`
@@ -193,7 +163,9 @@ export default function StoreSettingsMenu() {
         .kb-badge { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.1em; color: #0f172a; background: #e2e8f0; padding: 4px 10px; border-radius: 4px; margin-bottom: 12px; }
         .kb-page-header h1 { font-size: 28px; font-weight: 800; margin: 0 0 8px 0; }
         .kb-page-header p { font-size: 14px; color: #64748b; margin: 0; }
-        .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+        .kb-cat-section { margin-bottom: 32px; }
+        .kb-cat-title { font-size: 13px; font-weight: 800; color: #475569; margin: 0 0 14px; padding-left: 12px; border-left: 4px solid #cbd5e1; letter-spacing: 0.02em; }
+        .kb-store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
         .kb-menu-link { text-decoration: none; color: inherit; display: block; height: 100%; }
         .kb-menu-disabled { cursor: not-allowed; }
         .kb-card-soon { filter: grayscale(0.15); position: relative; }
@@ -205,18 +177,18 @@ export default function StoreSettingsMenu() {
         .kb-modern-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); border-color: #bfdbfe; }
 
         .kb-accent-bar { height: 4px; width: 100%; }
-        .kb-card-body { padding: 32px; flex: 1; }
+        .kb-card-body { padding: 22px 22px 18px; flex: 1; }
 
         .kb-card-icon-wrapper {
-          width: 56px; height: 56px;
+          width: 48px; height: 48px;
           border-radius: 12px;
           display: flex; align-items: center; justify-content: center;
-          margin-bottom: 20px;
+          margin-bottom: 14px;
         }
 
-        .kb-card-heading { font-size: 18px; font-weight: 700; margin: 0 0 10px 0; }
-        .kb-card-subtext { font-size: 13px; color: #64748b; line-height: 1.6; margin: 0; }
-        .kb-card-footer { padding: 16px 32px; background: #fcfdfe; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
+        .kb-card-heading { font-size: 16px; font-weight: 800; margin: 0 0 8px 0; }
+        .kb-card-subtext { font-size: 12.5px; color: #64748b; line-height: 1.6; margin: 0; }
+        .kb-card-footer { padding: 12px 22px; background: #fcfdfe; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }
         .kb-action-label { font-size: 12px; font-weight: 700; color: #94a3b8; }
         .kb-action-icon { font-size: 16px; color: #cbd5e1; }
         .kb-modern-card:hover .kb-action-label { color: #3b82f6; }

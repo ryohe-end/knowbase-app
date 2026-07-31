@@ -963,12 +963,14 @@ export const handler = async (event) => {
   if (type === "furikae_summary") {
     const ym = Number(params.ym || 0);
     if (!ym || String(params.ym).length !== 6) return resp(400, { error: "missing_params", required: ["ym(YYYYMM)"] });
+    // クラブ略称は「クラブ」テーブルから取得(2026-07 変更)。「クラブ」には業態/企業名が無いため、
+    // 業態・企業名は「クラブ情報」からクラブコードで LEFT JOIN して補填する。
     const sql = `
       SELECT
         a.クラブコード AS クラブコード,
         i.クラブ略称 AS クラブ略称,
-        i.業態 AS 業態,
-        i.企業名 AS 企業名,
+        ci.業態 AS 業態,
+        ci.企業名 AS 企業名,
         a.振替年月 AS 振替年月,
         h.委託先名 AS 委託先名,
         CASE WHEN a.振替結果コード = '0' THEN '入金済み' ELSE '未回収' END AS 振替結果,
@@ -982,13 +984,14 @@ export const handler = async (event) => {
       INNER JOIN FIT_ADMIN."契約形態" c ON a.契約形態コード = c.契約形態コード
       INNER JOIN FIT_ADMIN."商品" d ON c.会費商品コード = d.商品コード
       INNER JOIN FIT_ADMIN."税" e ON d.税コード = e.税コード
-      INNER JOIN FIT_ADMIN."クラブ情報" g ON a.クラブコード = g.クラブコード
+      INNER JOIN FIT_ADMIN."クラブ" g ON a.クラブコード = g.クラブコード
       INNER JOIN FIT_ADMIN."委託先" h ON a.委託先コード = h.委託先コード
-      LEFT JOIN FIT_ADMIN."クラブ情報" i ON a.クラブコード = i.クラブコード
+      LEFT JOIN FIT_ADMIN."クラブ" i ON a.クラブコード = i.クラブコード
+      LEFT JOIN FIT_ADMIN."クラブ情報" ci ON a.クラブコード = ci.クラブコード
       WHERE a.振替年月 = :ym
         AND e.適用終了月 = 999999
         AND a.振替結果コード IS NOT NULL
-      GROUP BY a.クラブコード, a.振替結果コード, a.振替年月, e.税率, h.委託先名, i.クラブ略称, i.業態, i.企業名
+      GROUP BY a.クラブコード, a.振替結果コード, a.振替年月, e.税率, h.委託先名, i.クラブ略称, ci.業態, ci.企業名
       ORDER BY a.クラブコード, a.振替結果コード, e.税率`;
     let conn;
     try {
@@ -1019,8 +1022,8 @@ export const handler = async (event) => {
           SELECT
             a.対応年月 AS 対応年月,
             a.委託先コード AS 委託先コード,
-            c.クラブコード AS クラブコード,
-            c.クラブ略称 AS クラブ略称,
+            cl.クラブコード AS クラブコード,
+            cl.クラブ略称 AS クラブ略称,
             c.カンパニー名 AS カンパニー名,
             b.会員番号 AS 会員番号,
             CASE a.入金区分コード WHEN 3 THEN '入金済み' WHEN 4 THEN '未納' END AS 集計種別,
@@ -1029,12 +1032,13 @@ export const handler = async (event) => {
           FROM FIT_ADMIN."会員入金歴" a
           INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
           INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
-          INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+          INNER JOIN FIT_ADMIN."クラブ" cl ON d.クラブコード = cl.クラブコード
+          LEFT  JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
           WHERE a.対応年月 = :ym
             AND a.入金区分コード IN (${kubunIn})
-          GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+          GROUP BY a.対応年月, a.委託先コード, cl.クラブコード, cl.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
           HAVING SUM(a.請求額) > 0
-          ORDER BY c.クラブコード, b.会員番号, a.入金区分コード
+          ORDER BY cl.クラブコード, b.会員番号, a.入金区分コード
         ) g WHERE ROWNUM <= :maxRow
       ) WHERE rn > :off`;
     let conn;
@@ -1046,18 +1050,19 @@ export const handler = async (event) => {
         const zlib = await import("node:zlib");
         const exSql = `
           SELECT
-            a.対応年月 AS Y, a.委託先コード AS I, c.クラブコード AS CC, c.クラブ略称 AS CN,
+            a.対応年月 AS Y, a.委託先コード AS I, cl.クラブコード AS CC, cl.クラブ略称 AS CN,
             c.カンパニー名 AS CO, b.会員番号 AS MN,
             CASE a.入金区分コード WHEN 3 THEN '入金済み' WHEN 4 THEN '未納' END AS K,
             COUNT(*) AS CNT, SUM(a.請求額) AS AMT
           FROM FIT_ADMIN."会員入金歴" a
           INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
           INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
-          INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+          INNER JOIN FIT_ADMIN."クラブ" cl ON d.クラブコード = cl.クラブコード
+          LEFT  JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
           WHERE a.対応年月 = :ym AND a.入金区分コード IN (${kubunIn})
-          GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+          GROUP BY a.対応年月, a.委託先コード, cl.クラブコード, cl.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
           HAVING SUM(a.請求額) > 0
-          ORDER BY c.クラブコード, b.会員番号, a.入金区分コード`;
+          ORDER BY cl.クラブコード, b.会員番号, a.入金区分コード`;
         const t0 = Date.now();
         const rs = (await conn.execute(exSql, { ym }, { outFormat: oracledb.OUT_FORMAT_OBJECT, resultSet: true })).resultSet;
         const cell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -1087,9 +1092,10 @@ export const handler = async (event) => {
              FROM FIT_ADMIN."会員入金歴" a
              INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
              INNER JOIN FIT_ADMIN."会員契約" d ON a.契約者SEQ = d.契約者SEQ AND a.契約SEQ = d.契約SEQ
-             INNER JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
+             INNER JOIN FIT_ADMIN."クラブ" cl ON d.クラブコード = cl.クラブコード
+             LEFT  JOIN FIT_ADMIN."クラブ情報" c ON d.クラブコード = c.クラブコード
              WHERE a.対応年月 = :ym AND a.入金区分コード IN (${kubunIn})
-             GROUP BY a.対応年月, a.委託先コード, c.クラブコード, c.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
+             GROUP BY a.対応年月, a.委託先コード, cl.クラブコード, cl.クラブ略称, c.カンパニー名, b.会員番号, a.入金区分コード
              HAVING SUM(a.請求額) > 0
            ) GROUP BY 集計種別`,
           { ym }, { outFormat: oracledb.OUT_FORMAT_OBJECT });

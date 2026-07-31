@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
 const API_BASE = process.env.MEMBER_SEARCH_API_BASE || "";
 const API_KEY = process.env.MEMBER_SEARCH_API_KEY || "";
 
+// 振替データは以下6委託先が全て揃って初めて確定(=抽出可)。1つでも欠ければ抽出不可とする。
+// (概ね翌月4日までに全て揃う。日付ではなく「揃ったか」で判定する)
+const REQUIRED_ITAKUSAKI = ["JACCS収金代行", "ＦＤ自振", "オリコ", "ｿﾌﾄﾊﾞﾝｸ", "JACCS(FIT)", "りそな"];
+
 export async function GET(req: NextRequest) {
   const user = await requireAccounting();
   if (!user) {
@@ -49,5 +53,11 @@ export async function GET(req: NextRequest) {
   }
 
   const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-  return NextResponse.json({ ok: true, ym, rows });
+
+  // 委託先そろい判定: 6委託先が全て存在するか。1つでも欠ければ ready=false(抽出不可)。
+  const present = new Set(rows.map((r: any) => String(r?.委託先名 ?? "").trim()));
+  const missing = REQUIRED_ITAKUSAKI.filter((x) => !present.has(x));
+  const ready = rows.length > 0 && missing.length === 0;
+
+  return NextResponse.json({ ok: true, ym, ready, missing, required: REQUIRED_ITAKUSAKI, rows });
 }
