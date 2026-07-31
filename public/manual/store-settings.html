@@ -181,7 +181,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
     <div class="t">店舗設定<br>運用マニュアル</div>
   </div>
-  <div class="ver">VERSION 4.0 ／ 2026-07-14</div>
+  <div class="ver">VERSION 4.1 ／ 2026-07-31</div>
   <nav id="toc">
     <div class="lbl">はじめに</div>
     <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. 権限・クラブコード</a>
@@ -192,6 +192,9 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <a href="#push-target" class="sub">ターゲット抽出</a>
     <a href="#dm"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>3. DM（メール）</a>
     <a href="#dm-ops" class="sub">詳しい操作手順</a>
+    <div class="lbl">ポイント</div>
+    <a href="#points"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg>ポイント管理・一括付与</a>
+    <a href="#points-bulk" class="sub">一括付与</a>
     <div class="lbl">経理・データ</div>
     <a href="#unpaid"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>4. 未納金管理</a>
     <a href="#unpaid-ops" class="sub">詳しい操作手順</a>
@@ -212,6 +215,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
   <div class="hero-meta">
     <span><i></i>Push・お知らせ</span>
     <span><i></i>DM配信</span>
+    <span><i></i>ポイント一括付与</span>
     <span><i></i>未納金管理</span>
     <span><i></i>返金・入金</span>
     <span><i></i>規約・ユーザー</span>
@@ -231,7 +235,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="node">ホーム</div><span class="arrow">→</span>
     <div class="node">店舗設定<small>メニュー</small></div><span class="arrow">→</span>
     <div class="branch">
-      <div class="node">Push / DM</div><div class="node">未納金管理</div>
+      <div class="node">Push / DM</div><div class="node">ポイント</div><div class="node">未納金管理</div>
       <div class="node">返金・入金</div><div class="node">規約管理</div>
     </div>
   </div>
@@ -289,7 +293,8 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div><h4>未納金管理</h4></div><p>初回振替の結果と、未納者のその後の追跡・CSV出力。</p><div class="badge live">稼働</div></div>
     <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg></div><h4>返金・入金管理</h4></div><p>返金申請〜承認〜経理処理を役割ごとに進行。</p><div class="badge live">稼働</div></div>
     <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></div><h4>規約管理</h4></div><p>規約のバージョン管理・本文編集・PDF出力。</p><div class="badge live">稼働</div></div>
-    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h4>1day / ポイント / 都度利用</h4></div><p>今後提供予定の機能です。</p><div class="badge soon">準備中</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></div><h4>ポイント管理・一括付与</h4></div><p>会員のポイント確認・付与・調整と、条件抽出による一括付与（今すぐ／予約）。</p><div class="badge live">稼働</div></div>
+    <div class="card"><div class="top"><div class="ci"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div><h4>1day / 都度利用</h4></div><p>今後提供予定の機能です。</p><div class="badge soon">準備中</div></div>
   </div>
 </section>
 
@@ -400,6 +405,48 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
   <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">下書き：</span><span class="ui">下書き保存</span> を使うと、送信せずに内容だけ保存できます（時間帯チェックは免除、NGワードは常に確認）。</div>
 </section>
 
+<section id="points">
+  <div class="s-head">
+    <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></div>
+    <div><div class="kick">Points</div><h2>ポイント管理・一括付与</h2></div>
+  </div>
+  <p class="lead">会員のポイント残高（CPSS）の確認・付与・取消と、条件で抽出した会員への<b>一括付与</b>を行います。付与はその場（今すぐ）でも、<b>日時を指定して予約</b>することもできます。</p>
+
+  <h3>個別のポイント管理</h3>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">ポイント管理を開く</div><p><span class="path">店舗設定<span class="sep">›</span>基本設定<span class="sep">›</span>ポイント管理</span>。会員番号で検索すると、残高（CPSS）とポイント変動履歴が表示されます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">付与・取消する</div><p><span class="ui pri">＋ ポイント付与</span> で理由・ポイント数を入力して付与。knowbie付与の取消、外部/利用ポイントの取消（要理由・監査記録）も行えます。</p></div></li>
+  </ol>
+
+  <h3 id="points-bulk">一括付与（条件抽出）</h3>
+  <p>ヘッダー右上の <span class="ui pri">＋ 一括付与</span> から、フィルタで会員を抽出して<b>全員に同額</b>を付与します。</p>
+  <div class="flow">
+    <div class="node start">店舗選択</div><span class="arrow">→</span>
+    <div class="node">条件で抽出</div><span class="arrow">→</span>
+    <div class="node">人数プレビュー</div><span class="arrow">→</span>
+    <div class="node">ポイント・理由</div><span class="arrow">→</span>
+    <div class="node">今すぐ / 予約</div><span class="arrow">→</span>
+    <div class="node end">付与</div>
+  </div>
+  <div class="screens">
+    <div class="screen"><div class="bar">抽出条件（DM/Pushと共通）</div><div class="body">
+      <span class="chip">性別</span><span class="chip">来館回数・期間</span><span class="chip">年代</span><br>
+      <span class="chip">入会日</span><span class="chip">在籍状況</span><span class="chip">会員区分・契約形態</span>
+    </div></div>
+    <div class="screen"><div class="bar">付与タイミング</div><div class="body">
+      <b>今すぐ</b>… 確認後すぐに付与（50件ずつ進捗表示）。<br>
+      <b>日時指定（予約）</b>… 指定日時に自動で付与。予約一覧から取消も可能。
+    </div></div>
+  </div>
+  <ol class="ops">
+    <li><div class="n">1</div><div class="c"><div class="t">店舗と条件を指定して抽出</div><p>対象店舗を選び、<b>性別・来館回数・年代・入会日・在籍/契約形態</b>などで会員を抽出します。抽出結果は一覧表示され、個別にチェックを外して対象を調整できます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">ポイント数・理由を入力</div><p><b>全員同額</b>のポイント数（任意の値）と付与理由を入力。メモ（任意）も付けられます。</p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">タイミングを選ぶ</div><p><span class="ui">今すぐ</span> か <span class="ui">日時指定（予約）</span> を選択。予約は付与日時を指定します。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">確認して実行</div><p>「◯名に◯pt（合計◯pt）を付与します」の確認後、実行。今すぐは進捗バーで結果（成功/失敗）を表示。予約は一覧に登録され、<b>予定日時に自動実行</b>されます（実行前なら取消可）。</p></div></li>
+  </ol>
+  <div class="note warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span class="h">注意：</span>一括付与は会員のポイント残高を<b>実際に</b>増やします。付与前に<b>人数と対象を必ず確認</b>してください。同じ操作の再送信でも二重付与されない仕組み（冪等）です。</div>
+</section>
+
 <section id="unpaid">
   <div class="s-head">
     <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
@@ -448,8 +495,9 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <li><div class="n">3</div><div class="c"><div class="t">① 初回振替の結果を読む</div><p>その年度の請求（振替）を <b>請求 / 回収（振替成功）/ 未納</b> で表示。件数は振替の総数で、<b>請求 ＝ 回収 ＋ 未納</b> で一致します。推移グラフはブランド・店舗で比較できます。</p></div></li>
     <li><div class="n">4</div><div class="c"><div class="t">② 未納者のその後を追う</div><p>未納になった人が「支払済（後日回収）／現未納／貸倒れ・売上取消」のどれになったかを、会員入金歴の<b>入金区分コード</b>（3=支払済 / 4=未納 等）で追跡します。</p></div></li>
     <li><div class="n">5</div><div class="c"><div class="t">月次内訳をドリルダウン</div><p>月次内訳の各行は「未納 → うち後日回収 / 現未納」を表示。<b>行をクリック</b>すると、その月の<b>現未納者</b>と<b>後日回収できた人</b>を氏名・電話・メール付きで確認できます。</p></div></li>
-    <li class="done"><div class="n">✓</div><div class="c"><div class="t">CSVを出力する</div><p>店舗・エリア・ブランド単位で未納者CSVを出力。列順：<b>会員番号／名前／未納金額／電話番号／メールアドレス</b>／会員区分／ステータス／セキュリティ費。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">CSVを出力する</div><p>店舗・エリア・ブランド単位で未納者CSVを出力。列順：<b>会員番号／名前／未納金額／電話番号／メールアドレス</b>／会員区分／<b>内訳(契約形態別・会費)</b>／ステータス／セキュリティ費。</p></div></li>
   </ol>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">会員区分と内訳：</span>一人の未納は「基本会費＋オプション」に分かれることがあります。一覧の<b>会員区分</b>には<b>会員区分1（基本会費）の契約形態名</b>（例：ナショナルB３）を表示し、<b>内訳（契約形態別・会費）</b>列で会費・オプションごとの金額を確認できます。</div>
   <div class="note info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="h">強制退会を除く：</span>初回振替・月次内訳には<b>強制退会者を除いた行/カード</b>も併記され、件数も確認できます。貸倒償却予定は振替年月からちょうど1年で判定します。</div>
 </section>
 
@@ -479,6 +527,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <li><div class="n">3</div><div class="c"><div class="t">承認する（管理者/承認者）</div><p>申請内容を確認し <span class="ui pri">承認</span>、問題があれば <span class="ui">差戻し</span>。</p></div></li>
     <li class="done"><div class="n">✓</div><div class="c"><div class="t">経理処理・完了</div><p>経理担当が承認済み案件の振込を手配し <span class="ui go">完了</span> にします。入金フローでは受付中の案件を <span class="ui go">消込完了</span> にします。</p></div></li>
   </ol>
+  <div class="note tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1h6c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg><span class="h">通知と「対応依頼」：</span>申請・承認・差戻し・振込完了の各ステップで<b>メール通知</b>が届きます（宛先は<b>該当店舗の担当者</b>のみ。全社管理者へは送りません）。ホーム画面には未対応の<b>「対応依頼」欄</b>が表示され、承認待ち・経理待ち・差戻しをすぐに確認できます。未対応が残っていると<b>毎朝リマインドメール</b>が届きます。</div>
   <div class="note warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg><span class="h">注意：</span>担当店舗以外の申請は表示されず、ID直接指定でもアクセスは拒否されます。</div>
 </section>
 
