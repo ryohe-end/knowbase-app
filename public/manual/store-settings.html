@@ -413,10 +413,64 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
   <p class="lead">会員のポイント残高（CPSS）の確認・付与・取消と、条件で抽出した会員への<b>一括付与</b>を行います。付与はその場（今すぐ）でも、<b>日時を指定して予約</b>することもできます。</p>
 
   <h3>個別のポイント管理</h3>
+  <p>会員番号で検索し、<b>会員情報サマリー</b>（残高・累計・属性）と<b>ポイント変動履歴</b>を確認します。ポイント残高・履歴は<b>CPSS（ポイントシステム）が正</b>で、この画面はそれを参照・更新します。</p>
+  <div class="shot">
+    <div class="chrome"><i class="r"></i><i class="y"></i><i class="g"></i><span class="ttl">基本設定 › ポイント管理</span><span class="url">store-settings › basic › points</span></div>
+    <svg viewBox="0 0 720 430" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,sans-serif">
+      <rect width="720" height="430" fill="#fafbfc"/>
+      <!-- 検索バー -->
+      <rect x="16" y="16" width="688" height="42" rx="10" fill="#fff" stroke="#e7e9ee"/>
+      <text x="30" y="42" font-size="11" font-weight="700" fill="#6b7280">会員番号で検索</text>
+      <rect x="150" y="26" width="180" height="22" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="160" y="41" font-size="10" fill="#9aa1ac">例: 5110001234</text>
+      <rect x="340" y="26" width="60" height="22" rx="6" fill="#0f172a"/><text x="370" y="41" font-size="10" font-weight="700" fill="#fff" text-anchor="middle">検索</text>
+      <!-- 会員カード -->
+      <rect x="16" y="68" width="688" height="120" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <circle cx="46" cy="100" r="18" fill="#eef0ff"/><text x="46" y="105" font-size="15" font-weight="800" fill="#3f37c9" text-anchor="middle">山</text>
+      <text x="74" y="96" font-size="14" font-weight="800" fill="#15181e">山田 太郎</text>
+      <rect x="74" y="106" width="86" height="18" rx="5" fill="#f1f3f7"/><text x="80" y="119" font-size="10" font-family="monospace" fill="#3d434e">5110001234</text>
+      <rect x="166" y="106" width="40" height="18" rx="9" fill="#e9f9f1"/><text x="186" y="119" font-size="9" fill="#0f9d6b" text-anchor="middle">現行</text>
+      <rect x="212" y="106" width="72" height="18" rx="9" fill="#eef0ff"/><text x="248" y="119" font-size="9" fill="#3f37c9" text-anchor="middle">フィットネス</text>
+      <text x="290" y="119" font-size="9" fill="#d97706">★ ゴールド</text>
+      <text x="686" y="90" font-size="10" fill="#6b7280" text-anchor="end">現在残高</text>
+      <text x="686" y="116" font-size="24" font-weight="800" fill="#15181e" text-anchor="end">3,250 pt</text>
+      <rect x="540" y="128" width="148" height="30" rx="8" fill="#047857"/><text x="614" y="148" font-size="11" font-weight="800" fill="#fff" text-anchor="middle">＋ ポイント付与</text>
+      <!-- 統計4つ -->
+      <g font-size="9" fill="#6b7280">
+        <rect x="30" y="140" width="120" height="36" rx="8" fill="#f7fdfa" stroke="#cdeede"/><text x="40" y="156">累計付与</text><text x="40" y="171" font-size="13" font-weight="800" fill="#047857">+8,500</text>
+        <rect x="158" y="140" width="120" height="36" rx="8" fill="#f5f9ff" stroke="#cfe0fb"/><text x="168" y="156">累計利用</text><text x="168" y="171" font-size="13" font-weight="800" fill="#1d4ed8">5,250</text>
+        <rect x="286" y="140" width="110" height="36" rx="8" fill="#f8fafc" stroke="#e2e8f0"/><text x="296" y="156">累計失効</text><text x="296" y="171" font-size="13" font-weight="800" fill="#64748b">0</text>
+        <rect x="404" y="140" width="120" height="36" rx="8" fill="#fffaf3" stroke="#f6d9a8"/><text x="414" y="156">来月失効予定</text><text x="414" y="171" font-size="13" font-weight="800" fill="#b45309">120</text>
+      </g>
+      <!-- 変動履歴 -->
+      <rect x="16" y="198" width="688" height="216" rx="12" fill="#fff" stroke="#e7e9ee"/>
+      <text x="30" y="222" font-size="12" font-weight="800" fill="#15181e">ポイント変動履歴</text>
+      <rect x="500" y="210" width="46" height="20" rx="10" fill="#0f172a"/><text x="523" y="224" font-size="9" fill="#fff" text-anchor="middle">すべて</text>
+      <rect x="550" y="210" width="42" height="20" rx="10" fill="#f1f3f7"/><text x="571" y="224" font-size="9" fill="#3d434e" text-anchor="middle">付与</text>
+      <rect x="596" y="210" width="42" height="20" rx="10" fill="#f1f3f7"/><text x="617" y="224" font-size="9" fill="#3d434e" text-anchor="middle">利用</text>
+      <rect x="642" y="210" width="52" height="20" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="668" y="224" font-size="8.5" fill="#6b7280" text-anchor="middle">期間 適用</text>
+      <line x1="30" y1="238" x2="690" y2="238" stroke="#eef0f4"/>
+      <g font-size="9" fill="#9aa1ac"><text x="30" y="252">日時</text><text x="150" y="252">種別</text><text x="250" y="252" text-anchor="end">変動</text><text x="280" y="252">店舗</text><text x="380" y="252">取得元</text><text x="470" y="252">担当</text><text x="560" y="252">備考</text><text x="686" y="252" text-anchor="end">操作</text></g>
+      <!-- rows -->
+      <line x1="30" y1="260" x2="690" y2="260" stroke="#f4f5f8"/>
+      <text x="30" y="278" font-size="9.5" fill="#3d434e">07/28 14:20</text><rect x="150" y="268" width="34" height="16" rx="8" fill="#d1fae5"/><text x="167" y="280" font-size="8.5" fill="#047857" text-anchor="middle">付与</text><text x="250" y="278" font-size="9.5" font-weight="700" fill="#047857" text-anchor="end">+500</text><text x="280" y="278" font-size="9" fill="#3d434e">平岡公園</text><text x="380" y="278" font-size="9" fill="#3d434e">手動(ボーナス)</text><text x="470" y="278" font-size="9" fill="#3d434e">田中</text><rect x="640" y="268" width="34" height="16" rx="5" fill="#fff" stroke="#f6cdd3"/><text x="657" y="280" font-size="8.5" fill="#e0455a" text-anchor="middle">取消</text>
+      <line x1="30" y1="292" x2="690" y2="292" stroke="#f4f5f8"/>
+      <text x="30" y="310" font-size="9.5" fill="#3d434e">07/25 10:02</text><rect x="150" y="300" width="34" height="16" rx="8" fill="#dbeafe"/><text x="167" y="312" font-size="8.5" fill="#1d4ed8" text-anchor="middle">利用</text><text x="250" y="310" font-size="9.5" font-weight="700" fill="#1d4ed8" text-anchor="end">-300</text><text x="280" y="310" font-size="9" fill="#3d434e">平岡公園</text><text x="380" y="310" font-size="9" fill="#3d434e">タウン利用</text><text x="470" y="310" font-size="9" fill="#9aa1ac">—</text><rect x="640" y="300" width="34" height="16" rx="5" fill="#fff" stroke="#f6cdd3"/><text x="657" y="312" font-size="8.5" fill="#e0455a" text-anchor="middle">取消</text>
+      <line x1="30" y1="324" x2="690" y2="324" stroke="#f4f5f8"/>
+      <text x="30" y="342" font-size="9.5" fill="#9aa1ac">07/20 09:11</text><rect x="150" y="332" width="34" height="16" rx="8" fill="#d1fae5"/><text x="167" y="344" font-size="8.5" fill="#047857" text-anchor="middle">付与</text><rect x="188" y="332" width="42" height="16" rx="8" fill="#f1f3f7"/><text x="209" y="344" font-size="8" fill="#94a3b8" text-anchor="middle">取消済</text><text x="250" y="342" font-size="9.5" fill="#9aa1ac" text-anchor="end">+200</text><text x="686" y="342" font-size="9" fill="#9aa1ac" text-anchor="end">—</text>
+      <rect x="300" y="384" width="120" height="22" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="360" y="399" font-size="9" fill="#6b7280" text-anchor="middle">← 前 / 次の50件 →</text>
+    </svg>
+    <div class="cap">会員カード（残高・累計・属性・<b>＋ポイント付与</b>）と、期間・種別で絞れる変動履歴（付与＝緑／利用＝青の種別チップ、行ごとに<b>取消</b>）。</div>
+  </div>
+
+  <h3>詳しい操作手順（個別）</h3>
   <ol class="ops">
-    <li><div class="n">1</div><div class="c"><div class="t">ポイント管理を開く</div><p><span class="path">店舗設定<span class="sep">›</span>基本設定<span class="sep">›</span>ポイント管理</span>。会員番号で検索すると、残高（CPSS）とポイント変動履歴が表示されます。</p></div></li>
-    <li><div class="n">2</div><div class="c"><div class="t">付与・取消する</div><p><span class="ui pri">＋ ポイント付与</span> で理由・ポイント数を入力して付与。knowbie付与の取消、外部/利用ポイントの取消（要理由・監査記録）も行えます。</p></div></li>
+    <li><div class="n">1</div><div class="c"><div class="t">ポイント管理を開いて会員を検索</div><p><span class="path">店舗設定<span class="sep">›</span>基本設定<span class="sep">›</span>ポイント管理</span>（画面右上の <span class="ui pri">＋ 一括付与</span> の隣）。<b>会員番号</b>を入力して <span class="ui">検索</span>。会員が見つかると、会員カードと変動履歴が表示されます。</p></div></li>
+    <li><div class="n">2</div><div class="c"><div class="t">会員カードを読む</div><p>上部に <b>現在残高（CPSS）</b>、その下に <b>累計付与 / 累計利用 / 累計失効 / 来月失効予定</b> の4指標。氏名の右にステータス（<b>現行 / 休会中 / 退会</b>）・会員区分・ランク、下部に入会日・継続期間・電話などの属性が並びます。<span class="hint">CPSS残高が取得できない場合は警告が出て会員情報のみ表示されます。</span></p></div></li>
+    <li><div class="n">3</div><div class="c"><div class="t">変動履歴を確認する</div><p>種別チップ（<span class="ui">すべて / 付与 / 利用</span>）で絞り込み、<b>期間</b>（開始〜終了 → <span class="ui">適用</span>）で対象範囲を指定。列は <b>日時・種別・変動・店舗・取得元・担当・備考・操作</b>。付与＝緑、利用＝青、失効＝グレー、調整＝オレンジのチップで色分けされ、取消済みには「取消済」が付きます。<b>50件ずつ</b>ページ送りできます。</p></div></li>
+    <li><div class="n">4</div><div class="c"><div class="t">ポイントを付与する</div><p><span class="ui pri">＋ ポイント付与</span>（残高の下）→ モーダルで <b>付与理由</b>（歩数／イベント／パーソナルトレーニング／ボーナス／その他）と <b>付与ポイント</b>（正の整数）を入力して実行。CPSSへ即時反映され、履歴に「付与」行が追加されます。</p></div></li>
+    <li class="done"><div class="n">✓</div><div class="c"><div class="t">ポイントを取り消す</div><p>履歴の各行の <span class="ui">取消</span> ボタンで取り消せます。<b>knowbie（管理画面）で付与した分</b>はそのまま取消可能。<b>外部・利用など（タウン/POS等）</b>は<b>取消理由の入力が必須</b>で監査記録に残り、<b>取消可能期間（既定92日）を過ぎた取引は取り消せません</b>。取消済みの行は薄く表示され再取消はできません。</p></div></li>
   </ol>
+  <div class="note info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="h">CPSSが正：</span>残高・履歴の実体は<b>CPSS（ポイントシステム）</b>です。付与・取消はCPSSに反映され、この画面の履歴（担当者・理由・備考）は監査用の台帳として併記されます。担当外店舗の会員は検索・操作できません。</div>
 
   <h3 id="points-bulk">一括付与（条件抽出）</h3>
   <p>ヘッダー右上の <span class="ui pri">＋ 一括付与</span> から、フィルタで会員を抽出して<b>全員に同額</b>を付与します。</p>
