@@ -125,6 +125,129 @@ async function beaconSync() {
   }
 }
 
+// ── elock(YGC電子錠) club_beacon への日次同期 ─────────────────────────────
+// Oracleゲート系から (machine_id=クラブコード-WSコード, club_cd, memo=クラブ略称+エリア名称) を作り、
+// elock.club_beacon に未存在のものだけ INSERT する(新規のみ・既存は温存)。
+// beacon_use はエリア名称/WSコードから推測(既存2718件で97%一致・相互利用オプションエリア→入口)。
+// per_use_ticket_rule / indirect_use は手動管理列のため一切触らない。
+const BEACON_ELOCK_SQL = `
+  SELECT DISTINCT
+    g.クラブコード AS CLUB_CODE,
+    g.WSコード     AS WS,
+    c.クラブ略称   AS CLUB_SHORT,
+    DECODE(g.WSコード,1,'ゲート入口',2,'ゲート出口',3,'ビル入口',4,'ビル出口',5,'ビル入口2',6,'ビル出口2',
+           e.エリア名称||DECODE(e.コメント,NULL,'','【'||e.コメント||'】')) AS PLACE_NAME
+  FROM FIT_ADMIN.ゲートコントロールマスタ g
+  INNER JOIN FIT_ADMIN.PDAゲートNO変換 p ON p.クラブコード = g.クラブコード AND p.PDAコード = g.WSコード
+  INNER JOIN FIT_ADMIN.クラブWS w        ON w.クラブコード = p.クラブコード AND w.WSコード = p.WSコード
+  LEFT  JOIN FIT_ADMIN.エリア入室設定 e  ON e.クラブコード = w.クラブコード AND e.エリアコード = w.入場エリアコード
+  LEFT  JOIN FIT_ADMIN.クラブ c          ON c.クラブコード = g.クラブコード
+  WHERE g.状態コード <> 0
+`;
+
+// beacon_use 推測ルール(既存データから逆算・97%一致)。施設語→WSコード→エリア扉→入口/出口の優先順。
+function classifyBeaconUse(place, ws) {
+  const m = String(place || "");
+  const w = Number(ws);
+  if (m.includes("水素水")) return "HYDW";
+  if (m.includes("タンニング")) return "TAN";
+  if (m.includes("コラーゲン")) return "CLGN";
+  if (m.includes("プロテイン")) return "PRTN";
+  if (m.includes("ボディプランナー") || m.includes("ボディープランナー") || m.toUpperCase().includes("INBODY")) return "BDPL";
+  if (m.includes("シャワー")) return "SHWR";
+  if (m.includes("相互利用") || m.includes("オプションエリア")) return "IND"; // 相互利用オプションエリア=入口扱い
+  if (w === 1 || w === 3 || w === 5) return "IND";
+  if (w === 2 || w === 4 || w === 6) return "OUTD";
+  if (["更衣室", "ロッカー", "ジムエリア", "女性用", "パウダールーム", "トイレ"].some((k) => m.includes(k))) return "DROM";
+  if (m.includes("入口") || m.includes("入館")) return "IND";
+  if (m.includes("出口") || m.includes("出館")) return "OUTD";
+  return "NOTD";
+}
+
+// ssh-db-proxy(us-east-1) 経由で elock(Postgres) にクエリ
+const SSH_PROXY_FN = process.env.SSH_DB_PROXY_FUNCTION || "knowbie-ssh-db-proxy";
+async function elockQuery(text, params) {
+  const res = await _lambda.send(new InvokeCommand({
+    FunctionName: SSH_PROXY_FN,
+    Payload: Buffer.from(JSON.stringify({ target: "elock", text, params })),
+  }));
+  const payload = JSON.parse(Buffer.from(res.Payload).toString());
+  if (!payload || payload.ok !== true) throw new Error("elock-proxy: " + (payload && payload.error ? payload.error : "unknown"));
+  return payload.rows || [];
+}
+
+async function beaconSyncElock({ dryRun = false } = {}) {
+  let conn;
+  try {
+    const pool = await getPool();
+    conn = await pool.getConnection();
+    const rows = (await conn.execute(BEACON_ELOCK_SQL, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows || [];
+
+    // 変換 (machine_id=クラブコード-WSコード。同一キーは1件に集約)
+    const seen = new Set();
+    const items = [];
+    let xSkipped = 0, notdSkipped = 0;
+    for (const r of rows) {
+      const club = String(r.CLUB_CODE);
+      const ws = String(r.WS);
+      const machineId = `${club}-${ws}`;
+      if (seen.has(machineId)) continue;
+      seen.add(machineId);
+      const place = (r.PLACE_NAME || "").toString();
+      const short = (r.CLUB_SHORT || "").toString();
+      // ×クラブ(クラブ略称が×で始まる=移転/廃止等)は従来どおり除外
+      if (short.startsWith("×")) { xSkipped++; continue; }
+      const use = classifyBeaconUse(place, ws);
+      // NOTD(スタジオ/レンタルルーム/プレミアムルーム/セルフエステ等の"部屋")は従来除外
+      if (use === "NOTD") { notdSkipped++; continue; }
+      const memo = (short + place).slice(0, 255) || null;
+      items.push({ machineId, clubCd: Number(club), use, memo });
+    }
+
+    // elock 既存 machine_id
+    const exRows = await elockQuery(`select machine_id from club_beacon`, []);
+    const existing = new Set(exRows.map((r) => r.machine_id));
+    const newItems = items.filter((it) => !existing.has(it.machineId));
+
+    if (dryRun) {
+      const dist = {};
+      for (const it of newItems) dist[it.use] = (dist[it.use] || 0) + 1;
+      // 既存にあるが今回のソースに無い machine_id (=私のクエリが再現できない既存)
+      const candIds = new Set(items.map((i) => i.machineId));
+      const existingNotInSource = [...existing].filter((id) => !candIds.has(id));
+      // 新規のうち「既存に1件も無いクラブ(まるごと新規)」
+      const existClubs = new Set([...existing].map((id) => id.split("-")[0]));
+      const newInNewClub = newItems.filter((i) => !existClubs.has(String(i.clubCd)));
+      return resp(200, {
+        ok: true, action: "beacon_sync_elock", dryRun: true,
+        scanned: rows.length, xSkipped, notdSkipped, candidates: items.length, existing: existing.size,
+        wouldInsert: newItems.length, useDist: dist,
+        existingNotInSource: existingNotInSource.length,
+        existingNotInSourceSample: existingNotInSource.slice(0, 15),
+        newInNewClubs: newInNewClub.length,
+        sample: newItems.slice(0, 15),
+      });
+    }
+
+    // 新規のみ INSERT (unnest で1往復)。per_use_ticket_rule/indirect_use は触らない。
+    if (newItems.length > 0) {
+      await elockQuery(
+        `insert into club_beacon (machine_id, club_cd, machine_id_type, beacon_use, memo)
+         select mid, cc, 0, bu, mm
+           from unnest($1::text[], $2::int[], $3::text[], $4::text[]) as t(mid, cc, bu, mm)`,
+        [newItems.map((i) => i.machineId), newItems.map((i) => i.clubCd), newItems.map((i) => i.use), newItems.map((i) => i.memo)]
+      );
+    }
+    console.log(`[beacon_sync_elock] scanned=${rows.length} xSkipped=${xSkipped} notdSkipped=${notdSkipped} candidates=${items.length} inserted=${newItems.length}`);
+    return resp(200, { ok: true, action: "beacon_sync_elock", scanned: rows.length, xSkipped, notdSkipped, candidates: items.length, inserted: newItems.length, sample: newItems.slice(0, 20) });
+  } catch (err) {
+    console.error("beacon_sync_elock error", err);
+    return resp(500, { error: "internal_error", message: err.message });
+  } finally {
+    if (conn) { try { await conn.close(); } catch (_) {} }
+  }
+}
+
 oracledb.fetchAsString = [oracledb.CLOB, oracledb.DATE];
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 
@@ -817,6 +940,7 @@ export const handler = async (event) => {
   console.log("[diag] handler entered");
   // EventBridge 直接起動: ビーコン日次同期
   if (event?.action === "beacon_sync") return beaconSync();
+  if (event?.action === "beacon_sync_elock") return beaconSyncElock({ dryRun: event?.dryRun === true });
   const params = event?.queryStringParameters || {};
   const type = params.type;
   const q = normalize(type, params.q);
