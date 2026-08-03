@@ -7,7 +7,7 @@
 //   GET ?clubCode=104
 import { NextResponse } from "next/server";
 import { getRefundUser, isClubInScope } from "@/lib/refundAuth";
-import { sshQuery } from "@/lib/sshDbProxy";
+import { sshQuery, sshBatch } from "@/lib/sshDbProxy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +37,10 @@ export async function GET(req: Request) {
   const clubInt = Number(clubCode);          // ticket.ticket_sales_club は整数
   const today = todayYmd();
 
-  // 提供オプション + 現行料金 (dgtk_app)
-  const optRes = await sshQuery("dgtk_app",
+  // 【高速化】SSHトンネルの往復を減らすため、独立クエリは並列＋同一DBはバッチ化する。
+  //   Stage1(並列): dgtk_app(提供オプション) ‖ dgtk_sys(月次販売 + 直近50件を1トンネルで)
+  //   Stage2      : dgtk_app(直近の会員番号解決。Stage1のholder依存のため後段)
+  const optSql =
     `select trim(m.option_code) code, m.option_name name, m.brand brand, m.repeat repeat, p.price price,
             s.start_date, s.end_date
      from dgtk_app.shop_option s
@@ -46,7 +48,26 @@ export async function GET(req: Request) {
      left join dgtk_app.option_price p on p.option_code = s.option_code and p.brand = s.brand
           and p.option_start <= $2 and p.option_end >= $2
      where s.club_code = $1
-     order by m.order_id`, [club6, today]);
+     order by m.order_id`;
+  const salesSql =
+    `select substr(ticket_sales_date,1,6) ym, count(*) cnt, coalesce(sum(club_income),0) income
+     from dgtk_sys.ticket
+     where usage='OPTN' and ticket_sales_club = $1
+       and ticket_sales_date >= to_char(now() - interval '12 months','YYYYMM') || '01'
+     group by 1 order by 1`;
+  const recentSql =
+    `select ticket_name name, ticket_holder_id holder, ticket_payment_dt bought, ticket_consume_dt used
+     from dgtk_sys.ticket where usage='OPTN' and ticket_sales_club = $1
+     order by ticket_payment_dt desc nulls last limit 50`;
+
+  const [optRes, sysRes] = await Promise.all([
+    sshQuery("dgtk_app", optSql, [club6, today]),
+    sshBatch("dgtk_sys", [
+      { text: salesSql, params: [clubInt] },
+      { text: recentSql, params: [clubInt] },
+    ]),
+  ]);
+
   if (!optRes.ok) {
     return NextResponse.json({ ok: false, error: `オプション設定の取得に失敗しました: ${optRes.error}` }, { status: 502 });
   }
@@ -55,23 +76,12 @@ export async function GET(req: Request) {
     repeatable: r.repeat !== "N", price: r.price != null ? Number(r.price) : null,
   }));
 
-  // オプション都度販売の実績 (dgtk_sys, usage='OPTN', 当店舗) — 直近12ヶ月の月次
-  const salesRes = await sshQuery("dgtk_sys",
-    `select substr(ticket_sales_date,1,6) ym, count(*) cnt, coalesce(sum(club_income),0) income
-     from dgtk_sys.ticket
-     where usage='OPTN' and ticket_sales_club = $1
-       and ticket_sales_date >= to_char(now() - interval '12 months','YYYYMM') || '01'
-     group by 1 order by 1`, [clubInt]);
-  const monthly = salesRes.ok ? salesRes.rows.map((r: any) => ({ ym: `${r.ym.slice(0, 4)}-${r.ym.slice(4, 6)}`, count: Number(r.cnt), income: Number(r.income) })) : [];
+  const salesRows: any[] = sysRes.ok ? (sysRes.results[0]?.rows || []) : [];
+  const monthly = salesRows.map((r: any) => ({ ym: `${r.ym.slice(0, 4)}-${r.ym.slice(4, 6)}`, count: Number(r.cnt), income: Number(r.income) }));
   const totalCount = monthly.reduce((s, m) => s + m.count, 0);
   const totalIncome = monthly.reduce((s, m) => s + m.income, 0);
 
-  // 誰が買っていつ使ったか (直近50件) — ticket(dgtk_sys) + readqr_history(dgtk_app)で会員番号を解決
-  const recentRes = await sshQuery("dgtk_sys",
-    `select ticket_name name, ticket_holder_id holder, ticket_payment_dt bought, ticket_consume_dt used
-     from dgtk_sys.ticket where usage='OPTN' and ticket_sales_club = $1
-     order by ticket_payment_dt desc nulls last limit 50`, [clubInt]);
-  const recent = recentRes.ok ? recentRes.rows : [];
+  const recent: any[] = sysRes.ok ? (sysRes.results[1]?.rows || []) : [];
   const holders = [...new Set(recent.map((r: any) => r.holder).filter(Boolean))] as string[];
   const memberMap: Record<string, string> = {};
   if (holders.length) {
