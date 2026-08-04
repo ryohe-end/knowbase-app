@@ -33,6 +33,10 @@ type Manual = {
   categoryId?: string | null;
   /** ✅ シリーズ内の表示順 */
   seriesOrder?: number | null;
+
+  /** ✅ チャプター(動画・時刻付き) / 目次(資料)。編集画面で編集・保持。 */
+  chapters?: { t: number; title: string }[];
+  toc?: { title: string; page?: number }[];
 };
 
 type Brand = { brandId: string; name: string };
@@ -57,6 +61,19 @@ const getTodayDate = () => {
 };
 
 const generateNewManualId = () => `M200-${Date.now().toString().slice(-6)}`;
+
+/** 秒 → mm:ss / h:mm:ss 表示 */
+const fmtSec = (s?: number) => {
+  const n = Math.max(0, Math.floor(Number(s) || 0));
+  const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), sec = n % 60;
+  return (h > 0 ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(sec).padStart(2, "0")}`;
+};
+/** "1:23" / "1:02:03" → 秒。不正なら null */
+const parseSec = (str: string): number | null => {
+  const parts = String(str).trim().split(":");
+  if (!parts.length || parts.some((p) => p === "" || isNaN(Number(p)))) return null;
+  return parts.reduce((acc, p) => acc * 60 + parseInt(p, 10), 0);
+};
 
 const normalizeViewScope = (v: any): ManualViewScope => {
   const s = String(v ?? "").trim().toLowerCase();
@@ -255,6 +272,33 @@ export default function AdminManuals() {
 
   const [manualForm, setManualForm] = useState<Manual>(createEmptyManual());
   const [tagInput, setTagInput] = useState("");
+  const [chapGenBusy, setChapGenBusy] = useState(false);
+
+  /* ===== チャプター編集 ===== */
+  const chapters = manualForm.chapters || [];
+  const setChapters = (next: { t: number; title: string }[]) =>
+    setManualForm((f) => ({ ...f, chapters: next }));
+  const updateChapter = (i: number, patch: Partial<{ t: number; title: string }>) =>
+    setChapters(chapters.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const addChapter = () => setChapters([...chapters, { t: 0, title: "" }]);
+  const removeChapter = (i: number) => setChapters(chapters.filter((_, idx) => idx !== i));
+  const sortChapters = () => setChapters([...chapters].sort((a, b) => a.t - b.t));
+  // 前処理済みMarkdownから AI で章立てを生成しフォームへ流し込む(保存で確定)。
+  const generateChaptersForForm = async () => {
+    if (!manualForm.manualId) return;
+    setChapGenBusy(true);
+    try {
+      const res = await fetch(`/api/manuals/${encodeURIComponent(manualForm.manualId)}/chapters`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 202) { alert(d.error || "前処理(Markdown化)を開始しました。数分後に再度お試しください。"); return; }
+      if (d.ok && Array.isArray(d.chapters) && d.chapters.length) setChapters(d.chapters);
+      else alert(d.error || "章を生成できませんでした（時刻情報のある動画のみ対応）。");
+    } catch { alert("生成に失敗しました。"); }
+    finally { setChapGenBusy(false); }
+  };
 
   // ✅ 画面処理中（統一ローディング）
   const [saving, setSaving] = useState(false);
@@ -939,6 +983,53 @@ export default function AdminManuals() {
                   <span>ダウンロードを禁止する（閲覧のみ）</span>
                 </label>
               </div>
+
+              {manualForm.type === "video" && (
+                <div className="kb-admin-form-row full" style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <label className="kb-admin-label full" style={{ margin: 0 }}>チャプター（動画・時刻付き）</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={sortChapters} disabled={!isEditing || busy || chapters.length < 2}
+                        style={{ fontSize: 12, padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}>
+                        時刻順に並べ替え
+                      </button>
+                      <button type="button" onClick={generateChaptersForForm} disabled={!isEditing || busy || chapGenBusy}
+                        style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", cursor: chapGenBusy ? "default" : "pointer" }}>
+                        {chapGenBusy ? "生成中…" : chapters.length ? "AIで再生成" : "AIで生成"}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8, marginTop: 6, background: "#fafafa" }}>
+                    {chapters.length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: "#94a3b8", padding: "10px 6px", textAlign: "center" }}>
+                        チャプターはまだありません。「AIで生成」または「＋ 行を追加」で作成できます。
+                      </div>
+                    ) : (
+                      chapters.map((c, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                          <input type="text" defaultValue={fmtSec(c.t)} disabled={!isEditing || busy}
+                            onBlur={(e) => { const s = parseSec(e.target.value); if (s == null) { e.target.value = fmtSec(c.t); } else { updateChapter(i, { t: s }); e.target.value = fmtSec(s); } }}
+                            title="開始時刻 (mm:ss または h:mm:ss)"
+                            style={{ width: 84, textAlign: "center", fontVariantNumeric: "tabular-nums", padding: "6px 8px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff" }} />
+                          <input type="text" value={c.title} disabled={!isEditing || busy}
+                            onChange={(e) => updateChapter(i, { title: e.target.value })}
+                            placeholder="章タイトル"
+                            style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff" }} />
+                          <button type="button" onClick={() => removeChapter(i)} disabled={!isEditing || busy}
+                            title="削除" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer" }}>✕</button>
+                        </div>
+                      ))
+                    )}
+                    <button type="button" onClick={addChapter} disabled={!isEditing || busy}
+                      style={{ marginTop: 4, fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px dashed #94a3b8", background: "#fff", color: "#334155", cursor: "pointer" }}>
+                      ＋ 行を追加
+                    </button>
+                  </div>
+                  <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                    ※ 時刻は「1:23」や「1:02:03」形式。保存すると閲覧プレビューのチャプターに反映されます（YouTube動画はクリックで頭出し）。
+                  </div>
+                </div>
+              )}
 
               {getEmbedSrc(manualForm.embedUrl) && (
                 <div className="kb-admin-form-row full" style={{ marginTop: 20 }}>

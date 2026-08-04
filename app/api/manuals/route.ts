@@ -137,6 +137,10 @@ export type Manual = {
   preprocessedKey?: string | null;
   preprocessedStatus?: "ok" | "failed" | "pending" | null;
   preprocessedError?: string | null;
+
+  // ✅ チャプター(動画)/目次(資料)
+  chapters?: { t: number; title: string }[];
+  toc?: { title: string; page?: number }[];
 };
 
 /** yyyy-mm-dd をざっくり検証（空はOK） */
@@ -346,6 +350,10 @@ function mapItemToManual(item: any): Manual {
     preprocessedKey: item.preprocessedKey ? String(item.preprocessedKey) : null,
     preprocessedStatus: (item.preprocessedStatus as any) ?? null,
     preprocessedError: item.preprocessedError ? String(item.preprocessedError) : null,
+
+    // ✅ チャプター(動画)/目次(資料)。編集画面での編集・保持用。
+    chapters: Array.isArray(item.chapters) ? item.chapters : [],
+    toc: Array.isArray(item.toc) ? item.toc : [],
   };
 }
 
@@ -417,6 +425,53 @@ function buildDbItem(input: any): any {
     preprocessedStatus: input.preprocessedStatus ?? null,
     preprocessedError: input.preprocessedError ?? null,
   };
+}
+
+/** チャプター/目次の入力を正規化(不正値除去)。 */
+function sanitizeChapters(v: any): { t: number; title: string }[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v
+    .map((c: any) => ({ t: Math.max(0, Math.floor(Number(c?.t) || 0)), title: String(c?.title || "").slice(0, 80) }))
+    .filter((c: { title: string }) => c.title)
+    .sort((a: { t: number }, b: { t: number }) => a.t - b.t)
+    .slice(0, 50);
+}
+function sanitizeToc(v: any): { title: string; page?: number }[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v
+    .map((c: any) => {
+      const o: { title: string; page?: number } = { title: String(c?.title || "").slice(0, 80) };
+      const p = Math.floor(Number(c?.page));
+      if (Number.isFinite(p) && p > 0) o.page = p;
+      return o;
+    })
+    .filter((c: { title: string }) => c.title)
+    .slice(0, 60);
+}
+
+/** 保存時に「チャプター/目次/前処理メタ」を消さない。body に明示があれば採用、無ければ既存を維持。 */
+function applyPreservedFields(item: any, body: any, prevItem: any | undefined, nowIso: string): any {
+  // チャプター(動画)
+  if (body.chapters !== undefined) {
+    const c = sanitizeChapters(body.chapters);
+    if (c) { item.chapters = c; item.chaptersAt = nowIso; }
+  } else if (prevItem?.chapters !== undefined) {
+    item.chapters = prevItem.chapters;
+    if (prevItem.chaptersAt !== undefined) item.chaptersAt = prevItem.chaptersAt;
+  }
+  // 目次(資料)
+  if (body.toc !== undefined) {
+    const t = sanitizeToc(body.toc);
+    if (t) { item.toc = t; item.tocAt = nowIso; }
+  } else if (prevItem?.toc !== undefined) {
+    item.toc = prevItem.toc;
+    if (prevItem.tocAt !== undefined) item.tocAt = prevItem.tocAt;
+  }
+  // 前処理メタ / 自動生成対象外フラグ: body が null/未指定なら既存維持
+  for (const k of ["outlineNone", "preprocessedAt", "preprocessedEmbedUrl", "preprocessedKey", "preprocessedStatus", "preprocessedError"]) {
+    if ((body[k] === undefined || body[k] === null) && prevItem?.[k] !== undefined) item[k] = prevItem[k];
+  }
+  return item;
 }
 
 /** GET: /api/manuals
@@ -556,6 +611,13 @@ export async function POST(req: Request) {
     }
 
     const item = buildDbItem(body);
+    // 既存があれば(同一manualIdの上書きPOST)チャプター等を維持
+    let prevItemPost: any = undefined;
+    try {
+      const prev = await ddbDoc.send(new GetCommand({ TableName: TABLE_NAME, Key: { manualId: body.manualId } }));
+      prevItemPost = prev.Item;
+    } catch {}
+    applyPreservedFields(item, body, prevItemPost, new Date().toISOString());
 
     await ddbDoc.send(
       new PutCommand({
@@ -594,16 +656,20 @@ export async function PUT(req: Request) {
       );
     }
 
-    // 既存値を取得 (embedUrl 変更検知用 / createdAt 維持用)
+    // 既存値を取得 (embedUrl 変更検知用 / createdAt 維持用 / チャプター等の維持用)
     let prevEmbedUrl: string | null = null;
+    let prevItem: any = undefined;
     try {
       const prev = await ddbDoc.send(
         new GetCommand({ TableName: TABLE_NAME, Key: { manualId: body.manualId } })
       );
+      prevItem = prev.Item;
       prevEmbedUrl = prev.Item?.embedUrl ? String(prev.Item.embedUrl) : null;
     } catch {}
 
     const item = buildDbItem(body);
+    // 編集保存でチャプター/目次/前処理メタを消さない(body明示があれば採用)
+    applyPreservedFields(item, body, prevItem, new Date().toISOString());
 
     await ddbDoc.send(
       new PutCommand({
