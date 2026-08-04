@@ -10,6 +10,7 @@ import RefundTasksPanel from "@/components/RefundTasksPanel";
 import ContactList from "@/components/ContactList";
 import Tour, { type TourStep } from "@/components/Tour";
 import HelpModal from "@/components/HelpModal";
+import ManualOutlinePanel from "@/components/ManualOutlinePanel";
 
 /** Know Base 使い方ガイドの Slides URL (Google Slides の /preview リンク) */
 const HELP_SLIDES_URL =
@@ -1030,57 +1031,16 @@ export default function HomePage() {
   const [loadingNews, setLoadingNews] = useState(true);
 
   const [previewManual, setPreviewManual] = useState<Manual | null>(null);
-  const [chapters, setChapters] = useState<{ t: number; title: string }[]>([]);
-  const [chaptersLoading, setChaptersLoading] = useState(false);
-  const [seekSec, setSeekSec] = useState<number | null>(null); // 章クリックの頭出し秒(YouTube)
-  const [toc, setToc] = useState<{ title: string }[]>([]);       // ドキュメントの目次
-  const [tocLoading, setTocLoading] = useState(false);
+  const [seekSec, setSeekSec] = useState<number | null>(null);   // 章クリックの頭出し秒(YouTube)
+  const [slideNum, setSlideNum] = useState<number | null>(null); // 目次クリックのスライド番号(Slides)
   useEffect(() => {
     if (previewManual && previewManual.manualId) {
       recordManualViewLog(previewManual.manualId);
-      setChapters([]); setSeekSec(null); setToc([]);
-      // 動画は章立て(チャプター)、ドキュメントは目次(TOC)を取得
-      if ((previewManual as any).type === "video") {
-        fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/chapters`, { cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (d?.ok && Array.isArray(d.chapters)) setChapters(d.chapters); })
-          .catch(() => {});
-      } else {
-        fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/toc`, { cache: "no-store" })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => { if (d?.ok && Array.isArray(d.toc)) setToc(d.toc); })
-          .catch(() => {});
-      }
+      setSeekSec(null); setSlideNum(null);
     }
   }, [previewManual]);
 
-  const fmtChapTime = (s: number) => {
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = Math.floor(s % 60);
-    return (h > 0 ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(sec).padStart(2, "0")}`;
-  };
   const isYouTubeUrl = (u?: string) => !!u && /(?:youtube\.com|youtu\.be)/.test(u);
-  const generateChapters = async () => {
-    if (!previewManual) return;
-    setChaptersLoading(true);
-    try {
-      const res = await fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/chapters`, { method: "POST" });
-      const d = await res.json();
-      if (d.ok && Array.isArray(d.chapters)) setChapters(d.chapters);
-      else alert(d.error || "章の生成に失敗しました");
-    } catch { alert("章の生成に失敗しました"); }
-    finally { setChaptersLoading(false); }
-  };
-  const generateToc = async () => {
-    if (!previewManual) return;
-    setTocLoading(true);
-    try {
-      const res = await fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/toc`, { method: "POST" });
-      const d = await res.json();
-      if (d.ok && Array.isArray(d.toc)) setToc(d.toc);
-      else alert(d.error || "目次の生成に失敗しました");
-    } catch { alert("目次の生成に失敗しました"); }
-    finally { setTocLoading(false); }
-  };
 
   const PAGE_SIZE = 5;
   type ManualSortKey = "publish" | "update";
@@ -1996,72 +1956,28 @@ export default function HomePage() {
               {(() => {
                 const isVideo = (previewManual as any).type === "video";
                 const yt = isYouTubeUrl(previewManual.embedUrl);
+                const isSlides = !!previewManual.embedUrl && previewManual.embedUrl.includes("docs.google.com/presentation");
                 let embedSrc = getEmbedSrc(previewManual.embedUrl);
                 if (yt) {
                   const idm = String(previewManual.embedUrl).match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/);
                   const vid = idm?.[1];
                   if (vid) embedSrc = `https://www.youtube.com/embed/${vid}?rel=0${seekSec != null ? `&start=${seekSec}&autoplay=1` : ""}`;
+                } else if (isSlides && slideNum != null) {
+                  embedSrc += (embedSrc.includes("?") ? "&" : "?") + `slide=${slideNum}`;
                 }
                 if (!embedSrc) return <div style={{ fontSize: 13, color: "#6b7280", padding: 12, borderRadius: 10, background: "#e5e7eb" }}>プレビューURLがありません。</div>;
                 return (
                   <div style={{ flex: 1, display: "flex", gap: 12, minHeight: 0 }}>
                     <div style={{ flex: 1, display: "flex", justifyContent: "center", alignItems: "center", minWidth: 0 }}>
                       <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: 14, overflow: "hidden", border: "1px solid #d1d5db", background: "#020617", position: "relative" }}>
-                        <iframe key={yt ? `yt-${seekSec ?? "0"}` : "frame"} src={embedSrc} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen loading="lazy" allow="autoplay" />
+                        <iframe key={yt ? `yt-${seekSec ?? "0"}` : isSlides ? `sl-${slideNum ?? "0"}` : "frame"} src={embedSrc} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }} allowFullScreen loading="lazy" allow="autoplay" />
                       </div>
                     </div>
-                    {isVideo && (
-                      <div style={{ width: 250, flexShrink: 0, display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
-                        <div style={{ padding: "10px 12px", borderBottom: "1px solid #eef2f7", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>チャプター</span>
-                          {isAdmin && (
-                            <button onClick={generateChapters} disabled={chaptersLoading}
-                              style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: chaptersLoading ? "#eef2ff" : "#eef2ff", color: "#4338ca", cursor: chaptersLoading ? "default" : "pointer" }}>
-                              {chaptersLoading ? "生成中…" : chapters.length ? "再生成" : "AIで生成"}
-                            </button>
-                          )}
-                        </div>
-                        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-                          {chapters.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "#94a3b8", padding: "16px 8px", textAlign: "center", lineHeight: 1.7 }}>
-                              {chaptersLoading ? "生成中…" : "チャプターはまだありません。" + (isAdmin ? "「AIで生成」で作成できます。" : "")}
-                            </div>
-                          ) : chapters.map((c, i) => (
-                            <button key={i} onClick={() => { if (yt) setSeekSec(c.t); }}
-                              title={yt ? "ここから再生" : "この動画は頭出し非対応（時刻の参考表示）"}
-                              style={{ display: "flex", gap: 8, width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8, border: "none", background: seekSec === c.t ? "#eef2ff" : "transparent", cursor: yt ? "pointer" : "default", marginBottom: 2 }}>
-                              <span style={{ fontSize: 11, fontWeight: 800, color: "#4338ca", fontVariantNumeric: "tabular-nums", flexShrink: 0, minWidth: 38 }}>{fmtChapTime(c.t)}</span>
-                              <span style={{ fontSize: 12.5, color: "#334155", lineHeight: 1.5 }}>{c.title}</span>
-                            </button>
-                          ))}
-                        </div>
-                        {chapters.length > 0 && !yt && <div style={{ fontSize: 10.5, color: "#94a3b8", padding: "8px 10px", borderTop: "1px solid #eef2f7", lineHeight: 1.5 }}>※ この動画は頭出し非対応です（時刻は参考表示）。頭出しにはYouTube配信が必要です。</div>}
-                      </div>
-                    )}
-                    {!isVideo && (
-                      <div style={{ width: 250, flexShrink: 0, display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
-                        <div style={{ padding: "10px 12px", borderBottom: "1px solid #eef2f7", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>目次</span>
-                          {isAdmin && (
-                            <button onClick={generateToc} disabled={tocLoading}
-                              style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", cursor: tocLoading ? "default" : "pointer" }}>
-                              {tocLoading ? "生成中…" : toc.length ? "再生成" : "AIで生成"}
-                            </button>
-                          )}
-                        </div>
-                        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
-                          {toc.length === 0 ? (
-                            <div style={{ fontSize: 12, color: "#94a3b8", padding: "16px 8px", textAlign: "center", lineHeight: 1.7 }}>
-                              {tocLoading ? "生成中…" : "目次はまだありません。" + (isAdmin ? "「AIで生成」で作成できます。" : "")}
-                            </div>
-                          ) : toc.map((c, i) => (
-                            <div key={i} style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, marginBottom: 2 }}>
-                              <span style={{ fontSize: 11, fontWeight: 800, color: "#4338ca", fontVariantNumeric: "tabular-nums", flexShrink: 0, minWidth: 20 }}>{i + 1}</span>
-                              <span style={{ fontSize: 12.5, color: "#334155", lineHeight: 1.5 }}>{c.title}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                    {previewManual.manualId && (
+                      <ManualOutlinePanel manualId={previewManual.manualId} type={isVideo ? "video" : "doc"}
+                        onSeek={yt ? (sec) => setSeekSec(sec) : undefined}
+                        onJump={isSlides ? (page) => setSlideNum(page) : undefined}
+                      />
                     )}
                   </div>
                 );
