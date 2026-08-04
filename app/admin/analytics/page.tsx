@@ -11,10 +11,14 @@ type UserData = {
   userId: string;
   name: string;
   email: string;
+  role?: string;
   isActive: boolean;
   lastLoginAt?: string;
   createdAt?: string;
 };
+
+const ROLE_OPTIONS = ["all", "admin", "sv", "editor", "store", "finance", "viewer"];
+const ROLE_LABEL: Record<string, string> = { all: "すべてのロール", admin: "admin(管理者)", sv: "sv(SV)", editor: "editor(編集)", store: "store(店舗)", finance: "finance(経理)", viewer: "viewer(閲覧)" };
 
 // 掘り下げ用の詳細データ型
 type NewsDetail = {
@@ -60,6 +64,7 @@ export default function AnalyticsPage() {
   const [users, setUsers] = useState<UserData[]>([]);
   const [summaryData, setSummaryData] = useState<SummaryData | null>(null);
   const [filterDays, setFilterDays] = useState<number>(30);
+  const [roleFilter, setRoleFilter] = useState<string>("all");
 
   // モーダル管理
   const [activeModal, setActiveModal] = useState<"uniqueLogins" | "news" | "contacts" | "allManuals" | null>(null);
@@ -125,6 +130,25 @@ export default function AnalyticsPage() {
   const dormantUsers = users.filter(
     (u) => u.isActive && (!u.lastLoginAt || !isWithinDays(u.lastLoginAt, 90))
   );
+  // ロール別切替: すべて以外は該当ロールに絞る
+  const byRole = (list: UserData[]) => (roleFilter === "all" ? list : list.filter((u) => (u.role || "viewer") === roleFilter));
+  const dormantFiltered = byRole(dormantUsers);
+  const roleUsers = byRole(users);
+  const roleActiveCount = roleUsers.filter((u) => u.isActive).length;
+
+  // 休眠アカウントCSV出力（名前・ロール・アドレス）
+  const downloadDormantCsv = () => {
+    const header = ["名前", "ロール", "アドレス", "最終ログイン"];
+    const rows = dormantFiltered.map((u) => [u.name || "", u.role || "viewer", u.email || "", u.lastLoginAt ? formatDate(u.lastLoginAt) : "未ログイン"]);
+    const csv = "﻿" + [header, ...rows].map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `休眠アカウント_${roleFilter === "all" ? "全ロール" : roleFilter}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const chartDataUsers = summaryData?.summary ? [
     { name: filterDays === 0 ? "ログインあり" : `${filterDays}日以内`, value: summaryData.summary.uniqueLogins },
@@ -142,6 +166,9 @@ export default function AnalyticsPage() {
           <div style={{ fontWeight: 700 }}>分析ダッシュボード</div>
           
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            <select className="kb-period-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} title="ロール別に切り替え">
+              {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </select>
             <select className="kb-period-select" value={filterDays} onChange={(e) => setFilterDays(Number(e.target.value))}>
               <option value={7}>過去 7 日間</option>
               <option value={30}>過去 30 日間</option>
@@ -156,6 +183,12 @@ export default function AnalyticsPage() {
       <main className="kb-analytics-container">
         {/* === 1. 上部KPIカード群 === */}
         <section className="kb-kpi-grid">
+          {/* ロール別切替に連動するユーザー内訳 */}
+          <div className="kb-kpi-card" style={{ borderTop: "3px solid #6366f1" }}>
+            <div className="kb-kpi-label">{roleFilter === "all" ? "全ユーザー" : ROLE_LABEL[roleFilter]}</div>
+            <div className="kb-kpi-value" style={{ color: "#4f46e5" }}>{roleUsers.length}</div>
+            <div className="kb-kpi-sub">有効 {roleActiveCount} ／ 休眠 {dormantFiltered.length}</div>
+          </div>
           {/* ✅ 追加: マニュアル総閲覧数 */}
           <div className="kb-kpi-card">
             <div className="kb-kpi-label">マニュアル総閲覧数</div>
@@ -288,21 +321,24 @@ export default function AnalyticsPage() {
             <div className="kb-panel">
               <div className="kb-panel-head danger">
                 <h3>💤 休眠アカウント (90日以上アクセスなし)</h3>
-                <span className="kb-head-badge">{dormantUsers.length}件</span>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span className="kb-head-badge">{dormantFiltered.length}件{roleFilter !== "all" ? `（${roleFilter}）` : ""}</span>
+                  <button className="kb-sm-btn" style={{ background: "#0f766e", color: "#fff", border: "none" }} onClick={downloadDormantCsv} disabled={dormantFiltered.length === 0} title="名前・ロール・アドレスをCSV出力">⬇ CSV出力</button>
+                </div>
               </div>
               <div className="kb-list-compact scrollable" style={{ maxHeight: "400px" }}>
-                {dormantUsers.map((u) => (
+                {dormantFiltered.map((u) => (
                   <div key={u.userId} className="kb-list-row">
                     <div className="kb-list-content">
-                      <div className="kb-list-title">{u.name}</div>
-                      <div className="kb-list-meta text-warning">最終: {u.lastLoginAt ? formatDate(u.lastLoginAt) : "履歴なし"}</div>
+                      <div className="kb-list-title">{u.name} <span style={{ fontSize: 11, fontWeight: 700, color: "#64748b", background: "#f1f5f9", padding: "1px 7px", borderRadius: 6, marginLeft: 4 }}>{u.role || "viewer"}</span></div>
+                      <div className="kb-list-meta text-warning">{u.email}ー最終: {u.lastLoginAt ? formatDate(u.lastLoginAt) : "履歴なし"}</div>
                     </div>
                     <button className="kb-sm-btn kb-btn-danger" onClick={() => handleDeactivate(u)}>
                       停止する
                     </button>
                   </div>
                 ))}
-                {dormantUsers.length === 0 && <div className="kb-empty">休眠ユーザーはいません</div>}
+                {dormantFiltered.length === 0 && <div className="kb-empty">該当する休眠ユーザーはいません</div>}
               </div>
             </div>
           </div>

@@ -102,10 +102,22 @@ export async function GET(req: Request) {
         userId: String(u.userId ?? ""),
         name: String(u.name ?? "-"),
         email: String(u.email ?? "-"),
+        role: String(u.role ?? "viewer"),
         isActive: !!u.isActive,
         lastLoginAt: u.lastLoginAt ? String(u.lastLoginAt) : undefined,
       }))
       .sort((a, b) => (safeDateMs(b.lastLoginAt) || 0) - (safeDateMs(a.lastLoginAt) || 0));
+
+    // 全ユーザー（ロール別切替・休眠アカウント判定・CSV出力に使用）
+    const allUsers = (users || []).map((u: any) => ({
+      userId: String(u.userId ?? ""),
+      name: String(u.name ?? "-"),
+      email: String(u.email ?? "-"),
+      role: String(u.role ?? "viewer"),
+      isActive: !!u.isActive,
+      lastLoginAt: u.lastLoginAt ? String(u.lastLoginAt) : undefined,
+      createdAt: u.createdAt ? String(u.createdAt) : undefined,
+    }));
 
     // 3) 検索ワードランキング（SearchLogs）
     const searchLogs = await scanAll(SEARCH_LOGS_TABLE);
@@ -295,6 +307,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       summary,
       uniqueLoginUsers,
+      allUsers,
       searchRanking,
       newsViewsDetail,
       contactsDetail,
