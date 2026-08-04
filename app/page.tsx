@@ -1033,15 +1033,22 @@ export default function HomePage() {
   const [chapters, setChapters] = useState<{ t: number; title: string }[]>([]);
   const [chaptersLoading, setChaptersLoading] = useState(false);
   const [seekSec, setSeekSec] = useState<number | null>(null); // 章クリックの頭出し秒(YouTube)
+  const [toc, setToc] = useState<{ title: string }[]>([]);       // ドキュメントの目次
+  const [tocLoading, setTocLoading] = useState(false);
   useEffect(() => {
     if (previewManual && previewManual.manualId) {
       recordManualViewLog(previewManual.manualId);
-      setChapters([]); setSeekSec(null);
-      // 動画は章立てを取得
+      setChapters([]); setSeekSec(null); setToc([]);
+      // 動画は章立て(チャプター)、ドキュメントは目次(TOC)を取得
       if ((previewManual as any).type === "video") {
         fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/chapters`, { cache: "no-store" })
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => { if (d?.ok && Array.isArray(d.chapters)) setChapters(d.chapters); })
+          .catch(() => {});
+      } else {
+        fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/toc`, { cache: "no-store" })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => { if (d?.ok && Array.isArray(d.toc)) setToc(d.toc); })
           .catch(() => {});
       }
     }
@@ -1062,6 +1069,17 @@ export default function HomePage() {
       else alert(d.error || "章の生成に失敗しました");
     } catch { alert("章の生成に失敗しました"); }
     finally { setChaptersLoading(false); }
+  };
+  const generateToc = async () => {
+    if (!previewManual) return;
+    setTocLoading(true);
+    try {
+      const res = await fetch(`/api/manuals/${encodeURIComponent(previewManual.manualId)}/toc`, { method: "POST" });
+      const d = await res.json();
+      if (d.ok && Array.isArray(d.toc)) setToc(d.toc);
+      else alert(d.error || "目次の生成に失敗しました");
+    } catch { alert("目次の生成に失敗しました"); }
+    finally { setTocLoading(false); }
   };
 
   const PAGE_SIZE = 5;
@@ -2018,6 +2036,31 @@ export default function HomePage() {
                           ))}
                         </div>
                         {chapters.length > 0 && !yt && <div style={{ fontSize: 10.5, color: "#94a3b8", padding: "8px 10px", borderTop: "1px solid #eef2f7", lineHeight: 1.5 }}>※ この動画は頭出し非対応です（時刻は参考表示）。頭出しにはYouTube配信が必要です。</div>}
+                      </div>
+                    )}
+                    {!isVideo && (
+                      <div style={{ width: 250, flexShrink: 0, display: "flex", flexDirection: "column", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
+                        <div style={{ padding: "10px 12px", borderBottom: "1px solid #eef2f7", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: "#0f172a" }}>目次</span>
+                          {isAdmin && (
+                            <button onClick={generateToc} disabled={tocLoading}
+                              style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", cursor: tocLoading ? "default" : "pointer" }}>
+                              {tocLoading ? "生成中…" : toc.length ? "再生成" : "AIで生成"}
+                            </button>
+                          )}
+                        </div>
+                        <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+                          {toc.length === 0 ? (
+                            <div style={{ fontSize: 12, color: "#94a3b8", padding: "16px 8px", textAlign: "center", lineHeight: 1.7 }}>
+                              {tocLoading ? "生成中…" : "目次はまだありません。" + (isAdmin ? "「AIで生成」で作成できます。" : "")}
+                            </div>
+                          ) : toc.map((c, i) => (
+                            <div key={i} style={{ display: "flex", gap: 8, padding: "8px 10px", borderRadius: 8, marginBottom: 2 }}>
+                              <span style={{ fontSize: 11, fontWeight: 800, color: "#4338ca", fontVariantNumeric: "tabular-nums", flexShrink: 0, minWidth: 20 }}>{i + 1}</span>
+                              <span style={{ fontSize: 12.5, color: "#334155", lineHeight: 1.5 }}>{c.title}</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
