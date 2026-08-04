@@ -1404,8 +1404,7 @@ export default function HomePage() {
       <div className="kb-topbar">
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img src="/logos/KnowBase_icon.png" alt="KB Logo" style={{ width: "48px", height: "48px", objectFit: "contain" }} />
-            <img src="/logos/KnowBase_CR.png" alt="KnowBase Text Logo" style={{ height: "22px", objectFit: "contain" }} />
+            <img src="/logos/KnowBase_site_Banner.png" alt="KnowBase - マニュアル検索ポータルサイト" style={{ height: "52px", objectFit: "contain" }} />
           </div>
         </Link>
 
