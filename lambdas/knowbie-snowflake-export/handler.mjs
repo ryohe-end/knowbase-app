@@ -300,6 +300,40 @@ async function exportRecess(dt) {
   return putNdjson("recess", dt, rows);
 }
 
+// お友達紹介 クラブ別月次 DM (全件洗い替え)。fit365sf=FIT365 / ecojoy=JOYFIT。
+//   全体入会 = member(app_date=申込年月日 の月別) / 紹介入会 = introduce_member_individual × member /
+//   紹介者 = その月の distinct introducer_casio_id。introduce×member は member_no+shop_id で100%一致。
+async function exportIntroduce(dt) {
+  const rows = [];
+  for (const [target, brand, db] of [["fit365entry", "FIT365", "fit365sf"], ["ecojoy", "JOYFIT", "ecojoy"]]) {
+    const [totalRows, introRows, nameRows] = await Promise.all([
+      proxy(target, `SELECT shop_id, SUBSTR(app_date,1,6) ym, COUNT(*) total
+                       FROM ${db}.member WHERE app_date REGEXP '^[0-9]{8}$' GROUP BY shop_id, ym`),
+      proxy(target, `SELECT i.shop_id, SUBSTR(m.app_date,1,6) ym, COUNT(*) intro_join,
+                            COUNT(DISTINCT i.introducer_casio_id) referrers
+                       FROM ${db}.introduce_member_individual i
+                       JOIN ${db}.member m ON m.member_no=i.member_no AND m.shop_id=i.shop_id
+                      WHERE m.app_date REGEXP '^[0-9]{8}$' GROUP BY i.shop_id, ym`),
+      proxy(target, `SELECT shop_id, name FROM ${db}.shop`),
+    ]);
+    const nameBy = {}; for (const r of nameRows) nameBy[String(r.shop_id)] = r.name;
+    const introBy = {}; for (const r of introRows) introBy[`${r.shop_id}|${r.ym}`] = r;
+    for (const r of totalRows) {
+      const iv = introBy[`${r.shop_id}|${r.ym}`] || {};
+      rows.push({
+        brand,
+        club_code: String(r.shop_id),
+        shop_name: nameBy[String(r.shop_id)] || null,
+        ym: String(r.ym),                              // YYYYMM
+        referrers: Number(iv.referrers || 0),          // 紹介者数(distinct)
+        intro_joins: Number(iv.intro_join || 0),       // 紹介入会者数
+        total_joins: Number(r.total),                  // 全体入会者数
+      });
+    }
+  }
+  return putNdjson("introduce", dt, rows);
+}
+
 export const handler = async (event = {}) => {
   const dt = event.date || jstDate();
   // event.sources=["option#dgtk", ...] で対象を絞れる(段階検証・部分再実行用)。未指定は全ソース。
@@ -317,6 +351,7 @@ export const handler = async (event = {}) => {
   await run("onetimepass", () => exportOnetimepass(dt));
   await run("option#dgtk", () => exportOption(dt));
   await run("recess", () => exportRecess(dt));
+  await run("introduce", () => exportIntroduce(dt));
   const res = { ok: errors.length === 0, dt, results: out, errors };
   console.log("[snowflake-export]", JSON.stringify(res));
   return res;

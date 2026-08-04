@@ -107,3 +107,28 @@ SELECT v:ticket_order_id::STRING     ticket_order_id,
        v:ticket_sales_date::STRING   ticket_sales_date,
        loaded_at
 FROM RAW_OPTION QUALIFY ROW_NUMBER() OVER (PARTITION BY v:ticket_order_id, v:ticket_code ORDER BY loaded_at DESC) = 1;
+
+-- ============================================================================
+-- お友達紹介 クラブ別月次 DM (source=introduce, 全件洗い替え)
+--   fit365sf=FIT365 / ecojoy=JOYFIT を Lambda が結合済み。ym=申込月(YYYYMM)。
+--   referrers=紹介者数(distinct introducer), intro_joins=紹介経由入会, total_joins=全体入会。
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS RAW_INTRODUCE (v VARIANT, src_file STRING, loaded_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP());
+
+CREATE PIPE IF NOT EXISTS PIPE_INTRODUCE AUTO_INGEST = TRUE AS
+  COPY INTO RAW_INTRODUCE (v, src_file) FROM (SELECT $1, METADATA$FILENAME FROM @STG_KNOWBIE/introduce/);
+-- ↑ PIPE_INTRODUCE の notification_channel(SQS ARN) も S3 ObjectCreated 通知先へ追加すること。
+
+-- 最新スナップショットのみ(brand, club_code, ym で dedup)。紹介経由率も算出。
+CREATE OR REPLACE VIEW V_INTRODUCE AS
+SELECT v:brand::STRING        brand,
+       v:club_code::STRING    club_code,
+       v:shop_name::STRING    shop_name,
+       v:ym::STRING           ym,
+       v:referrers::NUMBER    referrers,
+       v:intro_joins::NUMBER  intro_joins,
+       v:total_joins::NUMBER  total_joins,
+       IFF(v:total_joins::NUMBER > 0, ROUND(100.0 * v:intro_joins::NUMBER / v:total_joins::NUMBER, 1), 0) introduce_rate_pct,
+       loaded_at
+FROM RAW_INTRODUCE
+QUALIFY ROW_NUMBER() OVER (PARTITION BY v:brand, v:club_code, v:ym ORDER BY loaded_at DESC) = 1;
