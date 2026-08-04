@@ -24,6 +24,7 @@ export type KbUser = {
   name: string;
   email: string;
   role: KbUserRole;
+  title?: string;   // 役職 (CL/CMG/CF 等)。無い場合は空。
   brandIds?: string[];
   deptIds?: string[];
   groupIds?: string[];
@@ -197,7 +198,7 @@ export async function GET(req: NextRequest) {
       new ScanCommand({
         TableName: TABLE_NAME,
         ProjectionExpression:
-           "userId, #n, email, #r, brandIds, deptIds, groupIds, clubCodes, areas, #p, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
+           "userId, #n, email, #r, title, brandIds, deptIds, groupIds, clubCodes, areas, #p, isActive, mustChangePassword, createdAt, updatedAt, lastLoginAt",
         ExpressionAttributeNames: {
           "#n": "name",
           "#r": "role",
@@ -421,6 +422,10 @@ const putItem: KbUser = {
   passwordHash: passwordHashToSave,
   mustChangePassword,
 };
+
+// 役職(title): 指定があれば採用、無ければ既存を保持。空/未設定は属性ごと付けない。
+const keepTitle = (typeof user.title === "string" ? user.title.trim() : undefined) ?? existing?.title;
+if (keepTitle) putItem.title = keepTitle;
 
     await docClient.send(
       new PutCommand({

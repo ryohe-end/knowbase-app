@@ -12,6 +12,7 @@ export type KbUser = {
   name: string;
   email: string;
   role: KbUserRole;
+  title?: string;   // 役職 (CL/CMG/CF 等)
   brandIds?: string[];
   groupIds?: string[];
   clubCodes?: string[];
@@ -191,6 +192,7 @@ export default function AdminUsersPage() {
       name: u.name,
       email: u.email,
       role: u.role ?? "viewer",
+      title: u.title ?? "",
       brandIds: u.brandIds ?? [],
       groupIds: u.groupIds ?? [],
       clubCodes: u.clubCodes ?? [],
@@ -750,7 +752,9 @@ export default function AdminUsersPage() {
                       }}
                     >
                       <div className="kb-user-title" style={{ fontWeight: 700 }}>
-                        {u.name} ({u.userId})
+                        {u.name}
+                        {u.title ? <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#4338ca", background: "#e0e7ff", padding: "1px 7px", borderRadius: 6 }}>{u.title}</span> : null}
+                        <span style={{ fontWeight: 400, color: "#94a3b8" }}> ({u.userId})</span>
                       </div>
 
                       <div
@@ -856,6 +860,19 @@ export default function AdminUsersPage() {
                   value={form.name}
                   onChange={handleFormChange}
                   required
+                  disabled={saving}
+                />
+              </div>
+
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">役職（任意・CL / CMG / CF 等）</label>
+                <input
+                  className="kb-admin-input full"
+                  type="text"
+                  name="title"
+                  value={form.title ?? ""}
+                  onChange={handleFormChange}
+                  placeholder="例) CL"
                   disabled={saving}
                 />
               </div>
