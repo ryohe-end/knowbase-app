@@ -1422,7 +1422,7 @@ export default function HomePage() {
       <div className="kb-topbar">
         <Link href="/" style={{ display: "flex", alignItems: "center", gap: "20px", textDecoration: "none" }}>
           <div className="kb-topbar-left" style={{ display: "flex", alignItems: "center", gap: "20px", cursor: "pointer" }}>
-            <img src="/logos/KnowBase_site_Banner.png" alt="KnowBase - マニュアル検索ポータルサイト" style={{ height: "52px", objectFit: "contain" }} />
+            <img src="/logos/KnowBase_site_Banner_02.png" alt="KnowBase - マニュアル検索ポータルサイト" style={{ height: "52px", objectFit: "contain" }} />
           </div>
         </Link>
 
