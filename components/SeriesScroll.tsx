@@ -264,7 +264,10 @@ export default function SeriesScroll({ seriesName, manuals, userId, defaultExpan
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
               />
-              {modalManualId && <ManualOutlinePanel manualId={modalManualId} type={modalType} />}
+              {modalManualId && <ManualOutlinePanel manualId={modalManualId} type={modalType}
+                onSeek={/youtu/.test(rawUrl.toLowerCase()) ? (sec) => { const vid = rawUrl.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1]; if (vid) setModalUrl(`https://www.youtube.com/embed/${vid}?start=${sec}&autoplay=1`); } : undefined}
+                onJump={/presentation/.test(rawUrl.toLowerCase()) ? (page) => { const id = rawUrl.match(/presentation\/d\/([\w-]+)/)?.[1]; if (id) setModalUrl(`https://docs.google.com/presentation/d/${id}/embed?rm=minimal&slide=${page}`); } : undefined}
+              />}
             </div>
           </div>
         </div>
