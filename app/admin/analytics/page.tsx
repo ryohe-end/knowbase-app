@@ -24,7 +24,7 @@ const ROLE_LABEL: Record<string, string> = { all: "すべてのロール", admin
 type NewsDetail = {
   title: string;
   views: number;
-  viewers: { name: string; email: string; viewedAt: string }[];
+  viewers: { name: string; email: string; role?: string; viewedAt: string }[];
 };
 
 type SummaryData = {
@@ -42,9 +42,9 @@ type SummaryData = {
   uniqueLoginUsers: UserData[];
   newsViewsDetail: NewsDetail[]; // ✅ 閲覧者リストを含むように変更
   contactsDetail: { name: string; email: string; createdAt: string }[];
-  allManuals: { manualId: string; title: string; views: number }[];
+  allManuals: { manualId: string; title: string; views: number; viewsByRole?: Record<string, number> }[];
   searchRanking: { keyword: string; count: number }[];
-  userLoginCounts: { name: string; email: string; count: number }[];
+  userLoginCounts: { name: string; email: string; role?: string; count: number }[];
 };
 
 const formatDate = (isoStr?: string) => {
@@ -135,6 +135,18 @@ export default function AnalyticsPage() {
   const dormantFiltered = byRole(dormantUsers);
   const roleUsers = byRole(users);
   const roleActiveCount = roleUsers.filter((u) => u.isActive).length;
+
+  // ロール別切替を全集計に反映
+  const loginCounts = (summaryData?.userLoginCounts || []).filter((u) => roleFilter === "all" || (u.role || "viewer") === roleFilter);
+  const manualsRanked = (roleFilter === "all"
+    ? (summaryData?.allManuals || [])
+    : (summaryData?.allManuals || []).map((m) => ({ ...m, views: (m.viewsByRole?.[roleFilter]) || 0 }))
+  ).slice().sort((a, b) => b.views - a.views);
+  const newsViewsFiltered = (summaryData?.newsViewsDetail || []).map((n) => {
+    if (roleFilter === "all") return n;
+    const vs = n.viewers.filter((v) => (v.role || "viewer") === roleFilter);
+    return { ...n, viewers: vs, views: vs.length };
+  }).filter((n) => roleFilter === "all" || n.views > 0).sort((a, b) => b.views - a.views);
 
   // 休眠アカウントCSV出力（名前・ロール・アドレス）
   const downloadDormantCsv = () => {
@@ -278,7 +290,7 @@ export default function AnalyticsPage() {
                 </button>
               </div>
               <div className="kb-list-compact">
-                {(summaryData?.allManuals || []).slice(0, 5).map((m, i) => (
+                {manualsRanked.slice(0, 5).map((m, i) => (
                   <div key={m.manualId} className="kb-list-row">
                     <div className="kb-rank-badge" style={{ background: i < 3 ? '#3b82f6' : '#94a3b8' }}>{i + 1}</div>
                     <div className="kb-list-content">
@@ -287,7 +299,7 @@ export default function AnalyticsPage() {
                     <div className="kb-view-count">{m.views} views</div>
                   </div>
                 ))}
-                {(summaryData?.allManuals || []).length === 0 && <div className="kb-empty">データがありません</div>}
+                {manualsRanked.length === 0 && <div className="kb-empty">データがありません</div>}
               </div>
             </div>
 
@@ -301,7 +313,7 @@ export default function AnalyticsPage() {
                     <tr><th>ユーザー名</th><th style={{ textAlign: "right" }}>回数</th></tr>
                   </thead>
                   <tbody>
-                    {(summaryData?.userLoginCounts || []).map((u, i) => (
+                    {loginCounts.map((u, i) => (
                       <tr key={i}>
                         <td>
                           <div className="kb-list-title" style={{ fontSize: "12px" }}>{u.name}</div>
@@ -310,7 +322,7 @@ export default function AnalyticsPage() {
                         <td style={{ textAlign: "right", fontWeight: "bold", color: "#3b82f6" }}>{u.count} 回</td>
                       </tr>
                     ))}
-                    {(summaryData?.userLoginCounts || []).length === 0 && <tr><td colSpan={2} className="kb-empty">データがありません</td></tr>}
+                    {loginCounts.length === 0 && <tr><td colSpan={2} className="kb-empty">データがありません</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -391,7 +403,7 @@ export default function AnalyticsPage() {
                 <table className="kb-table kb-interactive-table">
                   <thead><tr><th>お知らせタイトル</th><th style={{textAlign: "right"}}>閲覧数</th></tr></thead>
                   <tbody>
-                    {(summaryData?.newsViewsDetail || []).map((n, i) => (
+                    {newsViewsFiltered.map((n, i) => (
                       <tr key={i} onClick={() => setSelectedNews(n)}>
                         <td>
                           <div style={{ color: "#3b82f6", cursor: "pointer", fontWeight: "600" }}>{n.title}</div>
@@ -400,7 +412,7 @@ export default function AnalyticsPage() {
                         <td style={{textAlign: "right", fontWeight: "bold"}}>{n.views}</td>
                       </tr>
                     ))}
-                    {(summaryData?.newsViewsDetail || []).length === 0 && <tr><td colSpan={2} className="kb-empty">データがありません</td></tr>}
+                    {newsViewsFiltered.length === 0 && <tr><td colSpan={2} className="kb-empty">データがありません</td></tr>}
                   </tbody>
                 </table>
               )}
@@ -447,7 +459,7 @@ export default function AnalyticsPage() {
                 <table className="kb-table">
                   <thead><tr><th>ランキング</th><th>マニュアルタイトル</th><th style={{textAlign: "right"}}>閲覧数</th></tr></thead>
                   <tbody>
-                    {(summaryData?.allManuals || []).map((m, i) => (
+                    {manualsRanked.map((m, i) => (
                       <tr key={m.manualId}>
                         <td style={{width: "50px", textAlign: "center", color: "#94a3b8", fontWeight: "bold"}}>{i + 1}</td>
                         <td>{m.title}</td>

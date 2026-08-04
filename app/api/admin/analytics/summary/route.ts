@@ -166,6 +166,7 @@ export async function GET(req: Request) {
         return {
           name: String(u?.name ?? uid),
           email: String(u?.email ?? "-"),
+          role: String(u?.role ?? "viewer"),
           count,
         };
       })
@@ -175,6 +176,7 @@ export async function GET(req: Request) {
     // ログ形式の揺れに対応：manualId / manual_id、viewedAt / createdAt 等
     const manualViewLogs = await scanAll(MANUAL_VIEW_LOGS_TABLE);
     const manualViews = new Map<string, number>();
+    const manualViewsByRole = new Map<string, Record<string, number>>();  // manualId -> {role: count}
 
     for (const item of manualViewLogs) {
       const manualId = String(item.manualId ?? item.manual_id ?? "");
@@ -187,6 +189,12 @@ export async function GET(req: Request) {
       }
 
       manualViews.set(manualId, (manualViews.get(manualId) || 0) + 1);
+      // 閲覧者のロール別内訳(ロール切替用)。userId から解決、不明は viewer 扱い。
+      const uid = String(item.userId ?? item.uid ?? "");
+      const role = String(userMap.get(uid)?.role ?? "viewer");
+      const byRole = manualViewsByRole.get(manualId) ?? {};
+      byRole[role] = (byRole[role] || 0) + 1;
+      manualViewsByRole.set(manualId, byRole);
     }
 
     const allManuals = (manuals || [])
@@ -196,6 +204,7 @@ export async function GET(req: Request) {
           manualId,
           title: String(m.title ?? ""),
           views: manualViews.get(manualId) || 0,
+          viewsByRole: manualViewsByRole.get(manualId) || {},
         };
       })
       .sort((a, b) => b.views - a.views);
@@ -242,6 +251,7 @@ export async function GET(req: Request) {
       const viewer = {
         name: String(u?.name ?? item.userName ?? item.name ?? "-"),
         email: String(u?.email ?? item.userEmail ?? item.email ?? "-"),
+        role: String(u?.role ?? "viewer"),
         viewedAt: String(item.viewedAt ?? item.createdAt ?? new Date().toISOString()),
       };
 
