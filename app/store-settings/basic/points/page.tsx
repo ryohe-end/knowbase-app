@@ -199,6 +199,13 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
   const [grantNote, setGrantNote] = useState("");
   const [granting, setGranting] = useState(false);
 
+  // 減算(マイナス)モーダル
+  const [deductOpen, setDeductOpen] = useState(false);
+  const [deductPoints, setDeductPoints] = useState("");
+  const [deductReason, setDeductReason] = useState<PointReason>("その他");
+  const [deductNote, setDeductNote] = useState("");
+  const [deducting, setDeducting] = useState(false);
+
   // 取消モーダル
   const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
   const [cancelNote, setCancelNote] = useState("");
@@ -338,6 +345,46 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
     }
   };
 
+  // 減算(マイナス)実行 — 指定ポイントを remove_point で引く
+  const doDeduct = async () => {
+    if (!member) return;
+    const pts = Number(deductPoints.replace(/[^\d]/g, ""));
+    if (!Number.isFinite(pts) || pts <= 0) {
+      showToast("減算ポイントを正の整数で入力してください。", "error");
+      return;
+    }
+    if (typeof member.currentBalance === "number" && pts > member.currentBalance) {
+      showToast(`現在残高(${member.currentBalance}pt)を超える減算はできません。`, "error");
+      return;
+    }
+    setDeducting(true);
+    try {
+      const res = await fetch("/api/store-settings/points/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "deduct",
+          clubCode,
+          memberCode: member.memberCode,
+          points: pts,
+          reason: deductReason,
+          note: deductNote || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || "減算失敗");
+      showToast(`${pts}pt を減算しました。`, "success");
+      setDeductOpen(false);
+      setDeductPoints("");
+      setDeductNote("");
+      await doSearch(member.memberCode, isDemo);
+    } catch (e: any) {
+      showToast(e?.message || "減算に失敗しました。", "error");
+    } finally {
+      setDeducting(false);
+    }
+  };
+
   // 取り消し実行
   const doCancel = async () => {
     if (!member || !cancelTarget) return;
@@ -464,13 +511,22 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
               <div className="pt-balance-big">
                 <span className="pt-balance-label">現在残高</span>
                 <span className="pt-balance-value">{formatBalance(member.currentBalance)}</span>
-                <button
-                  type="button"
-                  className="pt-grant-btn"
-                  onClick={() => setGrantOpen(true)}
-                >
-                  + ポイント付与
-                </button>
+                <div className="pt-balance-actions">
+                  <button
+                    type="button"
+                    className="pt-grant-btn"
+                    onClick={() => setGrantOpen(true)}
+                  >
+                    + ポイント付与
+                  </button>
+                  <button
+                    type="button"
+                    className="pt-deduct-btn"
+                    onClick={() => setDeductOpen(true)}
+                  >
+                    − ポイント減算
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -735,6 +791,64 @@ function MemberSearchTab({ clubCode }: { clubCode: string }) {
               </button>
               <button className="pt-modal-submit" onClick={doGrant} disabled={granting || !grantPoints}>
                 {granting ? "送信中..." : "付与する"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {deductOpen && member && (
+        <div className="pt-modal-overlay" onClick={() => !deducting && setDeductOpen(false)}>
+          <div className="pt-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="pt-modal-header">
+              <h3>ポイントを減算</h3>
+              <p>{member.memberName} 様 ({member.memberCode}) から減算します。現在残高 {formatBalance(member.currentBalance)}。</p>
+            </header>
+            <div className="pt-modal-body">
+              <div className="pt-field">
+                <label>減算理由 <span style={{ color: "#ef4444" }}>*</span></label>
+                <select
+                  className="pt-input"
+                  value={deductReason}
+                  onChange={(e) => setDeductReason(e.target.value as PointReason)}
+                >
+                  {POINT_REASONS.map((r) => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="pt-field">
+                <label>減算ポイント <span style={{ color: "#ef4444" }}>*</span></label>
+                <div className="pt-amount-row">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    className="pt-input pt-amount-input"
+                    value={deductPoints}
+                    onChange={(e) => setDeductPoints(e.target.value)}
+                    placeholder="例) 500"
+                  />
+                  <span className="pt-amount-unit">pt</span>
+                </div>
+              </div>
+              <div className="pt-field">
+                <label>備考（任意）</label>
+                <textarea
+                  className="pt-input pt-textarea"
+                  rows={3}
+                  value={deductNote}
+                  onChange={(e) => setDeductNote(e.target.value)}
+                  placeholder="例) 誤付与の調整 / 不正利用の取消 など"
+                />
+              </div>
+              <p className="pt-deduct-note">※ 指定ポイントを会員残高から減算します（過去付与の取消ではありません）。CPSSに即時反映されます。</p>
+            </div>
+            <footer className="pt-modal-footer">
+              <button className="pt-modal-cancel" onClick={() => setDeductOpen(false)} disabled={deducting}>
+                キャンセル
+              </button>
+              <button className="pt-modal-submit pt-modal-danger" onClick={doDeduct} disabled={deducting || !deductPoints}>
+                {deducting ? "送信中..." : "減算する"}
               </button>
             </footer>
           </div>
@@ -1160,6 +1274,10 @@ function PointsManager({ clubCode, initialTab }: { clubCode: string; initialTab:
         .pt-balance-big { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
         .pt-grant-btn { margin-top: 8px; padding: 8px 16px; border-radius: 8px; border: none; background: linear-gradient(135deg, #f59e0b, #d97706); color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.15s; box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3); }
         .pt-grant-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); }
+        .pt-balance-actions { display: flex; gap: 8px; margin-top: 8px; }
+        .pt-deduct-btn { padding: 8px 16px; border-radius: 8px; border: 1px solid #fecaca; background: #fff; color: #b91c1c; font-size: 12px; font-weight: 800; cursor: pointer; transition: 0.15s; }
+        .pt-deduct-btn:hover { background: #fef2f2; border-color: #f87171; }
+        .pt-deduct-note { font-size: 11px; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 10px; margin: 4px 0 0; line-height: 1.6; }
         .pt-cancel-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid #fecaca; background: #fff; color: #b91c1c; font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.15s; }
         .pt-cancel-btn:hover { background: #fef2f2; border-color: #fca5a5; }
         .pt-cancelled-chip { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: #e2e8f0; color: #64748b; font-size: 10px; font-weight: 700; }

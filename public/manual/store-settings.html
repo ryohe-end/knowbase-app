@@ -181,7 +181,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg></div>
     <div class="t">店舗設定<br>運用マニュアル</div>
   </div>
-  <div class="ver">VERSION 4.2 ／ 2026-08-01</div>
+  <div class="ver">VERSION 4.3 ／ 2026-08-04</div>
   <nav id="toc">
     <div class="lbl">はじめに</div>
     <a href="#intro"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>1. 権限・クラブコード</a>
@@ -459,7 +459,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <div class="s-num"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-4.5"/></svg></div>
     <div><div class="kick">Points</div><h2>ポイント管理・一括付与</h2></div>
   </div>
-  <p class="lead">会員のポイント残高（CPSS）の確認・付与・取消と、条件で抽出した会員への<b>一括付与</b>を行います。付与はその場（今すぐ）でも、<b>日時を指定して予約</b>することもできます。</p>
+  <p class="lead">会員のポイント残高（CPSS）の確認・付与・<b>減算</b>・取消と、条件で抽出した会員への<b>一括付与</b>を行います。付与はその場（今すぐ）でも、<b>日時を指定して予約</b>することもできます。</p>
 
   <h3>個別のポイント管理</h3>
   <p>会員番号で検索し、<b>会員情報サマリー</b>（残高・累計・属性）と<b>ポイント変動履歴</b>を確認します。ポイント残高・履歴は<b>CPSS（ポイントシステム）が正</b>で、この画面はそれを参照・更新します。</p>
@@ -508,7 +508,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
       <text x="30" y="342" font-size="9.5" fill="#9aa1ac">07/20 09:11</text><rect x="150" y="332" width="34" height="16" rx="8" fill="#d1fae5"/><text x="167" y="344" font-size="8.5" fill="#047857" text-anchor="middle">付与</text><rect x="188" y="332" width="42" height="16" rx="8" fill="#f1f3f7"/><text x="209" y="344" font-size="8" fill="#94a3b8" text-anchor="middle">取消済</text><text x="250" y="342" font-size="9.5" fill="#9aa1ac" text-anchor="end">+200</text><text x="686" y="342" font-size="9" fill="#9aa1ac" text-anchor="end">—</text>
       <rect x="300" y="384" width="120" height="22" rx="6" fill="#f7f8fa" stroke="#e7e9ee"/><text x="360" y="399" font-size="9" fill="#6b7280" text-anchor="middle">← 前 / 次の50件 →</text>
     </svg>
-    <div class="cap">会員カード（残高・累計・属性・<b>＋ポイント付与</b>）と、期間・種別で絞れる変動履歴（付与＝緑／利用＝青の種別チップ、行ごとに<b>取消</b>）。</div>
+    <div class="cap">会員カード（残高・累計・属性・<b>＋ポイント付与</b>／<b>−ポイント減算</b>）と、期間・種別で絞れる変動履歴（付与＝緑／利用＝青の種別チップ、行ごとに<b>取消</b>）。</div>
   </div>
 
   <h3>詳しい操作手順（個別）</h3>
@@ -517,6 +517,7 @@ footer.foot .logo{width:24px;height:24px;border-radius:7px;background:linear-gra
     <li><div class="n">2</div><div class="c"><div class="t">会員カードを読む</div><p>上部に <b>現在残高（CPSS）</b>、その下に <b>累計付与 / 累計利用 / 累計失効 / 来月失効予定</b> の4指標。氏名の右にステータス（<b>現行 / 休会中 / 退会</b>）・会員区分・ランク、下部に入会日・継続期間・電話などの属性が並びます。<span class="hint">CPSS残高が取得できない場合は警告が出て会員情報のみ表示されます。</span></p></div></li>
     <li><div class="n">3</div><div class="c"><div class="t">変動履歴を確認する</div><p>種別チップ（<span class="ui">すべて / 付与 / 利用</span>）で絞り込み、<b>期間</b>（開始〜終了 → <span class="ui">適用</span>）で対象範囲を指定。列は <b>日時・種別・変動・店舗・取得元・担当・備考・操作</b>。付与＝緑、利用＝青、失効＝グレー、調整＝オレンジのチップで色分けされ、取消済みには「取消済」が付きます。<b>50件ずつ</b>ページ送りできます。</p></div></li>
     <li><div class="n">4</div><div class="c"><div class="t">ポイントを付与する</div><p><span class="ui pri">＋ ポイント付与</span>（残高の下）→ モーダルで <b>付与理由</b>（歩数／イベント／パーソナルトレーニング／ボーナス／その他）と <b>付与ポイント</b>（正の整数）を入力して実行。CPSSへ即時反映され、履歴に「付与」行が追加されます。</p></div></li>
+    <li><div class="n">5</div><div class="c"><div class="t">ポイントを減算する（指定値でマイナス）</div><p><span class="ui" style="color:#b91c1c;border-color:#fecaca">− ポイント減算</span>（付与ボタンの隣）→ モーダルで <b>減算理由</b>と <b>減算ポイント（任意の指定値・正の整数）</b>を入力して実行。<b>入力した値をそのまま会員残高から差し引きます</b>（過去付与の「取消」とは別で、任意額を減算できます）。<b>現在残高を超える減算は事前にブロック</b>され、CPSSへ即時反映、履歴には「調整（マイナス）」として記録されます。誤操作防止のためボタン・実行は赤系で表示。</p></div></li>
     <li class="done"><div class="n">✓</div><div class="c"><div class="t">ポイントを取り消す</div><p>履歴の各行の <span class="ui">取消</span> ボタンで取り消せます。<b>knowbie（管理画面）で付与した分</b>はそのまま取消可能。<b>外部・利用など（タウン/POS等）</b>は<b>取消理由の入力が必須</b>で監査記録に残り、<b>取消可能期間（既定92日）を過ぎた取引は取り消せません</b>。取消済みの行は薄く表示され再取消はできません。</p></div></li>
   </ol>
   <div class="note info"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg><span class="h">CPSSが正：</span>残高・履歴の実体は<b>CPSS（ポイントシステム）</b>です。付与・取消はCPSSに反映され、この画面の履歴（担当者・理由・備考）は監査用の台帳として併記されます。担当外店舗の会員は検索・操作できません。</div>

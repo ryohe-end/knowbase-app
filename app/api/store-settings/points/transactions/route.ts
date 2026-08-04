@@ -2,6 +2,7 @@
 //
 // ポイント付与 / 取り消しを 1 リクエストで処理。
 //   POST {action:"grant",   clubCode, memberCode, points, reason, note?}
+//   POST {action:"deduct",  clubCode, memberCode, points, reason, note?}  // 指定ポイントを減算(remove_point)
 //   POST {action:"cancel",  clubCode, memberCode, sourceTransactionId, note?}  // knowbie付与の取消
 //   POST {action:"cancelExternal", clubCode, memberCode, hid, occurredAt, note} // 外部/利用(SUB)等の取消
 //
@@ -132,7 +133,7 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   let body: {
-    action?: "grant" | "cancel" | "cancelExternal";
+    action?: "grant" | "deduct" | "cancel" | "cancelExternal";
     clubCode?: string;
     memberCode?: string;
     points?: number;
@@ -231,6 +232,74 @@ export async function POST(req: Request) {
         action: "points.grant", resource: `member:${body.memberCode}`,
         clubCodes: [club], targetCount: points, result: "ok",
         detail: { brand, points, reason: body.reason, note: body.note, hid: tx.hid, balanceAfter: tx.cpssBalanceAfter, transactionId },
+        ip: clientIp(req),
+      });
+      return NextResponse.json({ ok: true, transaction: tx });
+    }
+
+    if (action === "deduct") {
+      // 指定ポイントの減算(マイナス)。過去付与の取消ではなく任意額を remove_point で引く。
+      const points = Number(body.points);
+      if (!Number.isFinite(points) || points <= 0) {
+        return NextResponse.json({ ok: false, error: "points must be a positive number" }, { status: 400 });
+      }
+      if (!body.reason || !POINT_REASONS.includes(body.reason)) {
+        return NextResponse.json({ ok: false, error: "invalid reason" }, { status: 400 });
+      }
+      const transactionId = newTransactionId();
+
+      // CPSS へ手動減算 (remove_point, 理由付き)。shopid=会員所属クラブ, reqid=transactionId で冪等。CPSS が真実。
+      const cp = await cpssCall(brand, CPSS_ENV, "removePoint", {
+        aid: body.memberCode,
+        shopid: cpssShopId(club),
+        point: points,
+        reqid: transactionId,
+        scode: "MANUAL",
+        svalue: body.reason,
+        reason: body.note ? `店舗操作による減算: ${body.note}` : `店舗操作による減算 (${body.reason})`,
+      });
+      if (!cp.ok) {
+        void writeAudit({
+          userId: user.email || user.userId, userName: user.name,
+          action: "points.deduct", resource: `member:${body.memberCode}`,
+          clubCodes: [club], targetCount: points, result: "error",
+          detail: { brand, points, reason: body.reason, code: cp.code, error: cp.cpssMsg || cp.error },
+          ip: clientIp(req),
+        });
+        return NextResponse.json(
+          { ok: false, error: `ポイント減算に失敗しました: ${cp.cpssMsg || cp.error}`, code: cp.code },
+          { status: 502 }
+        );
+      }
+      // remove_point の処理後残高。balance か to.afterbalance を採用。
+      const balanceAfter = typeof cp.result?.balance === "number"
+        ? cp.result.balance
+        : (typeof cp.result?.to?.afterbalance === "number" ? cp.result.to.afterbalance : undefined);
+
+      const tx: PointTransaction = {
+        transactionId,
+        clubCode: club,
+        memberCode: body.memberCode,
+        type: "adjusted",
+        points: -points,                 // 負=減算
+        reason: body.reason,
+        note: body.note ? `減算: ${body.note}` : `減算 (${body.reason})`,
+        occurredAt: ts,
+        operatorId: user.userId,
+        operatorName: user.name,
+        hid: cp.result?.hid,
+        cpssBalanceAfter: balanceAfter,
+      };
+      try {
+        await ddb.send(new PutCommand({ TableName: TABLE, Item: tx, ConditionExpression: "attribute_not_exists(transactionId)" }));
+      } catch (e) {
+        console.error("[points transactions] deduct CPSS ok but DDB write failed", e);
+      }
+      void writeAudit({
+        userId: user.email || user.userId, userName: user.name,
+        action: "points.deduct", resource: `member:${body.memberCode}`,
+        clubCodes: [club], targetCount: points, result: "ok",
+        detail: { brand, points, reason: body.reason, note: body.note, hid: tx.hid, balanceAfter, transactionId },
         ip: clientIp(req),
       });
       return NextResponse.json({ ok: true, transaction: tx });
