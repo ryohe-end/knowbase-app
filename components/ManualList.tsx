@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Manual } from "@/types/manual";
 import { getManualThumbnail } from "@/lib/manualThumbnail";
 import { highlightTokens } from "@/lib/highlight";
+import ManualOutlinePanel from "@/components/ManualOutlinePanel";
 
 type Props = {
   manuals: (Manual & { externalUrl?: string })[];
@@ -133,6 +134,8 @@ export default function ManualList({ manuals, userId, seriesNameMap, searchToken
   const [modalTitle, setModalTitle] = useState("");
   const [modalUrl, setModalUrl] = useState("");
   const [rawUrl, setRawUrl] = useState("");
+  const [modalManualId, setModalManualId] = useState("");
+  const [modalType, setModalType] = useState<string | undefined>(undefined);
 
   const [now, setNow] = useState<number>(0);
   useEffect(() => setNow(Date.now()), []);
@@ -328,6 +331,8 @@ export default function ManualList({ manuals, userId, seriesNameMap, searchToken
                       setModalTitle(m.title);
                       setRawUrl(previewRaw);
                       setModalUrl(embeddable);
+                      setModalManualId(m.manualId);
+                      setModalType(isVideo ? "video" : "doc");
                       setIsModalOpen(true);
                     }}
                     disabled={!hasPreview}
@@ -434,15 +439,16 @@ export default function ManualList({ manuals, userId, seriesNameMap, searchToken
               </div>
             </div>
 
-            <div className="kbm-modal-body" style={{ background: "#000" }}>
+            <div className="kbm-modal-body" style={{ background: "#000", display: "flex", gap: 10, minHeight: 0 }}>
               <iframe
                 src={modalUrl}
                 title={modalTitle}
-                style={{ width: "100%", height: "100%", border: "none" }}
+                style={{ flex: 1, minWidth: 0, height: "100%", border: "none" }}
                 referrerPolicy="no-referrer-when-downgrade"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
               />
+              {modalManualId && <div style={{ padding: 10, background: "#f9fafb", display: "flex" }}><ManualOutlinePanel manualId={modalManualId} type={modalType} /></div>}
             </div>
           </div>
         </div>

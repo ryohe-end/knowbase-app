@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Manual } from "@/types/manual";
 import { getManualThumbnail, pickSeriesThumbnail } from "@/lib/manualThumbnail";
+import ManualOutlinePanel from "@/components/ManualOutlinePanel";
 import { highlightTokens } from "@/lib/highlight";
 
 /* ========= URL ヘルパ (ManualList と同じロジック) ========= */
@@ -79,6 +80,8 @@ export default function SeriesScroll({ seriesName, manuals, userId, defaultExpan
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalUrl, setModalUrl] = useState("");
+  const [modalManualId, setModalManualId] = useState("");
+  const [modalType, setModalType] = useState<string | undefined>(undefined);
   const [rawUrl, setRawUrl] = useState("");
 
   const closeModal = () => {
@@ -106,6 +109,8 @@ export default function SeriesScroll({ seriesName, manuals, userId, defaultExpan
     setModalTitle(m.title);
     setRawUrl(previewRaw);
     setModalUrl(toEmbeddableUrl(previewRaw, isVideo));
+    setModalManualId(m.manualId);
+    setModalType(isVideo ? "video" : "doc");
     setModalOpen(true);
   };
 
@@ -250,14 +255,16 @@ export default function SeriesScroll({ seriesName, manuals, userId, defaultExpan
                 </button>
               </div>
             </div>
-            <div className="kb-ss-modal-body">
+            <div className="kb-ss-modal-body" style={{ display: "flex", gap: 12, minHeight: 0 }}>
               <iframe
+                style={{ flex: 1, minWidth: 0 }}
                 src={modalUrl}
                 title={modalTitle}
                 referrerPolicy="no-referrer-when-downgrade"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
               />
+              {modalManualId && <ManualOutlinePanel manualId={modalManualId} type={modalType} />}
             </div>
           </div>
         </div>
