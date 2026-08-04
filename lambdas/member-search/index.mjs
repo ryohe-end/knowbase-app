@@ -248,6 +248,70 @@ async function beaconSyncElock({ dryRun = false } = {}) {
   }
 }
 
+// ── dgtk_app.club_master への Oracleクラブ同期 ──────────────────────────────
+// Oracle FIT_ADMIN.クラブ のみ(クラブ情報は手入力で漏れるため不使用) → dgtk_app.club_master。
+// club_name=クラブ名(フル), brand=クラブ内の列 or 名称から判定(調査中), prefecture_id=住所1先頭の都道府県→prefecture_master逆引き。
+const CLUB_MASTER_SQL = `
+  SELECT c.クラブコード AS CLUB_CODE, c.クラブ名 AS CLUB_NAME, c.クラブ略称 AS CLUB_SHORT,
+         c.住所1 AS ADDR, c.クラブ区分コード AS KBN, c.店舗タイプ AS TYPE,
+         c.識別文字 AS IDC, c.会員番号ヘッダ AS HDR, c.クラブ経営企業コード AS COMP
+  FROM FIT_ADMIN.クラブ c
+  ORDER BY c.クラブコード
+`;
+
+async function sshProxyQuery(target, text, params) {
+  const res = await _lambda.send(new InvokeCommand({
+    FunctionName: SSH_PROXY_FN,
+    Payload: Buffer.from(JSON.stringify({ target, text, params })),
+  }));
+  const payload = JSON.parse(Buffer.from(res.Payload).toString());
+  if (!payload || payload.ok !== true) throw new Error(`${target}-proxy: ` + (payload && payload.error ? payload.error : "unknown"));
+  return payload.rows || [];
+}
+
+async function clubMasterSync({ dryRun = false } = {}) {
+  let conn;
+  try {
+    const pool = await getPool();
+    conn = await pool.getConnection();
+    const rows = (await conn.execute(CLUB_MASTER_SQL, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT })).rows || [];
+    if (dryRun) {
+      // brand判定元の候補列(KBN/TYPE/IDC/HDR)を分布で確認 + 既存club_masterと突合
+      const existing = await sshProxyQuery("dgtk_app", `select club_code, brand from dgtk_app.club_master`, []);
+      const brandByCode = new Map(existing.map((r) => [String(r.club_code).replace(/\s+$/, ""), (r.brand || "").trim()]));
+      const dist = { KBN: {}, TYPE: {}, IDC: {}, HDR: {}, COMP: {} };
+      // 各候補列の値ごとに、既存brandの内訳(この列がbrandを決めるなら1対1になるはず)
+      const cross = { KBN: {}, TYPE: {}, IDC: {}, HDR: {}, COMP: {} };
+      const nameHead = {};
+      for (const r of rows) {
+        const code6 = String(r.CLUB_CODE).padStart(6, "0");
+        const b = brandByCode.get(code6) || "(未登録)";
+        for (const k of ["KBN", "TYPE", "IDC", "HDR", "COMP"]) {
+          const v = (r[k] == null ? "(null)" : String(r[k]).trim()) || "(空)";
+          dist[k][v] = (dist[k][v] || 0) + 1;
+          (cross[k][v] = cross[k][v] || {})[b] = (cross[k][v][b] || 0) + 1;
+        }
+        const nm = (r.CLUB_NAME || "").toString();
+        const head = nm.slice(0, 6);
+        nameHead[`${head}→${b}`] = (nameHead[`${head}→${b}`] || 0) + 1;
+      }
+      return resp(200, {
+        ok: true, action: "club_master_sync", dryRun: true, scanned: rows.length,
+        // どの列が brand と 1対1 になるか(=brand判定元)を見る
+        crossKBN: cross.KBN, crossTYPE: cross.TYPE, crossIDC: cross.IDC, crossHDR: cross.HDR, crossCOMP: cross.COMP,
+        nameHeadSample: Object.entries(nameHead).slice(0, 20),
+        sample: rows.slice(0, 8).map((r) => ({ code: String(r.CLUB_CODE), name: r.CLUB_NAME, kbn: r.KBN, type: r.TYPE, idc: r.IDC, hdr: r.HDR, addr: r.ADDR })),
+      });
+    }
+    return resp(200, { ok: true, action: "club_master_sync", scanned: rows.length, note: "live未実装(先にmapping確定)" });
+  } catch (err) {
+    console.error("club_master_sync error", err);
+    return resp(500, { error: "internal_error", message: err.message });
+  } finally {
+    if (conn) { try { await conn.close(); } catch (_) {} }
+  }
+}
+
 oracledb.fetchAsString = [oracledb.CLOB, oracledb.DATE];
 oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
 
@@ -941,6 +1005,19 @@ export const handler = async (event) => {
   // EventBridge 直接起動: ビーコン日次同期
   if (event?.action === "beacon_sync") return beaconSync();
   if (event?.action === "beacon_sync_elock") return beaconSyncElock({ dryRun: event?.dryRun === true });
+  if (event?.action === "club_master_sync") return clubMasterSync({ dryRun: event?.dryRun === true });
+  // 分析用: 読み取り専用SQL(直接invoke限定=API GW非公開。SELECT/WITHのみ)。KNOWBIE_RO権限。
+  if (event?.action === "sql" && typeof event.text === "string") {
+    if (!/^\s*(select|with)\b/i.test(event.text)) return resp(400, { error: "read-only: SELECT/WITH only" });
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(event.text, event.binds || {}, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: event.maxRows || 5000 });
+      return resp(200, { ok: true, count: (r.rows || []).length, rows: r.rows || [] });
+    } catch (e) { return resp(500, { error: e.message }); }
+    finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
   const params = event?.queryStringParameters || {};
   const type = params.type;
   const q = normalize(type, params.q);
