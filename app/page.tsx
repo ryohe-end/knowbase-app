@@ -1487,6 +1487,11 @@ export default function HomePage() {
               経理
             </button>
           )}
+          {me && (
+            <button className="kb-tab" style={{ cursor: "pointer" }} onClick={() => (window.location.href = "/design")}>
+              設計業務
+            </button>
+          )}
         </div>
       </div>
 
