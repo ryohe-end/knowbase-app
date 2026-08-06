@@ -1023,6 +1023,39 @@ export const handler = async (event) => {
   const q = normalize(type, params.q);
   const q2 = params.q2 ? normalize(type, params.q2) : null;
 
+  // 公開API用: クラブの「最新の契約できる契約形態」(直近入会で使われている契約形態=マスタ情報)。
+  // 契約形態マスタはクラブ非依存のため、直近sinceMonthsヶ月に入会した会員(区分1/7/70)の契約形態から導出。
+  if (type === "club-contracts") {
+    const clubCode = parseInt(String(params.clubCode || "").trim(), 10);
+    if (!clubCode) return resp(400, { error: "missing_params", required: ["clubCode"] });
+    const months = Math.min(60, Math.max(1, parseInt(params.sinceMonths || "12", 10) || 12));
+    const nd = new Date();
+    const sd = new Date(nd.getFullYear(), nd.getMonth() - months, nd.getDate());
+    const since = sd.getFullYear() * 10000 + (sd.getMonth() + 1) * 100 + sd.getDate();
+    const sql = `SELECT d.契約形態コード AS CODE, e.契約形態名 AS NAME, e.会員区分コード AS KUBUN,
+        e.有効期限 AS TERM, e.スクールフラグ AS SCHOOL_FLAG, e.グループ割引可能フラグ AS GROUP_DISCOUNT_FLAG,
+        e.休会可能フラグ AS PAUSABLE_FLAG, e.月間利用可能回数 AS MONTHLY_USES, e.年間利用可能回数 AS YEARLY_USES,
+        e.保証金商品コード AS DEPOSIT_PID, e.入会金商品コード AS ENROLL_PID, e.事務手続料金商品コード AS ADMIN_FEE_PID,
+        e.会費商品コード AS FEE_PID, e.年管理費商品コード AS ANNUAL_FEE_PID, e.ソートNO AS SORT_NO,
+        COUNT(DISTINCT c.契約SEQ) AS RECENT_COUNT, TO_CHAR(MAX(c.入会届出日)) AS LATEST_JOIN
+      FROM FIT_ADMIN.会員契約 c
+      JOIN FIT_ADMIN.会員契約明細 d ON c.契約SEQ = d.契約SEQ
+      LEFT JOIN FIT_ADMIN.契約形態 e ON d.契約形態コード = e.契約形態コード
+      WHERE c.クラブコード = :club AND c.会員区分コード IN (1,7,70) AND c.入会届出日 >= :since
+      GROUP BY d.契約形態コード, e.契約形態名, e.会員区分コード, e.有効期限, e.スクールフラグ,
+        e.グループ割引可能フラグ, e.休会可能フラグ, e.月間利用可能回数, e.年間利用可能回数,
+        e.保証金商品コード, e.入会金商品コード, e.事務手続料金商品コード, e.会費商品コード, e.年管理費商品コード, e.ソートNO
+      ORDER BY RECENT_COUNT DESC`;
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, { club: clubCode, since }, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 200 });
+      return resp(200, { ok: true, clubCode, sinceMonths: months, count: (r.rows || []).length, contracts: r.rows || [] });
+    } catch (e) { return resp(500, { error: e.message }); }
+    finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // 返金画面用: 会員+口座+入金歴 を 1ショットで返す
   if (type === "refundable") {
     const memberNo = (params.memberNo || "").trim();
