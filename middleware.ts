@@ -11,7 +11,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const publicPaths = ["/login", "/login/forgot-password"];
+  const publicPaths = ["/login", "/login/forgot-password", "/api-reference"];
   if (publicPaths.includes(path)) {
     return NextResponse.next();
   }
