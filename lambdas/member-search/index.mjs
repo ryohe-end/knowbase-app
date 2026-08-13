@@ -1056,6 +1056,42 @@ export const handler = async (event) => {
     finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
 
+  // 公開API用: クラブ別の契約会費金額(適用年月付き)。
+  // 粒度 = (契約形態コード × 会費適用区分コード × 適用人数) ごとに 適用年月 の改定履歴を持つ。
+  //  既定       : 各キーの最新(適用年月が最大)のみ。isLatest 判定用に MAX_YYYYMM も返す。
+  //  history=1  : 全ての適用年月(改定履歴)を返す。
+  //  asOf=YYYYMM: その年月時点で有効な会費(=適用年月 <= asOf の中の最新)。
+  if (type === "club-fees") {
+    const clubCode = parseInt(String(params.clubCode || "").trim(), 10);
+    if (!clubCode) return resp(400, { error: "missing_params", required: ["clubCode"] });
+    const history = /^(1|true|yes)$/i.test(String(params.history || ""));
+    const asOfRaw = String(params.asOf || "").trim();
+    const asOf = /^\d{6}$/.test(asOfRaw) ? parseInt(asOfRaw, 10) : null;
+    const binds = { club: clubCode };
+    let where = "t.クラブコード = :club";
+    if (asOf != null) { where += " AND t.適用年月 <= :asOf"; binds.asOf = asOf; }
+    const sql = `
+      SELECT * FROM (
+        SELECT t.クラブコード AS CLUB_CODE, t.契約形態コード AS FORM_CODE, e.契約形態名 AS FORM_NAME,
+               t.会費適用区分コード AS FEE_APPLY_KUBUN, t.適用人数 AS APPLY_HEADCOUNT, t.適用年月 AS APPLY_YYYYMM,
+               t.入会金 AS ENROLLMENT_FEE, t.事務手続料金 AS ADMIN_FEE, t.月会費 AS MONTHLY_FEE,
+               ROW_NUMBER() OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月 DESC) AS RN,
+               MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM
+        FROM FIT_ADMIN.契約会費金額 t
+        LEFT JOIN FIT_ADMIN.契約形態 e ON e.契約形態コード = t.契約形態コード
+        WHERE ${where}
+      ) ${history ? "" : "WHERE RN = 1"}
+      ORDER BY FORM_CODE, FEE_APPLY_KUBUN, APPLY_HEADCOUNT, APPLY_YYYYMM DESC`;
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: history ? 20000 : 3000 });
+      return resp(200, { ok: true, clubCode, asOf, history, count: (r.rows || []).length, fees: r.rows || [] });
+    } catch (e) { return resp(500, { error: e.message }); }
+    finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // 返金画面用: 会員+口座+入金歴 を 1ショットで返す
   if (type === "refundable") {
     const memberNo = (params.memberNo || "").trim();
