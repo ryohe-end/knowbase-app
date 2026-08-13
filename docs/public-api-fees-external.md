@@ -13,7 +13,7 @@
 GET https://<KnowBaseホスト>/api/public/fees?clubCode={クラブコード}
 ```
 
-- 例（Amplify 既定ホスト）: `https://main.d187n04ni244en.amplifyapp.com/api/public/fees?clubCode=375`
+- 例（Amplify 既定ホスト）: `https://main.d5z4bnw4wyrxn.amplifyapp.com/api/public/fees?clubCode=375`
 - 独自ドメインを利用の場合は、そちらのホストに読み替えてください。
 
 ## 認証
@@ -101,21 +101,21 @@ x-api-key: <API キー>
 ### cURL
 ```sh
 curl -H "x-api-key: $KB_API_KEY" \
-  "https://main.d187n04ni244en.amplifyapp.com/api/public/fees?clubCode=375"
+  "https://main.d5z4bnw4wyrxn.amplifyapp.com/api/public/fees?clubCode=375"
 
 # 改定履歴を含めて取得
 curl -H "x-api-key: $KB_API_KEY" \
-  "https://main.d187n04ni244en.amplifyapp.com/api/public/fees?clubCode=375&history=1"
+  "https://main.d5z4bnw4wyrxn.amplifyapp.com/api/public/fees?clubCode=375&history=1"
 
 # 指定年月時点で有効な会費
 curl -H "x-api-key: $KB_API_KEY" \
-  "https://main.d187n04ni244en.amplifyapp.com/api/public/fees?clubCode=375&asOf=202608"
+  "https://main.d5z4bnw4wyrxn.amplifyapp.com/api/public/fees?clubCode=375&asOf=202608"
 ```
 
 ### Node.js (fetch)
 ```js
 const res = await fetch(
-  "https://main.d187n04ni244en.amplifyapp.com/api/public/fees?clubCode=375",
+  "https://main.d5z4bnw4wyrxn.amplifyapp.com/api/public/fees?clubCode=375",
   { headers: { "x-api-key": process.env.KB_API_KEY } }
 );
 const data = await res.json();
