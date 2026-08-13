@@ -42,8 +42,9 @@ export type DmNotification = {
   createdAt: string;
 
   // 履歴一覧/詳細の付帯情報
-  clubCode?: string;   // 配信先クラブ
-  clubName?: string;   // 配信先クラブ名 (表示用)
+  clubCode?: string;   // 配信先クラブ (代表 = clubCodes[0])
+  clubCodes?: string[]; // 複数店舗配信の全店舗
+  clubName?: string;   // 配信先クラブ名 (表示用。複数店舗は「、」区切りで全店舗)
   senderName?: string; // 配信者
 
   stats?: DmStats; // ✅ 統計情報を追加

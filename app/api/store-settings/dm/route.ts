@@ -106,6 +106,7 @@ function campaignToNotification(c: DmCampaign): DmNotification {
     scheduledAt: c.scheduledAt || c.sentAt || c.createdAt,
     createdAt: c.createdAt,
     clubCode: c.clubCode,
+    clubCodes: c.clubCodes && c.clubCodes.length ? c.clubCodes : (c.clubCode ? [c.clubCode] : []),
     senderName: c.createdByName || c.createdBy,
     stats: {
       targetCount: c.targetCount,
@@ -132,16 +133,17 @@ export async function GET(req: Request) {
     try {
       const c = await getCampaign(id);
       if (!c) return NextResponse.json({ notification: null });
-      // 担当外キャンペーンの閲覧を禁止 (admin=clubCodes空は全件可)
-      if (user.clubCodes.length > 0 && !user.clubCodes.includes(c.clubCode)) {
+      const campaignCodes = c.clubCodes && c.clubCodes.length ? c.clubCodes : (c.clubCode ? [c.clubCode] : []);
+      // 担当外キャンペーンの閲覧を禁止 (admin=clubCodes空は全件可)。複数店舗配信は、いずれかの担当店舗が含まれれば閲覧可。
+      if (user.clubCodes.length > 0 && !campaignCodes.some((cc) => user.clubCodes.includes(cc))) {
         return NextResponse.json({ notification: null });
       }
       const [people, nameMap] = await Promise.all([
         listCampaignPeople(id),
-        getClubNames([c.clubCode]),
+        getClubNames(campaignCodes),
       ]);
       const notification = campaignToNotification(c);
-      notification.clubName = nameMap[c.clubCode] || c.clubCode;
+      notification.clubName = campaignCodes.map((cc) => nameMap[cc] || cc).join("、") || c.clubCode;
       notification.people = people;
       // 下書きは復元用データ(全店舗/本文HTML/宛先)を併せて返す。宛先は保存済みの people から復元。
       const draft = c.status === "draft"
@@ -162,8 +164,12 @@ export async function GET(req: Request) {
   try {
     const campaigns = await listCampaigns({ clubCodes: user.clubCodes });
     const notifications = campaigns.map(campaignToNotification);
-    const nameMap = await getClubNames(notifications.map((n) => n.clubCode || "").filter(Boolean));
-    for (const n of notifications) if (n.clubCode) n.clubName = nameMap[n.clubCode] || n.clubCode;
+    const allCodes = [...new Set(notifications.flatMap((n) => (n.clubCodes && n.clubCodes.length ? n.clubCodes : (n.clubCode ? [n.clubCode] : []))))];
+    const nameMap = await getClubNames(allCodes);
+    for (const n of notifications) {
+      const codes = n.clubCodes && n.clubCodes.length ? n.clubCodes : (n.clubCode ? [n.clubCode] : []);
+      if (codes.length) n.clubName = codes.map((cc) => nameMap[cc] || cc).join("、");
+    }
     return NextResponse.json({ notifications });
   } catch (e: any) {
     // テーブル未作成などでも画面を落とさない (空一覧で返す)
@@ -316,6 +322,7 @@ export async function POST(req: Request) {
     await createCampaign({
       campaignId,
       clubCode,
+      clubCodes,
       brand: body.brand,
       subject,
       body: content,
@@ -349,7 +356,8 @@ export async function POST(req: Request) {
         ...(batchId ? { batchId } : {}),
         // 開封率集計用: イベントに campaign_id を echo させる + トラッキング有効化
         customArgs: { campaign_id: campaignId },
-        categories: ["dm", clubCode],
+        // SendGrid のカテゴリ上限(10)に収まるよう "dm" + 全店舗を最大10件でタグ付け
+        categories: ["dm", ...clubCodes].slice(0, 10),
         trackingSettings: {
           openTracking: { enable: true },
           clickTracking: { enable: true, enableText: false },
@@ -421,14 +429,15 @@ export async function DELETE(req: Request) {
 
   const c = await getCampaign(campaignId);
   if (!c) return NextResponse.json({ ok: false, error: "対象が見つかりません" }, { status: 404 });
-  // 担当外クラブは不可 (admin=clubCodes空は全件)
-  if (user.clubCodes.length > 0 && !user.clubCodes.includes(c.clubCode)) {
+  const campaignCodes = c.clubCodes && c.clubCodes.length ? c.clubCodes : (c.clubCode ? [c.clubCode] : []);
+  // 担当外クラブは不可 (admin=clubCodes空は全件)。複数店舗配信は、いずれかの担当店舗が含まれれば可。
+  if (user.clubCodes.length > 0 && !campaignCodes.some((cc) => user.clubCodes.includes(cc))) {
     return NextResponse.json({ ok: false, error: "担当外です" }, { status: 403 });
   }
   // 下書きは SendGrid 未登録なので即削除。
   if (c.status === "draft") {
     await deleteCampaign(campaignId).catch(() => {});
-    void writeAudit({ userId: user.email, action: "dm.draft.delete", clubCodes: [c.clubCode], detail: { campaignId }, ip: clientIp(req) });
+    void writeAudit({ userId: user.email, action: "dm.draft.delete", clubCodes: campaignCodes, detail: { campaignId }, ip: clientIp(req) });
     return NextResponse.json({ ok: true, deleted: true });
   }
   if (c.status !== "scheduled") {
@@ -450,7 +459,7 @@ export async function DELETE(req: Request) {
   await markCampaignCancelled(campaignId).catch(() => {});
   void writeAudit({
     userId: (user as any).email || (user as any).userId || "unknown", userName: (user as any).name,
-    action: "dm.cancel", clubCodes: [c.clubCode], resource: `dmCampaign:${campaignId}`, detail: { batchId: c.batchId }, ip: clientIp(req), result: "ok",
+    action: "dm.cancel", clubCodes: campaignCodes, resource: `dmCampaign:${campaignId}`, detail: { batchId: c.batchId }, ip: clientIp(req), result: "ok",
   });
   return NextResponse.json({ ok: true });
 }

@@ -636,7 +636,7 @@ function DmSettingsInner() {
                         : <span className={`status-pill ${n.status.toLowerCase()}`}>{n.status === 'SENT' ? '完了' : '予約中'}</span>}</td>
                       <td>{n.stats?.targetCount || 0}</td>
                       <td>{n.status === 'DRAFT' ? '-' : (n.stats?.deliveredCount || 0)}</td>
-                      <td>{n.status !== 'DRAFT' && n.stats && n.stats.deliveredCount > 0 ? `${Math.round((n.stats.openCount / n.stats.deliveredCount)*100)}%` : '-'}</td>
+                      <td>{n.status !== 'DRAFT' && n.stats && n.stats.deliveredCount > 0 ? `${Math.round((Math.min(n.stats.uniqueOpenCount ?? n.stats.openCount, n.stats.deliveredCount) / n.stats.deliveredCount)*100)}%` : '-'}</td>
                       <td className="row-actions" onClick={(e) => e.stopPropagation()}>
                         {n.status === 'SCHEDULED' && (
                           <>
@@ -924,26 +924,22 @@ function DmSettingsInner() {
                             <div className="kpi-val text-blue">{selectedHistory?.stats?.deliveredCount || 0}</div>
                           </div>
                           <div className="kpi-item">
-                            <label>開封数</label>
-                            <div className="kpi-val text-green">{selectedHistory?.stats?.openCount || 0}</div>
+                            <label>開封数(実人数)</label>
+                            <div className="kpi-val text-green">{selectedHistory?.stats?.uniqueOpenCount ?? selectedHistory?.stats?.openCount ?? 0}</div>
                           </div>
                           <div className="kpi-item">
                             <label>開封率</label>
                             <div className="kpi-val">
                               {selectedHistory?.stats && selectedHistory.stats.deliveredCount > 0
-                                ? Math.round((selectedHistory.stats.openCount / selectedHistory.stats.deliveredCount)*100)
+                                ? Math.round((Math.min(selectedHistory.stats.uniqueOpenCount ?? selectedHistory.stats.openCount, selectedHistory.stats.deliveredCount) / selectedHistory.stats.deliveredCount)*100)
                                 : 0}<small>%</small>
                             </div>
                           </div>
                         </div>
                         <div className="dm-report-grid" style={{ marginTop: 8 }}>
                           <div className="kpi-item">
-                            <label>ユニーク開封率</label>
-                            <div className="kpi-val">
-                              {selectedHistory?.stats && selectedHistory.stats.deliveredCount > 0
-                                ? Math.round(((selectedHistory.stats.uniqueOpenCount ?? 0) / selectedHistory.stats.deliveredCount) * 100)
-                                : 0}<small>%</small>
-                            </div>
+                            <label>延べ開封数</label>
+                            <div className="kpi-val text-green">{selectedHistory?.stats?.openCount ?? 0}</div>
                           </div>
                           <div className="kpi-item">
                             <label>クリック数</label>
@@ -953,7 +949,7 @@ function DmSettingsInner() {
                             <label>クリック率</label>
                             <div className="kpi-val">
                               {selectedHistory?.stats && selectedHistory.stats.deliveredCount > 0
-                                ? Math.round(((selectedHistory.stats.clickCount ?? 0) / selectedHistory.stats.deliveredCount) * 100)
+                                ? Math.round((Math.min(selectedHistory.stats.uniqueClickCount ?? selectedHistory.stats.clickCount ?? 0, selectedHistory.stats.deliveredCount) / selectedHistory.stats.deliveredCount) * 100)
                                 : 0}<small>%</small>
                             </div>
                           </div>
