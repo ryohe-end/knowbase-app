@@ -264,7 +264,7 @@ const LoginPage = () => {
     下のボタンから申請フォームへお進みください。
   </p>
   <a 
-    href="https://docs.google.com/forms/d/e/1FAIpQLSdvf3q5kF_FnRkBPc3VjeOdeIGV0sxbyG8slU3uN4FtFAfrRw/viewform?usp=header" 
+    href="https://docs.google.com/forms/d/e/1FAIpQLScqXAn1aDlQfAwo_f_FLZsFRR9Q3tFGzcPUBVZdl0XoiXxnTA/viewform"
     target="_blank" 
     rel="noopener noreferrer"
     style={{ 
