@@ -1092,6 +1092,21 @@ export const handler = async (event) => {
     finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
 
+  // 公開API用: クラブ一覧(クラブ情報)。閉店店舗も含む(閉店フラグ付き)。
+  // 業態(赤/FIT365/青/緑…)からブランドはAPI側で正規化。
+  if (type === "clubs-list") {
+    const sql = `SELECT クラブコード AS CODE, クラブ名 AS NAME, 業態 AS GYOTAI, 閉店フラグ AS CLOSED
+      FROM FIT_ADMIN.クラブ情報 ORDER BY クラブコード`;
+    let conn;
+    try {
+      const pool = await getPool();
+      conn = await pool.getConnection();
+      const r = await conn.execute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 2000 });
+      return resp(200, { ok: true, count: (r.rows || []).length, clubs: r.rows || [] });
+    } catch (e) { return resp(500, { error: e.message }); }
+    finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
   // 返金画面用: 会員+口座+入金歴 を 1ショットで返す
   if (type === "refundable") {
     const memberNo = (params.memberNo || "").trim();
