@@ -100,7 +100,9 @@ export async function generateText(
       e?.name === "AccessDeniedException"
         ? "Bedrock へのアクセス権限がありません（bedrock:InvokeModel / モデルアクセス設定を確認）"
         : e?.name === "ValidationException"
-        ? "Bedrock のモデルID/リージョン設定を確認してください"
+        ? (/not allowed/i.test(String(e?.message || ""))
+            ? "Bedrock でこのモデルが未有効化です（AWS Bedrock → モデルアクセスを有効化、または SCP/組織ポリシーのブロックを確認）"
+            : "Bedrock のモデルID/リージョン設定を確認してください")
         : "AI生成に失敗しました";
     return { ok: false, error, status: 502 };
   }
@@ -163,7 +165,9 @@ export async function generateHtml(
       e?.name === "AccessDeniedException"
         ? "Bedrock へのアクセス権限がありません（bedrock:InvokeModel / モデルアクセス設定を確認）"
         : e?.name === "ValidationException"
-        ? "Bedrock のモデルID/リージョン設定を確認してください"
+        ? (/not allowed/i.test(String(e?.message || ""))
+            ? "Bedrock でこのモデルが未有効化です（AWS Bedrock → モデルアクセスを有効化、または SCP/組織ポリシーのブロックを確認）"
+            : "Bedrock のモデルID/リージョン設定を確認してください")
         : "AI生成に失敗しました";
     return { ok: false, error, status: 502 };
   }

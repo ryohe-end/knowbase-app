@@ -100,7 +100,7 @@ export default function NewPushPage() {
     try {
       const res = await fetch("/api/store-settings/push/test", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberNos: testMembers, title, body: bodyText, contentHtml: noticeHtml || undefined, brand, clubCode }),
+        body: JSON.stringify({ memberNos: testMembers, title, body: bodyText, contentHtml: noticeHtml || undefined, linkUrl: linkUrl.trim() || undefined, brand, clubCode }),
       });
       const d = await res.json();
       if (!res.ok || !d.ok) throw new Error(d.error || "テスト送信に失敗しました");
