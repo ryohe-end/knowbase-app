@@ -41,7 +41,7 @@ export default function ApiReferencePage() {
     <div style={s.root}>
       <h1 style={s.h1}>KnowBase 公開API リファレンス</h1>
       <p style={s.lead}>
-        外部システム連携向けの公開APIです。本ページは、<b>クラブ一覧</b>と<b>会費</b>の2つのAPIをまとめたリファレンスです。
+        外部システム連携向けの公開APIです。本ページは、<b>クラブ一覧</b>・<b>会費</b>・<b>規約</b>の3つのAPIをまとめたリファレンスです。
       </p>
 
       {/* 共通仕様 */}
@@ -189,6 +189,59 @@ export default function ApiReferencePage() {
         </tbody>
       </table>
 
+      {/* 規約 */}
+      <h2 style={s.h2}>3. 規約</h2>
+      <p style={s.p}>入会・利用にあたっての各種<b>規約</b>（利用規約 / 個人情報の取り扱い / プライバシーポリシー等）を、現行版の本文つきで返します。ブランドや掲出カテゴリ（Web入会 / 1DayPass 等）で絞り込めます。</p>
+      <Endpoint method="GET" path="/api/public/terms" />
+      <h3 style={s.h3}>クエリパラメータ</h3>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>名前</th><th style={s.th}>必須</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>brand</code></td><td style={s.td}>–</td><td style={s.td}><code style={s.code}>FIT365</code> / <code style={s.code}>JOYFIT</code> で絞り込み</td></tr>
+          <tr><td style={s.td}><code style={s.code}>category</code></td><td style={s.td}>–</td><td style={s.td}>掲出カテゴリで絞り込み（例 <code style={s.code}>Web入会</code> / <code style={s.code}>1DayPass</code> / <code style={s.code}>Web/APP入会</code>）。<code style={s.code}>categories</code> に含む規約を返す</td></tr>
+          <tr><td style={s.td}><code style={s.code}>termId</code></td><td style={s.td}>–</td><td style={s.td}>指定時は該当1件のみ返す（<code style={s.code}>{`{ ok, term }`}</code>）</td></tr>
+        </tbody>
+      </table>
+      <h3 style={s.h3}>レスポンス例</h3>
+      <pre style={s.pre}>{`GET ${BASE}/api/public/terms?brand=FIT365&category=1DayPass
+
+{
+  "ok": true,
+  "count": 1,
+  "brand": "FIT365",
+  "category": "1DayPass",
+  "terms": [
+    {
+      "termId": "RklUMzY1X1_vvJFEYXkgUGFzc-WIqeeUqOimj-e0hA",
+      "brand": "FIT365",
+      "baseTitle": "１Day Pass利用規約",
+      "variants": [],
+      "categories": ["1DayPass"],
+      "updatedAt": "2026-01-15T09:00:00.000Z",
+      "current": {
+        "id": "v3",
+        "label": "2026年1月版",
+        "note": null,
+        "createdAt": "2026-01-15T09:00:00.000Z",
+        "contentByVariant": { "_default": "<h2>１Day Pass利用規約</h2> …本文…" }
+      }
+    }
+  ]
+}`}</pre>
+      <h3 style={s.h3}>フィールド</h3>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>termId</code></td><td style={s.td}>規約ID（一意）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>brand</code></td><td style={s.td}>ブランド（FIT365 / JOYFIT）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>baseTitle</code></td><td style={s.td}>規約タイトル</td></tr>
+          <tr><td style={s.td}><code style={s.code}>categories</code></td><td style={s.td}>掲出カテゴリ配列（Web入会 / 1DayPass / KIOSK(…) 等）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>variants</code></td><td style={s.td}>バリアント（宛先/媒体別の版）識別子。無ければ <code style={s.code}>_default</code> のみ</td></tr>
+          <tr><td style={s.td}><code style={s.code}>current</code></td><td style={s.td}>現行版。<code style={s.code}>label</code>（版名）・<code style={s.code}>createdAt</code>・<code style={s.code}>contentByVariant</code>（バリアント別の本文HTML）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>current.contentByVariant._default</code></td><td style={s.td}>既定バリアントの規約本文（HTML）</td></tr>
+        </tbody>
+      </table>
+
       <h2 style={s.h2}>呼び出し例（cURL）</h2>
       <pre style={s.pre}>{`# クラブ一覧(閉店含む)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs"
@@ -199,7 +252,12 @@ curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs?formCodes=2052,711"
 curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs?formCodes=2052,711&formMatch=all"
 
 # クラブ別 会費(最新)
-curl -H "x-api-key: $KEY" "${BASE}/api/public/fees?clubCode=375"`}</pre>
+curl -H "x-api-key: $KEY" "${BASE}/api/public/fees?clubCode=375"
+
+# 規約(全件・現行版)
+curl -H "x-api-key: $KEY" "${BASE}/api/public/terms"
+# ブランド + 掲出カテゴリで絞り込み
+curl -H "x-api-key: $KEY" "${BASE}/api/public/terms?brand=FIT365&category=1DayPass"`}</pre>
     </div>
   );
 }
