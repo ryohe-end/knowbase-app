@@ -35,7 +35,8 @@ export async function GET(req: Request) {
     const item = r.Item as SpecDocument | undefined;
     if (!item) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
     if (!canViewScope(user, item.viewScope)) return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
-    const file = (item.files || []).find((f) => f.key === key);
+    // 全版のファイルから該当 key を探す(過去版のダウンロードも許可)。
+    const file = (item.versions || []).flatMap((v) => v.files || []).find((f) => f.key === key);
     if (!file) return NextResponse.json({ ok: false, error: "file_not_in_spec" }, { status: 400 });
 
     // inline(ブラウザ内表示 / 主にPDF) or attachment(ダウンロード)。

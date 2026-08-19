@@ -2,11 +2,11 @@
 
 // 仕様書・標準図 — 閲覧画面(全ログインユーザー・読み取り専用)。
 // 管理画面(/design/specs、設計担当のみ)とは明確に別URL。
-// データは /api/design/specs(viewScopeで絞り込み)。
+// 現行版を主表示し、「版履歴」で過去版のファイルも取得できる。
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { SpecDocument } from "@/types/specDocument";
-import { SPEC_DOC_TYPES, SPEC_BRANDS } from "@/types/specDocument";
+import type { SpecDocument, SpecVersion } from "@/types/specDocument";
+import { SPEC_DOC_TYPES, SPEC_BRANDS, currentVersion, versionsNewestFirst } from "@/types/specDocument";
 
 const fmt = (iso?: string) =>
   iso ? new Date(iso).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : "—";
@@ -14,6 +14,25 @@ const isPdf = (ct?: string, name?: string) =>
   String(ct || "").includes("pdf") || /\.pdf$/i.test(String(name || ""));
 const dlBase = (specId: string, key: string) =>
   `/api/design/specs/download?specId=${encodeURIComponent(specId)}&key=${encodeURIComponent(key)}&redirect=1`;
+
+function VersionFiles({ specId, v }: { specId: string; v: SpecVersion }) {
+  return (
+    <div className="sp-files">
+      {(v.files || []).length === 0 && <div className="sp-empty">ファイルがありません。</div>}
+      {(v.files || []).map((f) => (
+        <div key={f.key} className="sp-file">
+          <div className="sp-file-name">📄 {f.name}</div>
+          <div className="sp-file-actions">
+            {isPdf(f.contentType, f.name) && (
+              <a className="sp-btn sp-btn-ghost" href={`${dlBase(specId, f.key)}&inline=1`} target="_blank" rel="noreferrer">閲覧</a>
+            )}
+            <a className="sp-btn" href={dlBase(specId, f.key)}>DL</a>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function SpecsViewerPage() {
   const [list, setList] = useState<SpecDocument[]>([]);
@@ -23,6 +42,7 @@ export default function SpecsViewerPage() {
   const [brand, setBrand] = useState("");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<SpecDocument | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,18 +54,24 @@ export default function SpecsViewerPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  const openSpec = (s: SpecDocument) => { setSel(s); setShowHistory(false); };
+
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase();
     return list.filter((s) => {
       if (docType && s.docType !== docType) return false;
       if (brand && s.brandId !== brand && s.brandId !== "ALL") return false;
       if (kw) {
-        const hay = [s.title, s.desc, s.version, (s.tags || []).join(" "), s.categoryId].join(" ").toLowerCase();
+        const labels = (s.versions || []).map((v) => v.label).join(" ");
+        const hay = [s.title, s.desc, labels, (s.tags || []).join(" "), s.categoryId].join(" ").toLowerCase();
         if (!hay.includes(kw)) return false;
       }
       return true;
     });
   }, [list, docType, brand, q]);
+
+  const selCur = sel ? currentVersion(sel) : null;
+  const selHistory = sel ? versionsNewestFirst(sel) : [];
 
   return (
     <div className="kb-design-root">
@@ -63,7 +89,7 @@ export default function SpecsViewerPage() {
         <header className="kb-page-header">
           <div className="kb-badge">閲覧</div>
           <h1>仕様書・標準図</h1>
-          <p>仕様書・標準図(PDF/CAD)を種別・ブランドで探せます。PDFはブラウザで閲覧、CADはダウンロードできます。</p>
+          <p>仕様書・標準図(PDF/CAD)を種別・ブランドで探せます。各資料は版(バージョン)履歴を持ち、現行版と過去版を取得できます。</p>
         </header>
 
         <div className="sp-filters">
@@ -85,21 +111,24 @@ export default function SpecsViewerPage() {
           <div className="sp-empty">該当する資料がありません。</div>
         ) : (
           <div className="sp-grid">
-            {filtered.map((s) => (
-              <button key={s.specId} className="sp-card" onClick={() => setSel(s)}>
-                <div className="sp-card-top">
-                  <span className={`sp-tag sp-tag-${s.docType === "標準図" ? "cad" : "doc"}`}>{s.docType}</span>
-                  {s.brandId !== "ALL" && <span className="sp-tag sp-tag-brand">{s.brandId}</span>}
-                  {s.version && <span className="sp-ver">{s.version}</span>}
-                </div>
-                <div className="sp-card-title">{s.title}</div>
-                {s.desc && <div className="sp-card-desc">{s.desc}</div>}
-                <div className="sp-card-foot">
-                  <span>📎 {(s.files || []).length}</span>
-                  <span>更新 {fmt(s.updatedAt)}</span>
-                </div>
-              </button>
-            ))}
+            {filtered.map((s) => {
+              const cur = currentVersion(s);
+              return (
+                <button key={s.specId} className="sp-card" onClick={() => openSpec(s)}>
+                  <div className="sp-card-top">
+                    <span className={`sp-tag sp-tag-${s.docType === "標準図" ? "cad" : "doc"}`}>{s.docType}</span>
+                    {s.brandId !== "ALL" && <span className="sp-tag sp-tag-brand">{s.brandId}</span>}
+                    {cur?.label && <span className="sp-ver">{cur.label}</span>}
+                  </div>
+                  <div className="sp-card-title">{s.title}</div>
+                  {s.desc && <div className="sp-card-desc">{s.desc}</div>}
+                  <div className="sp-card-foot">
+                    <span>📎 {(cur?.files || []).length}</span>
+                    <span>{(s.versions || []).length > 1 ? `${(s.versions || []).length}版 · ` : ""}更新 {fmt(s.updatedAt)}</span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </main>
@@ -111,7 +140,7 @@ export default function SpecsViewerPage() {
               <div>
                 <span className={`sp-tag sp-tag-${sel.docType === "標準図" ? "cad" : "doc"}`}>{sel.docType}</span>
                 {sel.brandId !== "ALL" && <span className="sp-tag sp-tag-brand">{sel.brandId}</span>}
-                {sel.version && <span className="sp-ver">{sel.version}</span>}
+                {selCur?.label && <span className="sp-ver">現行 {selCur.label}</span>}
               </div>
               <button className="sp-x" onClick={() => setSel(null)}>×</button>
             </div>
@@ -120,20 +149,36 @@ export default function SpecsViewerPage() {
             {(sel.tags || []).length > 0 && (
               <div className="sp-tags">{(sel.tags || []).map((t) => <span key={t} className="sp-chip">#{t}</span>)}</div>
             )}
-            <div className="sp-files">
-              {(sel.files || []).length === 0 && <div className="sp-empty">ファイルがありません。</div>}
-              {(sel.files || []).map((f) => (
-                <div key={f.key} className="sp-file">
-                  <div className="sp-file-name">📄 {f.name}</div>
-                  <div className="sp-file-actions">
-                    {isPdf(f.contentType, f.name) && (
-                      <a className="sp-btn sp-btn-ghost" href={`${dlBase(sel.specId, f.key)}&inline=1`} target="_blank" rel="noreferrer">閲覧</a>
-                    )}
-                    <a className="sp-btn" href={dlBase(sel.specId, f.key)}>ダウンロード</a>
+
+            {/* 現行版 */}
+            <div className="sp-sec-label">現行版{selCur?.label ? `（${selCur.label}）` : ""} · {fmt(selCur?.createdAt)}</div>
+            {selCur?.note && <div className="sp-note">{selCur.note}</div>}
+            {selCur ? <VersionFiles specId={sel.specId} v={selCur} /> : <div className="sp-empty">版がありません。</div>}
+
+            {/* 版履歴 */}
+            {selHistory.length > 1 && (
+              <div className="sp-history">
+                <button className="sp-history-toggle" onClick={() => setShowHistory((x) => !x)}>
+                  {showHistory ? "▼" : "▶"} 版履歴（全{selHistory.length}版）
+                </button>
+                {showHistory && (
+                  <div className="sp-history-list">
+                    {selHistory.map((v) => (
+                      <div key={v.versionId} className={`sp-hist ${v.isCurrent ? "cur" : ""}`}>
+                        <div className="sp-hist-head">
+                          <span className="sp-hist-label">{v.label || "（無題の版）"}</span>
+                          {v.isCurrent && <span className="sp-hist-badge">現行</span>}
+                          <span className="sp-hist-date">{fmt(v.createdAt)}</span>
+                        </div>
+                        {v.note && <div className="sp-note">{v.note}</div>}
+                        <VersionFiles specId={sel.specId} v={v} />
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ))}
-            </div>
+                )}
+              </div>
+            )}
+
             <div className="sp-modal-meta">登録: {sel.createdBy || "—"} / 更新 {fmt(sel.updatedAt)}</div>
           </div>
         </div>
@@ -156,7 +201,7 @@ export default function SpecsViewerPage() {
         .sp-search { flex:1; min-width:200px; padding:9px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; }
         .sp-filters select { padding:9px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:13px; background:#fff; }
         .sp-count { font-size:12px; color:#64748b; font-weight:600; }
-        .sp-empty { padding:48px; text-align:center; color:#94a3b8; font-size:14px; }
+        .sp-empty { padding:32px; text-align:center; color:#94a3b8; font-size:14px; }
         .sp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:16px; }
         .sp-card { text-align:left; background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:16px; cursor:pointer; display:flex; flex-direction:column; gap:8px; transition:transform .15s, box-shadow .15s; }
         .sp-card:hover { transform:translateY(-3px); box-shadow:0 10px 18px -8px rgba(0,0,0,0.12); border-color:#bfdbfe; }
@@ -170,19 +215,30 @@ export default function SpecsViewerPage() {
         .sp-tag-brand { background:#f1f5f9; color:#475569; }
         .sp-ver { font-size:11px; color:#64748b; font-weight:600; }
         .sp-modal-bg { position:fixed; inset:0; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; z-index:200; padding:20px; }
-        .sp-modal { background:#fff; border-radius:16px; width:100%; max-width:560px; max-height:85vh; overflow:auto; padding:22px; }
+        .sp-modal { background:#fff; border-radius:16px; width:100%; max-width:580px; max-height:86vh; overflow:auto; padding:22px; }
         .sp-modal-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
         .sp-x { border:none; background:none; font-size:24px; color:#94a3b8; cursor:pointer; line-height:1; }
         .sp-modal-title { font-size:20px; font-weight:800; margin:12px 0 8px; }
         .sp-modal-desc { font-size:13px; color:#475569; line-height:1.7; white-space:pre-wrap; margin:0 0 12px; }
         .sp-tags { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
         .sp-chip { font-size:11px; color:#64748b; background:#f1f5f9; padding:2px 8px; border-radius:20px; }
+        .sp-sec-label { font-size:12px; font-weight:800; color:#334155; margin:6px 0 8px; padding-left:10px; border-left:3px solid #2563eb; }
+        .sp-note { font-size:12px; color:#475569; background:#f8fafc; border:1px solid #eef2f7; border-radius:8px; padding:8px 10px; margin-bottom:8px; white-space:pre-wrap; }
         .sp-files { display:flex; flex-direction:column; gap:8px; }
-        .sp-file { display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid #e2e8f0; border-radius:10px; padding:10px 12px; }
+        .sp-file { display:flex; justify-content:space-between; align-items:center; gap:10px; border:1px solid #e2e8f0; border-radius:10px; padding:9px 12px; }
         .sp-file-name { font-size:13px; font-weight:600; word-break:break-all; }
         .sp-file-actions { display:flex; gap:6px; flex-shrink:0; }
-        .sp-btn { text-decoration:none; font-size:12px; font-weight:700; color:#fff; background:#2563eb; padding:7px 12px; border-radius:7px; }
+        .sp-btn { text-decoration:none; font-size:12px; font-weight:700; color:#fff; background:#2563eb; padding:6px 12px; border-radius:7px; }
         .sp-btn-ghost { background:#eff6ff; color:#1d4ed8; }
+        .sp-history { margin-top:16px; border-top:1px solid #eef2f7; padding-top:12px; }
+        .sp-history-toggle { border:none; background:none; font-size:13px; font-weight:800; color:#334155; cursor:pointer; padding:0; }
+        .sp-history-list { margin-top:10px; display:flex; flex-direction:column; gap:12px; }
+        .sp-hist { border:1px solid #e2e8f0; border-radius:10px; padding:12px; }
+        .sp-hist.cur { border-color:#bfdbfe; background:#f8fbff; }
+        .sp-hist-head { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+        .sp-hist-label { font-size:13px; font-weight:800; }
+        .sp-hist-badge { font-size:10px; font-weight:800; color:#1d4ed8; background:#dbeafe; padding:2px 7px; border-radius:6px; }
+        .sp-hist-date { font-size:11px; color:#94a3b8; margin-left:auto; }
         .sp-modal-meta { margin-top:16px; font-size:11.5px; color:#94a3b8; }
       `}</style>
     </div>
