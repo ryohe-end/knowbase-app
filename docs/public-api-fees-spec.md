@@ -6,6 +6,7 @@
 - 認証: `x-api-key` ヘッダ（環境変数 `KB_PUBLIC_API_KEY` と照合）
 - データソース: Oracle adb01 `FIT_ADMIN.契約会費金額`（`knowbie_ro`、read-only）
 - 実装: Next.js route `app/api/public/fees/route.ts` → member-search Lambda `type:"club-fees"`
+- 関連: [クラブ一覧API](./public-api-clubs-spec.md)（`formCodes` で契約形態から店舗を絞り込める）
 
 ---
 
