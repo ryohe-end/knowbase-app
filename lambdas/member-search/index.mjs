@@ -1094,15 +1094,61 @@ export const handler = async (event) => {
 
   // 公開API用: クラブ一覧(クラブ情報)。閉店店舗も含む(閉店フラグ付き)。
   // 業態(赤/FIT365/青/緑…)からブランドはAPI側で正規化。
+  //
+  // formCodes(契約形態コード配列)指定時: その主契約を「契約できる」店舗だけに絞る。
+  //   判定源 = FIT_ADMIN.契約会費金額 (クラブ×契約形態に会費行がある = そのクラブで契約可)。
+  //   法人入会の店舗一覧表示で「法人の特定主契約を持つ店舗だけ」を出す用途。
+  //   formMatch = any(既定, 指定コードのいずれかを扱う) | all(指定コード全てを扱う)。
+  //   各店が実際に扱う該当コードは FORMS(カンマ区切り) で返す。
   if (type === "clubs-list") {
-    const sql = `SELECT クラブコード AS CODE, クラブ名 AS NAME, 業態 AS GYOTAI, 閉店フラグ AS CLOSED
-      FROM FIT_ADMIN.クラブ情報 ORDER BY クラブコード`;
+    // formCodes は配列 or カンマ区切り文字列。整数のみ採用。
+    const rawForms = params.formCodes;
+    const formCodes = (Array.isArray(rawForms) ? rawForms : String(rawForms || "").split(","))
+      .map((x) => parseInt(String(x).trim(), 10))
+      .filter((n) => Number.isFinite(n));
+    const formMatch = /^all$/i.test(String(params.formMatch || "")) ? "all" : "any";
+
+    let sql;
+    const binds = {};
+    if (formCodes.length) {
+      const inList = formCodes.map((_, i) => `:f${i}`).join(",");
+      formCodes.forEach((c, i) => { binds[`f${i}`] = c; });
+      // 内側で (クラブ×契約形態) を DISTINCT 化してから集約(LISTAGG DISTINCT非依存で互換性重視)。
+      // ALL: 指定コード数と一致する店舗のみ。ANY: 1つでも該当すれば対象。
+      const having = formMatch === "all" ? `HAVING COUNT(*) = ${formCodes.length}` : "";
+      sql = `
+        SELECT ci.クラブコード AS CODE, ci.クラブ名 AS NAME, ci.業態 AS GYOTAI, ci.閉店フラグ AS CLOSED,
+               m.FORMS AS FORMS
+        FROM FIT_ADMIN.クラブ情報 ci
+        INNER JOIN (
+          SELECT クラブコード,
+                 LISTAGG(契約形態コード, ',') WITHIN GROUP (ORDER BY 契約形態コード) AS FORMS,
+                 COUNT(*) AS NFORMS
+          FROM (
+            SELECT DISTINCT クラブコード, 契約形態コード
+            FROM FIT_ADMIN.契約会費金額
+            WHERE 契約形態コード IN (${inList})
+          )
+          GROUP BY クラブコード
+          ${having}
+        ) m ON m.クラブコード = ci.クラブコード
+        ORDER BY ci.クラブコード`;
+    } else {
+      sql = `SELECT クラブコード AS CODE, クラブ名 AS NAME, 業態 AS GYOTAI, 閉店フラグ AS CLOSED
+        FROM FIT_ADMIN.クラブ情報 ORDER BY クラブコード`;
+    }
     let conn;
     try {
       const pool = await getPool();
       conn = await pool.getConnection();
-      const r = await conn.execute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 2000 });
-      return resp(200, { ok: true, count: (r.rows || []).length, clubs: r.rows || [] });
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 2000 });
+      return resp(200, {
+        ok: true,
+        count: (r.rows || []).length,
+        formCodes: formCodes.length ? formCodes : undefined,
+        formMatch: formCodes.length ? formMatch : undefined,
+        clubs: r.rows || [],
+      });
     } catch (e) { return resp(500, { error: e.message }); }
     finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }

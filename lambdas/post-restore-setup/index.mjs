@@ -85,10 +85,17 @@ async function setup(adminCfg, roCfg) {
       // member-search の env VISIT_TABLE='FIT_ADMIN."入館トラン"' で有効化している。
       "入館トラン",
     ];
+    // テーブル毎に try/catch。1つ欠落(ORA-00942等)しても他の GRANT を止めない。
+    // 失敗テーブルはログに残し、原因追跡できるようにする。
+    const grantFail = [];
     for (const tbl of roTables) {
-      await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
+      try {
+        await conn.execute(`GRANT SELECT ON FIT_ADMIN."${tbl}" TO ${roCfg.user}`);
+      } catch (e) {
+        grantFail.push(`${tbl}:${(e && e.message) || e}`);
+      }
     }
-    log.push("grants applied");
+    log.push(grantFail.length ? `grants applied (${roTables.length - grantFail.length}/${roTables.length}; fail: ${grantFail.join("; ")})` : `grants applied (${roTables.length}/${roTables.length})`);
 
     // ③ EMAIL カラムのインデックス追加 (存在チェック付き)
     const emailIdxExists = await exists(

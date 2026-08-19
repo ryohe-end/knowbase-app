@@ -75,6 +75,8 @@ export default function ApiReferencePage() {
           <tr><td style={s.td}><code style={s.code}>clubCode</code></td><td style={s.td}>–</td><td style={s.td}>指定時は該当1店のみ返す</td></tr>
           <tr><td style={s.td}><code style={s.code}>brand</code></td><td style={s.td}>–</td><td style={s.td}><code style={s.code}>FIT365</code> / <code style={s.code}>JOYFIT</code> で絞り込み</td></tr>
           <tr><td style={s.td}><code style={s.code}>includeClosed</code></td><td style={s.td}>–</td><td style={s.td}><code style={s.code}>0</code> で閉店店舗を除外（既定は閉店も含む）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>formCodes</code></td><td style={s.td}>–</td><td style={s.td}>契約形態コードのカンマ区切り（例 <code style={s.code}>2052,711</code>）。<b>その主契約を契約できる店舗だけ</b>に絞り込む（法人入会の店舗一覧用）。各店が実際に扱う該当コードを <code style={s.code}>matchedFormCodes</code> で返す</td></tr>
+          <tr><td style={s.td}><code style={s.code}>formMatch</code></td><td style={s.td}>–</td><td style={s.td}><code style={s.code}>any</code>（既定・いずれかを扱う） / <code style={s.code}>all</code>（指定コード全てを扱う店舗のみ）。<code style={s.code}>formCodes</code> 指定時のみ有効</td></tr>
         </tbody>
       </table>
       <h3 style={s.h3}>レスポンス例</h3>
@@ -104,8 +106,29 @@ export default function ApiReferencePage() {
           <tr><td style={s.td}><code style={s.code}>brand</code></td><td style={s.td}>ブランド（FIT365 / JOYFIT）。業態から正規化</td></tr>
           <tr><td style={s.td}><code style={s.code}>businessType</code></td><td style={s.td}>業態（FIT365 / 赤 / 青 / 緑 / ｼﾞｮｲﾌｨｯﾄﾌﾟﾗｽ 等）</td></tr>
           <tr><td style={s.td}><code style={s.code}>closed</code></td><td style={s.td}>閉店なら true</td></tr>
+          <tr><td style={s.td}><code style={s.code}>matchedFormCodes</code></td><td style={s.td}><code style={s.code}>formCodes</code> 指定時のみ。その店が実際に契約可能な、要求コードのうちの契約形態コード配列</td></tr>
         </tbody>
       </table>
+      <h3 style={s.h3}>契約形態コードで絞り込み（法人入会用）</h3>
+      <p style={s.p}>法人の特定の主契約（契約形態）を扱う店舗だけを一覧したい場合に <code style={s.code}>formCodes</code> を使います。判定源は「クラブ別 契約会費金額」（そのクラブに会費行がある＝契約可能）です。</p>
+      <pre style={s.pre}>{`GET ${BASE}/api/public/clubs?formCodes=2052,711&formMatch=any
+
+{
+  "ok": true,
+  "count": 9,
+  "formCodes": [2052, 711],
+  "formMatch": "any",
+  "clubs": [
+    {
+      "clubCode": "107",
+      "clubName": "JOYFITBIO",
+      "brand": "JOYFIT",
+      "businessType": "赤",
+      "closed": false,
+      "matchedFormCodes": [711, 2052]
+    }
+  ]
+}`}</pre>
       <div style={s.note}>※ 住所・都道府県はデータ未整備のため現時点では返しません（整備でき次第 追加）。</div>
 
       {/* 会費 */}
@@ -169,6 +192,11 @@ export default function ApiReferencePage() {
       <h2 style={s.h2}>呼び出し例（cURL）</h2>
       <pre style={s.pre}>{`# クラブ一覧(閉店含む)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs"
+
+# 特定の契約形態(主契約)を扱う店舗だけ(法人入会用): いずれか
+curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs?formCodes=2052,711"
+# 指定コードを全て扱う店舗のみ
+curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs?formCodes=2052,711&formMatch=all"
 
 # クラブ別 会費(最新)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/fees?clubCode=375"`}</pre>
