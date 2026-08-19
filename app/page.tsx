@@ -1492,6 +1492,9 @@ export default function HomePage() {
               設計業務
             </button>
           )}
+          <button className="kb-tab" style={{ cursor: "pointer" }} onClick={() => (window.location.href = "/specs")}>
+            仕様書・標準図
+          </button>
         </div>
       </div>
 

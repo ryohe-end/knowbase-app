@@ -26,8 +26,8 @@ export default function DesignHome() {
   const items: Item[] = [
     {
       step: "①",
-      title: "仕様書・標準図の整備",
-      desc: "仕様書・標準図(CAD/PDF)の保管と、変更依頼→検討→承認→周知→検証→修正の履歴を1か所で管理します。",
+      title: "仕様書・標準図の登録・管理",
+      desc: "仕様書・標準図(PDF/CAD)を登録・編集する管理画面(設計担当)。閲覧は全社向けの閲覧画面(/specs)で行えます。",
       href: "/design/specs",
       icon: <DocIcon />,
       color: "#2563eb",
