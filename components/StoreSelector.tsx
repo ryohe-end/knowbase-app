@@ -12,9 +12,10 @@ type StoreEntry = {
   address: string;
   isActive: boolean;
   capacity?: number;
-  company?: string;    // カンパニー (ヤマウチ 等)
-  areaName?: string;   // エリア (関東 第1エリア 等)
-  territory?: string;  // テリトリー (テリトリー1 等)
+  company?: string;      // カンパニー (ヤマウチ 等)
+  companyGroup?: string; // 運営部 (EAST/WEST/NORTH/SOUTH/FC(EAST)/WFAP 等)
+  areaName?: string;     // エリア (関東 第1エリア 等)
+  territory?: string;    // テリトリー (テリトリー1 等)
 };
 
 type UserInfo = {
@@ -47,10 +48,16 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
   const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
-  const [brandFilter, setBrandFilter] = useState<string>("all");
+  const [brandFilter, setBrandFilter] = useState<Set<string>>(new Set()); // ⑤ 複数選択(空=全ブランド)
+  const [companyGroupFilter, setCompanyGroupFilter] = useState<string>("all"); // ④ 運営部
   const [prefectureFilter, setPrefectureFilter] = useState<string>("all");
   const [areaFilter, setAreaFilter] = useState<string>("all");
   const [hideInactive, setHideInactive] = useState(true);
+  const toggleBrand = (b: string) => setBrandFilter((prev) => {
+    const next = new Set(prev);
+    next.has(b) ? next.delete(b) : next.add(b);
+    return next;
+  });
 
   useEffect(() => {
     const fetchStores = async () => {
@@ -78,6 +85,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
   }, []);
 
   const brands = useMemo(() => [...new Set(stores.map((s) => s.brand))].sort(), [stores]);
+  const companyGroups = useMemo(() => [...new Set(stores.map((s) => s.companyGroup).filter(Boolean) as string[])].sort(), [stores]);
   const prefectures = useMemo(() => [...new Set(stores.map((s) => s.prefecture))].sort(), [stores]);
   const areas = useMemo(() => [...new Set(stores.map((s) => s.areaName).filter(Boolean) as string[])].sort(), [stores]);
 
@@ -95,13 +103,14 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
           (s.territory || "").includes(q);
         if (!match) return false;
       }
-      if (brandFilter !== "all" && s.brand !== brandFilter) return false;
+      if (brandFilter.size > 0 && !brandFilter.has(s.brand)) return false;
+      if (companyGroupFilter !== "all" && s.companyGroup !== companyGroupFilter) return false;
       if (prefectureFilter !== "all" && s.prefecture !== prefectureFilter) return false;
       if (areaFilter !== "all" && s.areaName !== areaFilter) return false;
       if (hideInactive && !s.isActive) return false;
       return true;
     });
-  }, [stores, search, brandFilter, prefectureFilter, areaFilter, hideInactive]);
+  }, [stores, search, brandFilter, companyGroupFilter, prefectureFilter, areaFilter, hideInactive]);
 
   const activeCount = stores.filter((s) => s.isActive).length;
 
@@ -158,10 +167,28 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
             />
             {search && <button className="sl-search-clear" onClick={() => setSearch("")}>×</button>}
           </div>
-          <select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} className="sl-filter-select">
-            <option value="all">全ブランド</option>
-            {brands.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+          <div className="sl-brand-chips" role="group" aria-label="ブランド(複数選択可)">
+            <button
+              type="button"
+              className={`sl-brand-chip ${brandFilter.size === 0 ? "active" : ""}`}
+              onClick={() => setBrandFilter(new Set())}
+            >全ブランド</button>
+            {brands.map((b) => (
+              <button
+                type="button"
+                key={b}
+                className={`sl-brand-chip ${brandFilter.has(b) ? "active" : ""}`}
+                onClick={() => toggleBrand(b)}
+                style={brandFilter.has(b) ? { borderColor: BRAND_COLORS[b] || "#3b82f6", color: BRAND_COLORS[b] || "#1d4ed8" } : undefined}
+              >{b}</button>
+            ))}
+          </div>
+          {companyGroups.length > 0 && (
+            <select value={companyGroupFilter} onChange={(e) => setCompanyGroupFilter(e.target.value)} className="sl-filter-select" title="運営部">
+              <option value="all">全運営部</option>
+              {companyGroups.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          )}
           <select value={prefectureFilter} onChange={(e) => setPrefectureFilter(e.target.value)} className="sl-filter-select">
             <option value="all">全都道府県</option>
             {prefectures.map((p) => <option key={p} value={p}>{p}</option>)}
@@ -190,7 +217,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
         ) : filtered.length === 0 ? (
           <div className="sl-empty">
             <div className="sl-empty-text">条件に一致する店舗がありません</div>
-            <button className="sl-empty-btn" onClick={() => { setSearch(""); setBrandFilter("all"); setPrefectureFilter("all"); setAreaFilter("all"); setHideInactive(false); }}>
+            <button className="sl-empty-btn" onClick={() => { setSearch(""); setBrandFilter(new Set()); setCompanyGroupFilter("all"); setPrefectureFilter("all"); setAreaFilter("all"); setHideInactive(false); }}>
               フィルターをリセット
             </button>
           </div>
@@ -203,6 +230,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
                   <th>店舗名</th>
                   <th>ブランド</th>
                   <th>業態</th>
+                  <th>運営部</th>
                   <th>エリア</th>
                   <th>テリトリー</th>
                   <th>カンパニー</th>
@@ -222,6 +250,7 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
                       </span>
                     </td>
                     <td><span className="sl-biz-type">{store.businessType}</span></td>
+                    <td>{store.companyGroup ? <span className="sl-area">{store.companyGroup}</span> : <span className="sl-dash">—</span>}</td>
                     <td>{store.areaName ? <span className="sl-area">{store.areaName}</span> : <span className="sl-dash">—</span>}</td>
                     <td>{store.territory ? <span className="sl-territory">{store.territory}</span> : <span className="sl-dash">—</span>}</td>
                     <td>{store.company ? <span className="sl-company">{store.company}</span> : <span className="sl-dash">—</span>}</td>
@@ -281,6 +310,10 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
         .sl-search-clear { position: absolute; right: 10px; width: 22px; height: 22px; border-radius: 50%; background: #e2e8f0; border: none; color: #64748b; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .sl-filter-select { padding: 10px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 13px; font-weight: 600; background: #fff; color: #475569; outline: none; cursor: pointer; transition: 0.15s; min-width: 140px; }
         .sl-filter-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.08); }
+        .sl-brand-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+        .sl-brand-chip { padding: 8px 12px; border: 1.5px solid #e2e8f0; border-radius: 10px; font-size: 12px; font-weight: 700; background: #fff; color: #64748b; cursor: pointer; transition: 0.15s; }
+        .sl-brand-chip:hover { border-color: #cbd5e1; background: #f8fafc; }
+        .sl-brand-chip.active { border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; }
         .sl-checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; white-space: nowrap; padding: 0 4px; }
         .sl-checkbox { width: 16px; height: 16px; accent-color: #3b82f6; cursor: pointer; }
 
