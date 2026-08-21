@@ -1,12 +1,17 @@
 // app/api/public/clubs/route.ts
-// 公開API: クラブ一覧 (Oracle adb01 FIT_ADMIN.クラブ情報)。x-api-key 認証。
-// 返却: クラブ(コード) / クラブ名称 / ブランド(FIT365|JOYFIT) / 業態(businessType) / 閉店フラグ(closed)。
+// 公開API: クラブ一覧 (Oracle adb01 FIT_ADMIN.クラブ情報 + クラブ)。x-api-key 認証。
+// 返却: クラブ(コード) / クラブ名称 / ブランド(FIT365|JOYFIT) / 業態(businessType) / 閉店フラグ(closed)
+//        / 経営企業コード(managementCompanyCode) / 企業名(companyName)。
 //   ※ 閉店店舗も含めて返す(既定)。開店のみ欲しい場合は includeClosed=0。
 //   ※ 住所・都道府県は現状データ未整備のため返しません(揃い次第 別途追加)。
 //   GET /api/public/clubs                     … 全店(閉店含む)
 //   GET /api/public/clubs?includeClosed=0     … 開店のみ
 //   GET /api/public/clubs?clubCode=375        … 1店
 //   GET /api/public/clubs?brand=FIT365|JOYFIT … ブランド絞り込み
+//   GET /api/public/clubs?companyCode=1       … 経営企業コードで絞り込み
+//   GET /api/public/clubs?formCodes=2052,711  … 指定の契約形態(主契約)を扱う店舗だけ(法人入会用)
+//                         &formMatch=any(既定)|all  any=いずれか / all=全て扱う店舗のみ
+//     → 各店に matchedFormCodes[](要求コードのうち実際に扱うもの) を付与して返す。
 import { NextResponse } from "next/server";
 import { callMemberSearch } from "@/lib/unpaid";
 import { requirePublicApiKey } from "@/lib/publicApiAuth";
@@ -26,10 +31,20 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const clubCode = (sp.get("clubCode") || "").trim();
   const brand = (sp.get("brand") || "").trim().toUpperCase();
+  const companyCode = (sp.get("companyCode") || "").trim(); // 経営企業コードで絞り込み(任意)
   const includeClosed = (sp.get("includeClosed") || "1").trim() !== "0"; // 既定: 閉店も含む
+  // 契約形態コード配列で「その主契約を契約できる店舗」に絞る(法人入会の店舗一覧用)。
+  //   formCodes=2052,711 のようにカンマ区切り。formMatch=any(既定)|all。
+  const formCodes = (sp.get("formCodes") || sp.get("formCode") || "")
+    .split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => Number.isFinite(n));
+  const formMatch = (sp.get("formMatch") || "").toLowerCase() === "all" ? "all" : "any";
 
   try {
-    const data = await callMemberSearch({ type: "clubs-list" });
+    const data = await callMemberSearch(
+      formCodes.length
+        ? { type: "clubs-list", formCodes: formCodes.join(","), formMatch }
+        : { type: "clubs-list" }
+    );
     let clubs = (data?.clubs || []).map((r: any) => {
       const businessType = r.GYOTAI ?? null; // 業態(生値)
       return {
@@ -38,6 +53,12 @@ export async function GET(req: Request) {
         brand: brandOf(businessType), // ブランド
         businessType, // 業態
         closed: r.CLOSED === 1, // 閉店フラグ (1=閉店)
+        managementCompanyCode: r.COMP != null ? String(r.COMP) : null, // 経営企業コード
+        companyName: r.COMPNAME ?? null, // 企業名
+        // 該当店舗が実際に扱う契約形態コード(要求コードのうち)。formCodes指定時のみ。
+        ...(r.FORMS != null
+          ? { matchedFormCodes: String(r.FORMS).split(",").map((x: string) => parseInt(x, 10)).filter((n) => Number.isFinite(n)) }
+          : {}),
       };
     });
 
@@ -49,10 +70,18 @@ export async function GET(req: Request) {
 
     if (!includeClosed) clubs = clubs.filter((c: any) => !c.closed);
     if (brand === "FIT365" || brand === "JOYFIT") clubs = clubs.filter((c: any) => c.brand === brand);
+    if (companyCode) clubs = clubs.filter((c: any) => c.managementCompanyCode === companyCode);
     clubs.sort((a: any, b: any) => (Number(a.clubCode) - Number(b.clubCode)) || a.clubCode.localeCompare(b.clubCode));
 
     const closedCount = clubs.filter((c: any) => c.closed).length;
-    return NextResponse.json({ ok: true, count: clubs.length, openCount: clubs.length - closedCount, closedCount, clubs });
+    return NextResponse.json({
+      ok: true,
+      count: clubs.length,
+      openCount: clubs.length - closedCount,
+      closedCount,
+      ...(formCodes.length ? { formCodes, formMatch } : {}),
+      clubs,
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "member_search_error" }, { status: 502 });
   }
