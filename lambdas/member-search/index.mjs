@@ -656,7 +656,13 @@ const unpaidCurrentBase = (clubClause) => `
     c.会員区分コード      AS PLAN_CODE,
     ff.契約形態名         AS FORM_NAME,
     c.退会日             AS WITHDRAWN_DATE,
-    c.退会理由コード1     AS WITHDRAW_REASON1
+    c.退会理由コード1     AS WITHDRAW_REASON1,
+    -- ⑥ 委託先(JACCS/クレカ等): 当月未納(入金区分4)の会員入金歴から取得
+    (SELECT MAX(a2.委託先コード) FROM FIT_ADMIN."会員入金歴" a2
+       WHERE a2.契約SEQ = f.契約SEQ AND a2.対応年月 = f.振替年月 AND a2.入金区分コード = 4) AS ICODE,
+    -- ③ 現在の入金区分(4=未納/3=入金済/90=売上取消/91=貸倒/...)。全体(cohort)で入金済も把握するため。
+    (SELECT MAX(a3.入金区分コード) FROM FIT_ADMIN."会員入金歴" a3
+       WHERE a3.契約SEQ = f.契約SEQ AND a3.対応年月 = f.振替年月) AS PAY_KUBUN
   FROM FIT_ADMIN."振替契約別" f
   INNER JOIN FIT_ADMIN."会員番号" b ON f.契約者SEQ = b.契約者SEQ
   INNER JOIN FIT_ADMIN."個人" p     ON b.個人SEQ   = p.個人SEQ
@@ -666,25 +672,35 @@ const unpaidCurrentBase = (clubClause) => `
   WHERE ${clubClause}
     AND f.振替年月 >= :fromYm
     AND TRIM(f.振替結果コード) <> '0'
-    AND ABS(${UNPAID_NET_EXPR}) > 1
-    -- 現行未納の権威判定: 会員入金歴.入金区分コード = 4(未納)。
+    AND ABS(${UNPAID_NET_EXPR}) > 1`;
+
+// 現行未納の権威判定: 会員入金歴.入金区分コード = 4(未納)。
+const CURRENT_UNPAID_EXISTS = `
     AND EXISTS (
       SELECT 1 FROM FIT_ADMIN."会員入金歴" a
        WHERE a.契約SEQ = f.契約SEQ AND a.対応年月 = f.振替年月
          AND a.入金区分コード = 4
     )`;
 
-// ① 現在の未納 (貸倒予定=強制退会 は除外)
-const unpaidCurrentSql = (clubClause) => unpaidCurrentBase(clubClause) + `
+// ① 現在の未納 (貸倒予定=強制退会 は除外)。入金区分4(未納)のみ。
+const unpaidCurrentSql = (clubClause) => unpaidCurrentBase(clubClause) + CURRENT_UNPAID_EXISTS + `
     AND (c.退会理由コード1 IS NULL OR TRIM(TO_CHAR(c.退会理由コード1)) <> :forcedReason)
   ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
 `;
 // ③ 貸倒予定 (過去強制退会で請求が継続している人)
-const unpaidWriteoffSql = (clubClause) => unpaidCurrentBase(clubClause) + `
+const unpaidWriteoffSql = (clubClause) => unpaidCurrentBase(clubClause) + CURRENT_UNPAID_EXISTS + `
     AND TRIM(TO_CHAR(c.退会理由コード1)) = :forcedReason
   ORDER BY f.振替年月 ASC
   FETCH FIRST 20000 ROWS ONLY
+`;
+// ③(全体/確定時点) 初回振替が失敗した人の全体。入金区分4フィルタ無し=既にアプリ入金済も残す。
+// 各行に現在の入金区分(PAY_KUBUN)を付与し、会員単位で「未納/一部入金/入金済」を判定する。
+// 振替結果コードは後から変わらないため、支払われても人数が減らない(=消えない全体)。
+const unpaidCohortSql = (clubClause) => unpaidCurrentBase(clubClause) + `
+    AND (c.退会理由コード1 IS NULL OR TRIM(TO_CHAR(c.退会理由コード1)) <> :forcedReason)
+  ORDER BY f.振替年月 ASC
+  FETCH FIRST 40000 ROWS ONLY
 `;
 // ② 未納 → いつ入金されたか (振替失敗だが後で入金あり)。入金明細は会員入金歴側。
 const UNPAID_PAID_SQL = `
@@ -881,6 +897,18 @@ function buildWriteoffSchedule(rows) {
 function _fmtYmd(raw) { const s = raw != null ? String(raw) : ""; return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : null; }
 function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length === 6 ? `${s.slice(0,4)}-${s.slice(4,6)}` : s; }
 
+// ⑥ 委託先コード → 名称 / 区分(JACCS・クレカ等)。会員入金歴.委託先コード に準拠。
+const CONSIGN_NAME = { 0: "現金", 1: "SMBCクレジット", 2: "JACCS収金代行", 3: "オリコ", 4: "りそな", 5: "ｿﾌﾄﾊﾞﾝｸ", 6: "JACCS(FIT)", 7: "GMO", 9: "ＦＤ自振", 88: "JACCS集金代行", 89: "JACCSクレジット", 90: "現金", 99: "振込" };
+function consignCategory(code) {
+  if ([2, 6, 88, 89].includes(code)) return "JACCS";       // 口座振替(JACCS各種)
+  if ([1, 3, 5, 7].includes(code)) return "クレカ";         // クレジット/収納代行(SMBC/オリコ/ｿﾌﾄﾊﾞﾝｸ/GMO)
+  if ([0, 90].includes(code)) return "現金";
+  if (code === 99) return "振込";
+  if (code === 9) return "自振";
+  if (code === 4) return "りそな";
+  return "その他";
+}
+
 // 振替未納の明細行 → 正規化 + 会員集計
 function buildUnpaidFurikae(type, rows) {
   // ② いつ入金されたか: 会員入金歴の入金明細 (滞留日数つき)
@@ -927,6 +955,8 @@ function buildUnpaidFurikae(type, rows) {
     withdrawnDate: (r.WITHDRAWN_DATE != null && String(r.WITHDRAWN_DATE).trim() !== "" && String(r.WITHDRAWN_DATE).trim() !== "99999999") ? String(r.WITHDRAWN_DATE).trim() : null,
     withdrawReason1: r.WITHDRAW_REASON1 != null ? String(r.WITHDRAW_REASON1).trim() : null,
     forced: r.WITHDRAW_REASON1 != null && String(r.WITHDRAW_REASON1).trim() === "42", // 強制退会(暫定)
+    consignCode: r.ICODE != null ? Number(r.ICODE) : null, // ⑥ 委託先コード
+    payKubun: r.PAY_KUBUN != null ? Number(r.PAY_KUBUN) : null, // 現在の入金区分(4=未納/3=入金済/…)
   }));
 
   const byMember = new Map();
@@ -941,7 +971,8 @@ function buildUnpaidFurikae(type, rows) {
         unpaidCount: 0, outstanding: 0, annualFeeTotal: 0,
         oldestMonth: it.furikaeMonth, latestMonth: it.furikaeMonth,
         withdrawn: false, forced: false, withdrawReason1: null,
-        _contracts: new Set(), _months: new Map(), _forms: new Map(),
+        stillUnpaidAmount: 0, _payStill: 0, _payPaid: 0, // ③ 現在の入金状況(全体モードで使用)
+        _contracts: new Set(), _months: new Map(), _forms: new Map(), _consign: new Set(),
       };
       byMember.set(key, m);
     }
@@ -953,6 +984,10 @@ function buildUnpaidFurikae(type, rows) {
     if (it.withdrawnDate) m.withdrawn = true;
     if (it.forced) { m.forced = true; m.withdrawReason1 = it.withdrawReason1; }
     if (it.contractSeq != null) m._contracts.add(it.contractSeq);
+    if (it.consignCode != null) m._consign.add(it.consignCode); // ⑥ 委託先
+    // ③ 現在の入金区分で「まだ未納 / もう入金済」を仕分け
+    if (it.payKubun === 4) { m._payStill += 1; m.stillUnpaidAmount += it.outstanding; }
+    else if (it.payKubun === 3) { m._payPaid += 1; }
     // 月別内訳 (振替年月ごとに純額を合算)
     if (it.furikaeMonth) m._months.set(it.furikaeMonth, (m._months.get(it.furikaeMonth) || 0) + it.outstanding);
     // 会員区分1(基本会費)の契約形態名を会員区分列に使う
@@ -965,8 +1000,16 @@ function buildUnpaidFurikae(type, rows) {
   }
   const members = [...byMember.values()]
     .map((m) => {
-      const { _contracts, _months, _forms, ...rest } = m;
+      const { _contracts, _months, _forms, _consign, _payStill, _payPaid, ...rest } = m;
       rest.contractCount = _contracts.size;
+      // ③ 現在の支払状況: 未納が残る / 一部入金 / 入金済(全体モードで意味を持つ)
+      rest.stillUnpaid = _payStill > 0;
+      rest.paymentStatus = _payStill > 0 ? (_payPaid > 0 ? "一部入金" : "未納") : (_payPaid > 0 ? "入金済" : "処理中");
+      // ⑥ 委託先(JACCS/クレカ等): コード配列・名称配列・区分(複数なら「/」連結)
+      const consignCodes = [..._consign].sort((a, b) => a - b);
+      rest.consignCodes = consignCodes;
+      rest.consignments = consignCodes.map((c) => CONSIGN_NAME[c] || `委託先${c}`);
+      rest.consignCategory = [...new Set(consignCodes.map(consignCategory))].join("/") || null;
       // 会員区分列: 会員区分1(基本会費)の契約形態名。無ければ従来の会員区分名にフォールバック。
       rest.plan = m.baseFormName || m.plan || null;
       // 月別内訳: 新しい順 (④ 1か月目/2か月目…)
@@ -1094,15 +1137,62 @@ export const handler = async (event) => {
 
   // 公開API用: クラブ一覧(クラブ情報)。閉店店舗も含む(閉店フラグ付き)。
   // 業態(赤/FIT365/青/緑…)からブランドはAPI側で正規化。
+  // 経営企業コード=FIT_ADMIN.クラブ.クラブ経営企業コード(COMP)、企業名=クラブ情報.企業名(COMPNAME)。
+  //   ※ クラブ情報 には経営企業「コード」が無いため FIT_ADMIN.クラブ を LEFT JOIN して補う(ro権限あり)。
+  // formCodes 指定時は「その契約形態(主契約)を扱う店舗」に絞り、matchedFormCodes(FORMS)を付与。
   if (type === "clubs-list") {
-    const sql = `SELECT クラブコード AS CODE, クラブ名 AS NAME, 業態 AS GYOTAI, 閉店フラグ AS CLOSED
-      FROM FIT_ADMIN.クラブ情報 ORDER BY クラブコード`;
+    // formCodes は配列 or カンマ区切り文字列。整数のみ採用。
+    const rawForms = params.formCodes;
+    const formCodes = (Array.isArray(rawForms) ? rawForms : String(rawForms || "").split(","))
+      .map((x) => parseInt(String(x).trim(), 10))
+      .filter((n) => Number.isFinite(n));
+    const formMatch = /^all$/i.test(String(params.formMatch || "")) ? "all" : "any";
+
+    let sql;
+    const binds = {};
+    if (formCodes.length) {
+      const inList = formCodes.map((_, i) => `:f${i}`).join(",");
+      formCodes.forEach((c, i) => { binds[`f${i}`] = c; });
+      // 内側で (クラブ×契約形態) を DISTINCT 化してから集約(LISTAGG DISTINCT非依存で互換性重視)。
+      // ALL: 指定コード数と一致する店舗のみ。ANY: 1つでも該当すれば対象。
+      const having = formMatch === "all" ? `HAVING COUNT(*) = ${formCodes.length}` : "";
+      sql = `
+        SELECT ci.クラブコード AS CODE, ci.クラブ名 AS NAME, ci.業態 AS GYOTAI, ci.閉店フラグ AS CLOSED,
+               ci.企業名 AS COMPNAME, c.クラブ経営企業コード AS COMP, m.FORMS AS FORMS
+        FROM FIT_ADMIN.クラブ情報 ci
+        LEFT JOIN FIT_ADMIN.クラブ c ON ci.クラブコード = c.クラブコード
+        INNER JOIN (
+          SELECT クラブコード,
+                 LISTAGG(契約形態コード, ',') WITHIN GROUP (ORDER BY 契約形態コード) AS FORMS,
+                 COUNT(*) AS NFORMS
+          FROM (
+            SELECT DISTINCT クラブコード, 契約形態コード
+            FROM FIT_ADMIN.契約会費金額
+            WHERE 契約形態コード IN (${inList})
+          )
+          GROUP BY クラブコード
+          ${having}
+        ) m ON m.クラブコード = ci.クラブコード
+        ORDER BY ci.クラブコード`;
+    } else {
+      sql = `SELECT ci.クラブコード AS CODE, ci.クラブ名 AS NAME, ci.業態 AS GYOTAI, ci.閉店フラグ AS CLOSED,
+               ci.企業名 AS COMPNAME, c.クラブ経営企業コード AS COMP
+        FROM FIT_ADMIN.クラブ情報 ci
+        LEFT JOIN FIT_ADMIN.クラブ c ON ci.クラブコード = c.クラブコード
+        ORDER BY ci.クラブコード`;
+    }
     let conn;
     try {
       const pool = await getPool();
       conn = await pool.getConnection();
-      const r = await conn.execute(sql, {}, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 2000 });
-      return resp(200, { ok: true, count: (r.rows || []).length, clubs: r.rows || [] });
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: 2000 });
+      return resp(200, {
+        ok: true,
+        count: (r.rows || []).length,
+        formCodes: formCodes.length ? formCodes : undefined,
+        formMatch: formCodes.length ? formMatch : undefined,
+        clubs: r.rows || [],
+      });
     } catch (e) { return resp(500, { error: e.message }); }
     finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
@@ -1460,7 +1550,8 @@ export const handler = async (event) => {
     if (type === "unpaid_current") {
       binds.forcedReason = forcedReason; // 貸倒予定(強制退会)を除外
       binds.fromYm = fromYm;
-      sql = unpaidCurrentSql(clubClause);
+      // ③ cohort=1 → 全体(確定時点): 入金区分4フィルタ無し。既にアプリ入金済も残す(消えない)。
+      sql = params.cohort === "1" ? unpaidCohortSql(clubClause) : unpaidCurrentSql(clubClause);
     } else if (type === "unpaid_paid") {
       const from = new Date(now); from.setMonth(from.getMonth() - 12);
       binds.fromYmd = Number(params.fromYmd || `${ym(from)}01`); // 既定: 直近12ヶ月の入金分
