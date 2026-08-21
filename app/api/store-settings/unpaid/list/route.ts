@@ -28,6 +28,12 @@ export interface UnpaidMember {
   annualFeeTotal: number;              // ⑦ FIT365 セキュリティ費(=年管理費)
   hasSecurityFee: boolean;
   contractCount: number;
+  consignCategory?: string | null;     // ⑥ 委託先区分 (JACCS / クレカ / 現金 …)
+  consignments?: string[];             // ⑥ 委託先名 (JACCS収金代行 / ｿﾌﾄﾊﾞﾝｸ …)
+  consignCodes?: number[];             // ⑥ 委託先コード
+  paymentStatus?: string;              // ③ 現在の支払状況 (未納/一部入金/入金済) — 全体モード
+  stillUnpaid?: boolean;               // ③ 現在も未納が残るか
+  stillUnpaidAmount?: number;          // ③ 現在も未納の金額(全体モードでの現在値)
 }
 
 export async function GET(req: NextRequest) {
@@ -38,6 +44,8 @@ export async function GET(req: NextRequest) {
   const clubCode = (sp.get("clubCode") || "").trim();
   const clubCodesParam = (sp.get("clubCodes") || "").trim();
   const bucket = sp.get("bucket") || "current";
+  // ③ cohort=1: 確定時点の全体(初回振替失敗者。アプリ入金済も残す)。current時のみ有効。
+  const cohort = sp.get("cohort") === "1";
   // reason=csv は CSV出力(PII持ち出し)。一覧表示の再描画ノイズと区別して監査アクションを分ける。
   const isCsv = sp.get("reason") === "csv";
 
@@ -58,7 +66,10 @@ export async function GET(req: NextRequest) {
   const type = typeMap[bucket] || "unpaid_current";
 
   try {
-    const data = await callMemberSearch({ type, clubCodes: clubs.join(",") });
+    const data = await callMemberSearch({
+      type, clubCodes: clubs.join(","),
+      ...(cohort && bucket === "current" ? { cohort: "1" } : {}),
+    });
     void writeAudit({
       userId: (user as any).email || (user as any).userId || "unknown",
       userName: (user as any).name,
