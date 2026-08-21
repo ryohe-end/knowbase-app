@@ -107,8 +107,16 @@ export async function POST(req: Request) {
   if (!/^\d+$/.test(clubCode)) return NextResponse.json({ error: "clubCode invalid" }, { status: 400 });
   if (!scope.admin && !scope.clubCodes.has(clubCode)) return NextResponse.json({ error: "この店舗は担当外です" }, { status: 403 });
   const cc = Number(clubCode);
+  const today = jstDate();
 
   const writes: { text: string; params: any[] }[] = [];
+  // 基本価格(00000000/99999999)への upsert を作る小関数。アプリ購入画面が参照するのはこの行。
+  const upsertBase = (vm: number, price: number) => ({
+    text: `insert into t1pass.club_time_price_tbl (club_cd, start_dt, valid_minutes, price, end_dt)
+           values ($1,$2,$3,$4,$5)
+           on conflict (club_cd, start_dt, valid_minutes) do update set price = excluded.price, end_dt = excluded.end_dt`,
+    params: [cc, BASE_START, vm, price, FOREVER],
+  });
 
   // 基本価格 (tier別) : upsert (PKは club_cd,start_dt,valid_minutes)
   const base = Array.isArray(body.base) ? body.base : [];
@@ -141,6 +149,20 @@ export async function POST(req: Request) {
     if (!isYmd(c.endDate)) return NextResponse.json({ error: "終了日が不正です (YYYYMMDD)" }, { status: 400 });
     if (String(c.startDate) > String(c.endDate)) return NextResponse.json({ error: "終了日は開始日以降にしてください" }, { status: 400 });
     if (c.startDate === BASE_START && c.endDate === FOREVER) return NextResponse.json({ error: "予約価格に基本期間(全期間)は使えません" }, { status: 400 });
+    // 【処理変更】恒久変更(予約変更=end_dt が FOREVER)で、開始日が既に到来している(<=本日)ものは
+    //   別行ではなく「基本価格(00000000/99999999)」に書き込む。アプリ購入画面は基本価格しか
+    //   参照しないため、別行のままだと反映されない不具合になる(上新庄/東淡路の事象)。
+    //   ※開始日が未来の予約変更は従来どおり日付行として保存し、到来時に別途昇格させる想定。
+    if (String(c.endDate) === FOREVER && String(c.startDate) <= today) {
+      writes.push(upsertBase(vm, Number(c.price)));
+      // 既存の別行(予約変更)が残っていれば期限切れ化して基本価格に集約(重複表示防止)。
+      // 基本行(start_dt=00000000)は対象外。実効価格は基本価格が正なので変わらない。
+      writes.push({
+        text: "update t1pass.club_time_price_tbl set end_dt=$4 where club_cd=$1 and start_dt=$2 and valid_minutes=$3 and start_dt<>$5",
+        params: [cc, String(c.startDate), vm, "00000001", BASE_START],
+      });
+      continue;
+    }
     writes.push({
       text: `insert into t1pass.club_time_price_tbl (club_cd, start_dt, valid_minutes, price, end_dt)
              values ($1,$2,$3,$4,$5)

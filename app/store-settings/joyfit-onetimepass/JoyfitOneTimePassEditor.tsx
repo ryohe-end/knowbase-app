@@ -229,7 +229,11 @@ export default function JoyfitOneTimePassEditor({ clubCode }: { clubCode?: strin
                       ))}
                     </div>
                   )}
-                  <div className="jot-note">※ この店舗のDBは削除権限が無いため、保存済み予約は「無効化」（終了日を過去化）で無効にします。開始日・利用時間は保存後は変更できません（新規追加してください）。</div>
+                  <div className="jot-note">
+                    ※ アプリ購入画面は<b>「通常価格」</b>を参照します。<b>予約変更（以降ずっと）</b>は、開始日が到来した状態で保存すると<b>通常価格に反映</b>されます（＝恒久的な価格変更）。<br />
+                    ※ <b>期間限定</b>は現状アプリ購入画面には反映されません（アプリ側の対応が別途必要）。当面はアプリに効かせたい変更は「通常価格」または「予約変更（以降ずっと）」をご利用ください。<br />
+                    ※ この店舗のDBは削除権限が無いため、保存済み予約は「無効化」（終了日を過去化）で無効にします。開始日・利用時間は保存後は変更できません（新規追加してください）。
+                  </div>
                 </div>
 
                 <div className="jot-actions"><button type="button" className="jot-save" onClick={onSaveClick} disabled={saving}>変更を保存</button></div>
