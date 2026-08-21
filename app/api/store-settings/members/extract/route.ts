@@ -100,8 +100,21 @@ interface ExtractBody extends GroupInput {
   includeOptions?: boolean;
   groupOp?: "OR" | "AND"; // グループ間の結合 (既定 OR)
   groups?: GroupInput[]; // 条件グループ。無ければフラットな条件を1グループとして扱う。
+  // トレーニング日数フィルタ(グローバル・後段AND)。会員DB user_work_out_hist の
+  // 期間内 COUNT(DISTINCT date) を app_user_id で集計し、日数レンジで絞る。
+  trainingDaysFrom?: string | number;
+  trainingDaysTo?: string | number;
+  trainingPeriodFrom?: string; // "YYYY-MM-DD"
+  trainingPeriodTo?: string;   // "YYYY-MM-DD"
   limit?: number;
   offset?: number;
+}
+
+// "YYYY-MM-DD" のみ許容(user_work_out_hist.date は同形式の文字列)。
+function toDateStr(d?: string): string | undefined {
+  if (!d) return undefined;
+  const s = String(d).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
 }
 
 // 1グループを member-search 用の条件オブジェクトに変換 (グループ内 AND)
@@ -275,7 +288,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const members = oracleRows.map((r) => {
+  let members = oracleRows.map((r) => {
     const memberNo = String(r.memberNo);
     const au = appUserByMemberId.get(memberNo) ?? null;
     // DM のメールは個人テーブル(Oracle)優先、無ければ app_user を補完
@@ -296,8 +309,46 @@ export async function POST(req: Request) {
       appUserId: au?.appUserId ?? null, // push: information2_destination へ
       email, // dm: 送信先メール
       deliverable,
+      trainingDays: null as number | null, // E1: トレーニング日数(フィルタ適用時のみ算出)
     };
   });
+
+  // ── E1: トレーニング日数フィルタ (会員DB user_work_out_hist) ──
+  // 期間内の COUNT(DISTINCT date) を app_user_id 単位で集計し、日数レンジで後段絞り込み(グローバルAND)。
+  const tdFrom = body.trainingDaysFrom != null && body.trainingDaysFrom !== "" ? Number(body.trainingDaysFrom) : undefined;
+  const tdTo = body.trainingDaysTo != null && body.trainingDaysTo !== "" ? Number(body.trainingDaysTo) : undefined;
+  const tpFrom = toDateStr(body.trainingPeriodFrom);
+  const tpTo = toDateStr(body.trainingPeriodTo);
+  const trainingRequested = tdFrom !== undefined || tdTo !== undefined;
+  let trainingApplied = false;
+  if (trainingRequested && tpFrom && tpTo) {
+    const auIds = [...new Set(members.map((m) => m.appUserId).filter((x): x is number => typeof x === "number"))];
+    const daysMap = new Map<number, number>();
+    if (auIds.length > 0) {
+      try {
+        const wr = await query<{ app_user_id: number; days: string }>(
+          `SELECT app_user_id, COUNT(DISTINCT date) AS days
+             FROM public.user_work_out_hist
+            WHERE app_user_id = ANY($1::int[]) AND date >= $2 AND date <= $3
+            GROUP BY app_user_id`,
+          [auIds, tpFrom, tpTo]
+        );
+        for (const r of wr.rows) daysMap.set(Number(r.app_user_id), Number(r.days));
+        trainingApplied = true;
+      } catch (e) {
+        console.error("[members/extract] training query failed", e);
+      }
+    } else {
+      trainingApplied = true; // 対象アプリ会員が0でも「適用済み(該当0)」として扱う
+    }
+    if (trainingApplied) {
+      const min = tdFrom ?? 0;
+      const max = tdTo ?? Number.MAX_SAFE_INTEGER;
+      members = members
+        .map((m) => ({ ...m, trainingDays: m.appUserId != null ? (daysMap.get(m.appUserId) || 0) : 0 }))
+        .filter((m) => (m.trainingDays as number) >= min && (m.trainingDays as number) <= max);
+    }
+  }
 
   const deliverableCount = members.filter((m) => m.deliverable).length;
 
@@ -314,15 +365,19 @@ export async function POST(req: Request) {
   return NextResponse.json({
     ok: true,
     deliveryType,
-    totalCount, // Oracle 条件一致総数
+    // トレーニング日数フィルタ適用時は絞り込み後の件数を総数とする(Oracle総数は過大になるため)。
+    totalCount: trainingApplied ? members.length : totalCount,
     returnedCount: members.length, // このページで返した件数
     deliverableCount, // 実際に配信可能な件数
+    trainingApplied, // E1: トレーニング日数フィルタが適用されたか
     members,
     // 未適用フィルタの明示 (UI で注意表示できるように)
     // visitCount は VISIT_TABLE 未設定時のみ適用不可 (Lambdaが visitCountIgnored を返す)。
     // 入会日/退会日/未納は Lambda で適用済み。
     notApplied: {
       visitCount: !!payload.visitCountIgnored,
+      // トレーニング日数指定があったのに期間未指定で適用できなかった場合。
+      trainingPeriod: trainingRequested && !(tpFrom && tpTo),
     },
   });
 }

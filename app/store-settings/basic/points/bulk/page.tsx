@@ -11,7 +11,7 @@ import { type ContractTypeOption } from "@/components/ContractTypePicker";
 import { POINT_REASONS } from "@/types/pointTransaction";
 
 type StoreItem = { clubCode: string; clubName: string; brand?: string };
-type Extracted = { memberNo: string; name: string; age: number | null; gender: string | null; clubCode: string; contractType: string; withdrawnAt: string | null };
+type Extracted = { memberNo: string; name: string; age: number | null; gender: string | null; clubCode: string; contractType: string; withdrawnAt: string | null; trainingDays?: number | null };
 
 const AGE_BUCKETS = [
   { key: 10, label: "10代" }, { key: 20, label: "20代" }, { key: 30, label: "30代" },
@@ -27,6 +27,12 @@ export default function BulkGrantPage() {
   const [ctLoading, setCtLoading] = useState(false);
   const [group, setGroup] = useState<CondGroup>(newCondGroup([]));
   const [ageKeys, setAgeKeys] = useState<Set<number>>(new Set());
+  // E1: トレーニング日数フィルタ(期間内に何日トレーニングしたか)。会員DB user_work_out_hist。
+  const [trainDaysFrom, setTrainDaysFrom] = useState("");
+  const [trainDaysTo, setTrainDaysTo] = useState("");
+  const [trainFrom, setTrainFrom] = useState("");
+  const [trainTo, setTrainTo] = useState("");
+  const [trainNote, setTrainNote] = useState("");
 
   const [members, setMembers] = useState<Extracted[] | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -99,22 +105,31 @@ export default function BulkGrantPage() {
 
   async function extract() {
     if (!clubCode) { setExtractError("店舗を選択してください。"); return; }
-    setExtracting(true); setExtractError(""); setMembers(null); setProgress(null); setDoneMsg("");
+    // トレーニング日数指定時は期間必須
+    const trainReq = trainDaysFrom !== "" || trainDaysTo !== "";
+    if (trainReq && !(trainFrom && trainTo)) { setExtractError("トレーニング日数で絞る場合は対象期間（開始・終了）も指定してください。"); return; }
+    setExtracting(true); setExtractError(""); setMembers(null); setProgress(null); setDoneMsg(""); setTrainNote("");
     try {
       const res = await fetch("/api/store-settings/members/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deliveryType: "dm", clubCodes: [clubCode], groups: [group], limit: 5000 }),
+        body: JSON.stringify({
+          deliveryType: "dm", clubCodes: [clubCode], groups: [group], limit: 5000,
+          ...(trainReq ? { trainingDaysFrom: trainDaysFrom || undefined, trainingDaysTo: trainDaysTo || undefined, trainingPeriodFrom: trainFrom, trainingPeriodTo: trainTo } : {}),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) { setExtractError(`抽出に失敗しました (${data?.error || res.status})`); return; }
       const all: Extracted[] = (data.members || []).map((m: any) => ({
         memberNo: String(m.memberNo), name: m.name || "", age: m.age ?? null,
         gender: m.gender ?? null, clubCode: String(m.clubCode || clubCode), contractType: m.contractType || "", withdrawnAt: m.withdrawnAt ?? null,
+        trainingDays: m.trainingDays ?? null,
       }));
       const filtered = all.filter((m) => inAge(m.age));
       setMembers(filtered);
       setSelectedIds(new Set(filtered.map((m) => m.memberNo)));
+      if (trainReq && data.notApplied?.trainingPeriod) setTrainNote("トレーニング日数フィルタは期間未指定のため適用されていません。");
+      else if (trainReq && data.trainingApplied) setTrainNote(`トレーニング日数（${trainFrom}〜${trainTo}）で絞り込み済み。`);
     } catch { setExtractError("抽出リクエストに失敗しました。"); }
     finally { setExtracting(false); }
   }
@@ -234,10 +249,26 @@ export default function BulkGrantPage() {
                   ))}
                 </div>
               </div>
+              {/* E1: トレーニング日数 (期間内にトレーニングした日数) */}
+              <div className="dm-field" style={{ marginTop: 8 }}>
+                <label>トレーニング日数（アプリのトレーニング記録・未指定＝絞らない）</label>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>期間</span>
+                  <input type="date" value={trainFrom} onChange={(e) => setTrainFrom(e.target.value)} style={{ border: "1.5px solid #cbd5e1", borderRadius: 6, padding: "6px 8px", fontSize: 12, height: 34 }} />
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>〜</span>
+                  <input type="date" value={trainTo} onChange={(e) => setTrainTo(e.target.value)} style={{ border: "1.5px solid #cbd5e1", borderRadius: 6, padding: "6px 8px", fontSize: 12, height: 34 }} />
+                  <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 8 }}>日数</span>
+                  <input type="number" min={0} value={trainDaysFrom} onChange={(e) => setTrainDaysFrom(e.target.value)} placeholder="以上" style={{ width: 80, border: "1.5px solid #cbd5e1", borderRadius: 6, padding: "6px 8px", fontSize: 12, height: 34 }} />
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>〜</span>
+                  <input type="number" min={0} value={trainDaysTo} onChange={(e) => setTrainDaysTo(e.target.value)} placeholder="以下" style={{ width: 80, border: "1.5px solid #cbd5e1", borderRadius: 6, padding: "6px 8px", fontSize: 12, height: 34 }} />
+                </div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>例: 期間=今月・日数=8以上 → 今月8日以上トレーニングした会員（同日複数回は1日）</div>
+              </div>
               <button onClick={extract} disabled={extracting} className="dm-extract-btn" style={{ width: "auto", padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: extracting ? "default" : "pointer", marginTop: 8 }}>
                 {extracting ? "抽出中…" : "この条件で抽出"}
               </button>
               {extractError && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 8 }}>{extractError}</div>}
+              {trainNote && <div style={{ color: "#0369a1", fontSize: 12, marginTop: 8 }}>{trainNote}</div>}
             </>
           )}
         </div>
@@ -260,6 +291,7 @@ export default function BulkGrantPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead><tr style={{ position: "sticky", top: 0, background: "#f8fafc" }}>
                     <th style={thc}></th><th style={thc}>会員番号</th><th style={thc}>氏名</th><th style={thc}>性別</th><th style={thc}>年齢</th><th style={thc}>会員区分</th><th style={thc}>状態</th>
+                    {members.some((m) => m.trainingDays != null) && <th style={thc}>ﾄﾚｰﾆﾝｸﾞ日数</th>}
                   </tr></thead>
                   <tbody>
                     {members.slice(0, 1000).map((m) => (
@@ -271,6 +303,7 @@ export default function BulkGrantPage() {
                         <td style={tdc}>{m.age ?? "—"}</td>
                         <td style={tdc}>{m.contractType}</td>
                         <td style={tdc}>{m.withdrawnAt ? "退会" : "在籍"}</td>
+                        {members.some((mm) => mm.trainingDays != null) && <td style={tdc}>{m.trainingDays != null ? `${m.trainingDays}日` : "—"}</td>}
                       </tr>
                     ))}
                   </tbody>
