@@ -41,7 +41,7 @@ export default function ApiReferencePage() {
     <div style={s.root}>
       <h1 style={s.h1}>KnowBase 公開API リファレンス</h1>
       <p style={s.lead}>
-        外部システム連携向けの公開APIです。本ページは、<b>クラブ一覧</b>・<b>会費</b>・<b>規約</b>の3つのAPIをまとめたリファレンスです。
+        外部システム連携向けの公開APIです。本ページは、<b>クラブ一覧</b>・<b>会費</b>・<b>規約</b>・<b>契約形態</b>の4つのAPIをまとめたリファレンスです。
       </p>
 
       {/* 共通仕様 */}
@@ -249,6 +249,67 @@ export default function ApiReferencePage() {
         </tbody>
       </table>
 
+      {/* 契約形態 */}
+      <h2 style={s.h2}>4. 契約形態（クラブ別 契約可能な契約）</h2>
+      <p style={s.p}>指定クラブで<b>現在契約できる契約形態</b>（レギュラー / 法人 / スタッフ 等）を、会員区分・契約期間・各種フラグ・関連商品コードつきで返します。契約形態マスタはクラブ非依存のため、<b>直近 <code style={s.code}>sinceMonths</code> ヶ月に実際に入会があった契約形態</b>から「そのクラブで契約可能な契約」を導出します。クラブ一覧の <code style={s.code}>formCodes</code> 絞り込みで使う <code style={s.code}>formCode</code> の意味（契約形態名）を引く用途にも使えます。</p>
+      <Endpoint method="GET" path="/api/public/contracts?clubCode={クラブコード}" />
+      <h3 style={s.h3}>クエリパラメータ</h3>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>名前</th><th style={s.th}>必須</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>clubCode</code></td><td style={s.td}>✅</td><td style={s.td}>クラブコード（例: 375）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>sinceMonths</code></td><td style={s.td}>–</td><td style={s.td}>既定 <code style={s.code}>12</code>。直近何ヶ月の入会実績から「契約可能な契約形態」を導出するか</td></tr>
+        </tbody>
+      </table>
+      <h3 style={s.h3}>レスポンス例</h3>
+      <pre style={s.pre}>{`GET ${BASE}/api/public/contracts?clubCode=375
+
+{
+  "ok": true,
+  "clubCode": "375",
+  "sinceMonths": 12,
+  "count": 8,
+  "contracts": [
+    {
+      "code": 10,
+      "name": "レギュラー２",
+      "memberKubun": 1,
+      "termMonths": 0,
+      "flags": { "school": false, "groupDiscount": false, "pausable": true },
+      "monthlyUses": 0,
+      "yearlyUses": 0,
+      "productCodes": {
+        "deposit": "10001",
+        "enrollment": "10002",
+        "adminFee": "10003",
+        "monthlyFee": "10004",
+        "annualFee": null
+      },
+      "sortNo": 10,
+      "recentSignups": 42,
+      "latestSignupDate": "20260810"
+    }
+  ]
+}`}</pre>
+      <h3 style={s.h3}>フィールド</h3>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>code</code> / <code style={s.code}>name</code></td><td style={s.td}>契約形態コード / 名称（クラブ一覧の <code style={s.code}>formCodes</code> と対応）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>memberKubun</code></td><td style={s.td}>会員区分（<code style={s.code}>1</code>=本会員(会費) / <code style={s.code}>7</code>=スタッフ / <code style={s.code}>70</code>=法人個人）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>termMonths</code></td><td style={s.td}>契約期間（月）。<code style={s.code}>0</code>=期間の定めなし（月契約）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>flags.school</code></td><td style={s.td}>スクール契約</td></tr>
+          <tr><td style={s.td}><code style={s.code}>flags.groupDiscount</code></td><td style={s.td}>家族/団体割引の対象</td></tr>
+          <tr><td style={s.td}><code style={s.code}>flags.pausable</code></td><td style={s.td}>休会可</td></tr>
+          <tr><td style={s.td}><code style={s.code}>monthlyUses</code> / <code style={s.code}>yearlyUses</code></td><td style={s.td}>月間 / 年間の利用回数制限（<code style={s.code}>0</code>=無制限）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>productCodes.*</code></td><td style={s.td}>預り金 / 入会金 / 事務手数料 / 月会費 / 年会費 の商品コード（該当なしは <code style={s.code}>null</code>）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>sortNo</code></td><td style={s.td}>表示順</td></tr>
+          <tr><td style={s.td}><code style={s.code}>recentSignups</code></td><td style={s.td}>直近 <code style={s.code}>sinceMonths</code> の新規契約数（多い＝現役の契約形態）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>latestSignupDate</code></td><td style={s.td}>直近の入会届出日（<code style={s.code}>YYYYMMDD</code>）</td></tr>
+        </tbody>
+      </table>
+      <div style={s.note}>※「契約可能」の判定は直近 <code style={s.code}>sinceMonths</code> ヶ月の入会実績ベースです。実績の無い契約形態は返りません（<code style={s.code}>sinceMonths</code> を延ばすと範囲が広がります）。</div>
+
       <h2 style={s.h2}>呼び出し例（cURL）</h2>
       <pre style={s.pre}>{`# クラブ一覧(閉店含む)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs"
@@ -267,7 +328,12 @@ curl -H "x-api-key: $KEY" "${BASE}/api/public/fees?clubCode=375"
 # 規約(全件・現行版)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/terms"
 # ブランド + 掲出カテゴリで絞り込み
-curl -H "x-api-key: $KEY" "${BASE}/api/public/terms?brand=FIT365&category=1DayPass"`}</pre>
+curl -H "x-api-key: $KEY" "${BASE}/api/public/terms?brand=FIT365&category=1DayPass"
+
+# 契約形態(そのクラブで契約可能な契約)
+curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375"
+# 直近24ヶ月の入会実績から導出
+curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375&sinceMonths=24"`}</pre>
     </div>
   );
 }
