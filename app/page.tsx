@@ -1592,8 +1592,8 @@ export default function HomePage() {
               {externalLinks.filter((l) => l.isActive).length === 0 && <span className="kb-subnote">登録されたリンクはありません。</span>}
             </div>
 
-            {/* 直営店舗の担当者 または SV(加盟店): 店舗設定へのボタン */}
-            {(directBrands.length > 0 || isSv) && (
+            {/* 直営店舗の担当者 / SV(加盟店) / 管理者(admin): 店舗設定へのボタン */}
+            {(directBrands.length > 0 || isSv || isAdmin) && (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
                 <button
                   type="button"
