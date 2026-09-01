@@ -90,7 +90,9 @@ function hasId(userVal: any, id: string) {
   const target = String(id || "").trim();
   if (!target || target === "ALL") return true;
   const arr = Array.isArray(userVal) ? userVal : userVal ? [userVal] : [];
-  return arr.map(String).includes(target);
+  const vals = arr.map(String);
+  // ユーザー側が "ALL"(全ブランド/全担当) を持つ場合は、個別ID指定の通知にも一致させる。
+  return vals.includes("ALL") || vals.includes(target);
 }
 
 function isFranchiseUser(user: any): boolean {
@@ -147,7 +149,7 @@ const targetUsers = activeUsers.filter((user) => {
   const userGroups = toArray(user.groupIds ?? user.groupId);
   const matchGroup =
     targetGroupIds.length === 0 ||
-    targetGroupIds.some((g) => userGroups.includes(String(g)));
+    targetGroupIds.some((g: string) => userGroups.includes(String(g)));
 
   return matchBrand && matchGroup;
 });
@@ -155,14 +157,16 @@ const targetUsers = activeUsers.filter((user) => {
   const franchiseTargets = targetUsers.filter((u) => isFranchiseUser(u));
   const nonFranchiseTargets = targetUsers.filter((u) => !isFranchiseUser(u));
 
-  const toNonFranchise = uniq(
-    nonFranchiseTargets.map((u) => String(u.email).trim()).filter(Boolean)
+  // フランチャイズ(g002)も含め、対象者全員へ個別送信する。
+  // 旧仕様は franchise を単一アドレス FRANCHISE_ROUTING_EMAIL へ集約転送していたが、
+  // そのアドレスが存在せず(SendGrid: 550 5.1.1 does not exist)、加盟店ユーザー全員が
+  // サイレント未達になっていたため、集約転送を廃止し個別送信に統一する。
+  const toRecipients = uniq(
+    targetUsers.map((u) => String(u.email).trim()).filter(Boolean)
   );
 
-  const sendFranchiseRouting =
-    viewScope === "all" &&
-    franchiseTargets.length > 0 &&
-    isValidEmail(FRANCHISE_ROUTING_EMAIL);
+  // 集約転送は廃止(宛先不達のため)。個別送信のみ。
+  const sendFranchiseRouting = false;
 
   // PII (recipient emails) を本番ログに残さない。件数のみ記録する。
   console.log("[NOTIFY] processNotification:start", {
@@ -175,13 +179,13 @@ const targetUsers = activeUsers.filter((user) => {
     targetUsers: targetUsers.length,
     franchiseTargets: franchiseTargets.length,
     nonFranchiseTargets: nonFranchiseTargets.length,
-    toNonFranchiseCount: toNonFranchise.length,
+    toRecipientsCount: toRecipients.length,
     sendFranchiseRouting,
     isHidden: !!news.isHidden || !!news.is_hidden,
     isNotified: !!news.isNotified,
   });
 
-  if (toNonFranchise.length === 0 && !sendFranchiseRouting) {
+  if (toRecipients.length === 0 && !sendFranchiseRouting) {
     console.warn("[NOTIFY] no recipients matched", {
       newsId: news.newsId,
       brandId,
@@ -226,14 +230,14 @@ const targetUsers = activeUsers.filter((user) => {
   `;
 
   try {
-    if (toNonFranchise.length > 0) {
+    if (toRecipients.length > 0) {
       console.log("[NOTIFY] sendMultiple", {
         newsId: news.newsId,
-        count: toNonFranchise.length,
+        count: toRecipients.length,
       });
 
       const res = await sgMail.sendMultiple({
-        to: toNonFranchise,
+        to: toRecipients,
         from: { email: from, name: "KnowBase運営事務局" },
         subject,
         text,
@@ -301,7 +305,7 @@ const targetUsers = activeUsers.filter((user) => {
   }
 
   return {
-    sentCount: toNonFranchise.length + (sendFranchiseRouting ? 1 : 0),
+    sentCount: toRecipients.length + (sendFranchiseRouting ? 1 : 0),
     skipped: false,
     reason: null,
   };
