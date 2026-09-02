@@ -14,6 +14,12 @@ const MENU: MenuItem[] = [
     color: "#0f766e",
   },
   {
+    href: "/accounting/point-usage-fee",
+    title: "ポイント利用手数料（クラブ別）",
+    desc: "対象年月のポイント利用による会費割引を、クラブ別に「合計使用ポイント」と手数料（使用ポイント×2%・切捨）で集計し、CSV出力します。",
+    color: "#0891b2",
+  },
+  {
     href: "/accounting/monthly",
     title: "月次処理（経理連携CSV）",
     desc: "対象月を選び、振替契約別サマリ（クラブ×振替結果×税率）を経理連携CSV（Shift-JIS）としてダウンロードします。",
