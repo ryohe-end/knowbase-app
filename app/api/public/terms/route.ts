@@ -23,6 +23,7 @@ function shape(t: any) {
     baseTitle: t.baseTitle ?? null,
     variants: Array.isArray(t.variants) ? t.variants : [],
     categories: Array.isArray(t.categories) ? t.categories : [],
+    isRequired: t.isRequired === true, // 同意必須(true) / 任意(false)
     updatedAt: t.updatedAt ?? null,
     current: current
       ? {
@@ -31,6 +32,8 @@ function shape(t: any) {
           note: current.note ?? null,
           createdAt: current.createdAt ?? null,
           contentByVariant: current.contentByVariant ?? {},
+          // バリアント別 PDF URL (S3公開URL)。生成済みのバリアントのみ含む
+          pdfUrlByVariant: current.pdfUrlByVariant ?? {},
         }
       : null,
   };

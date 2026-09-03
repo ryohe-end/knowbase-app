@@ -1118,10 +1118,12 @@ export const handler = async (event) => {
         SELECT t.クラブコード AS CLUB_CODE, t.契約形態コード AS FORM_CODE, e.契約形態名 AS FORM_NAME,
                t.会費適用区分コード AS FEE_APPLY_KUBUN, t.適用人数 AS APPLY_HEADCOUNT, t.適用年月 AS APPLY_YYYYMM,
                t.入会金 AS ENROLLMENT_FEE, t.事務手続料金 AS ADMIN_FEE, t.月会費 AS MONTHLY_FEE,
+               t.税コード AS TAX_CODE, z.税率 AS TAX_RATE,
                ROW_NUMBER() OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月 DESC) AS RN,
                MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM
         FROM FIT_ADMIN.契約会費金額 t
         LEFT JOIN FIT_ADMIN.契約形態 e ON e.契約形態コード = t.契約形態コード
+        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = t.税コード
         WHERE ${where}
       ) ${history ? "" : "WHERE RN = 1"}
       ORDER BY FORM_CODE, FEE_APPLY_KUBUN, APPLY_HEADCOUNT, APPLY_YYYYMM DESC`;

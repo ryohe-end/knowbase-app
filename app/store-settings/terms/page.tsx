@@ -124,6 +124,7 @@ function makeInitialTerm(merged: MergedTerm): StoreTerm {
     baseTitle: merged.baseTitle,
     variants: merged.variants,
     categories: merged.categories,
+    isRequired: false,
     versions: [
       {
         id: newId(),
@@ -431,6 +432,7 @@ export default function TermsManagementPage() {
         onUpdateVersionMeta={(patch) => updateVersion((v) => ({ ...v, ...patch }))}
         onChangeContent={setCurrentContent}
         onChangeBaseTitle={setBaseTitle}
+        onToggleRequired={(next) => setEditing((cur) => (cur ? { ...cur, isRequired: next } : cur))}
         onSave={handleSave}
         onClose={closeEditor}
         onExportHtml={exportHtml}
@@ -618,6 +620,7 @@ type EditorProps = {
   onUpdateVersionMeta: (patch: Partial<TermVersion>) => void;
   onChangeContent: (next: string) => void;
   onChangeBaseTitle: (next: string) => void;
+  onToggleRequired: (next: boolean) => void;
   onSave: () => void;
   onClose: () => void;
   onExportHtml: () => void;
@@ -670,6 +673,19 @@ function EditorView(p: EditorProps) {
                 ))}
                 {p.term.categories.length > 3 && <span className="kb-category-more">+{p.term.categories.length - 3}</span>}
               </span>
+            )}
+            {/* 同意必須/任意フラグ (公開APIの isRequired に反映) */}
+            {p.canEdit ? (
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={p.term.isRequired === true}
+                  onChange={(e) => p.onToggleRequired(e.target.checked)}
+                />
+                同意必須
+              </label>
+            ) : (
+              <span className="kb-category-chip">{p.term.isRequired ? "同意必須" : "任意"}</span>
             )}
           </div>
           {p.canEdit ? (

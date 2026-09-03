@@ -33,6 +33,8 @@ export async function GET(req: Request) {
       monthlyUses: r.MONTHLY_USES,
       yearlyUses: r.YEARLY_USES,
       productCodes: {
+        // deposit=保証金(預り金)商品コード。契約形態マスタに元から存在する項目で、
+        // 値が null のクラブ/契約は当該契約に保証金設定が無いことを意味する(未設定=請求なし)。
         deposit: r.DEPOSIT_PID,
         enrollment: r.ENROLL_PID,
         adminFee: r.ADMIN_FEE_PID,
@@ -47,6 +49,15 @@ export async function GET(req: Request) {
       ok: true,
       clubCode: String(data?.clubCode ?? clubCode),
       sinceMonths: data?.sinceMonths ?? Number(sinceMonths),
+      // 導出方法の明示: 契約形態マスタはクラブ非依存のため、直近 sinceMonths ヶ月の入会実績から
+      // 「そのクラブで実際に契約されている契約形態」を近似導出している。「今月から新規募集開始」
+      // 「先月末で募集停止」といった募集状態そのものは表現できない(前者は実績が無く出ない/
+      // 後者は実績が残り出る)点に注意。募集状態の権威マスタが提供されれば実績代理を置き換える。
+      derivation: {
+        method: "recent-signups", // 直近入会実績に基づく近似
+        approximate: true,
+        note: "契約可能かどうかの権威マスタではなく、直近入会実績に基づく近似。募集開始直後/停止直後は実態とずれる場合がある。",
+      },
       count: contracts.length,
       contracts,
     });
