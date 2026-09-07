@@ -32,6 +32,12 @@ const MENU: MenuItem[] = [
     color: "#b45309",
   },
   {
+    href: "/accounting/writeoff-reconcile",
+    title: "貸倒対象照合（経理連携CSV）",
+    desc: "オカモト会員別の未納・売掛・売上・入金・入金方式別内訳・最終残高を照合し、貸倒対象（未納＞0）を全列CSV（Shift-JIS）で出力します。毎月1日に事前生成（重いため）。",
+    color: "#c2410c",
+  },
+  {
     href: "/accounting/app-unpaid",
     title: "APP未納金支払",
     desc: "アプリで支払われた未納金の実績を、JOYFIT / FIT365 それぞれCSV（Shift-JIS）でダウンロードします。",
