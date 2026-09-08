@@ -62,6 +62,32 @@ const getTodayDate = () => {
 
 const generateNewManualId = () => `M200-${Date.now().toString().slice(-6)}`;
 
+/** タイトル/タグの類似度(0〜1)。正規化 + 文字bigramのDice係数。「もしかして？」判定に使う。 */
+const kbNormalize = (s: string) =>
+  (s || "").toLowerCase().replace(/[\s　・,、。.／/_\-()（）【】\[\]!！?？]/g, "");
+const kbSimilarity = (a: string, b: string): number => {
+  const na = kbNormalize(a);
+  const nb = kbNormalize(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if (na.length >= 2 && nb.length >= 2 && (na.includes(nb) || nb.includes(na))) return 0.9;
+  const grams = (s: string) => {
+    const m = new Map<string, number>();
+    for (let i = 0; i < s.length - 1; i++) {
+      const g = s.slice(i, i + 2);
+      m.set(g, (m.get(g) || 0) + 1);
+    }
+    return m;
+  };
+  const ma = grams(na);
+  const mb = grams(nb);
+  let inter = 0;
+  for (const [g, c] of ma) if (mb.has(g)) inter += Math.min(c, mb.get(g)!);
+  const denom = na.length - 1 + (nb.length - 1);
+  return denom > 0 ? (2 * inter) / denom : 0;
+};
+const KB_SIM_THRESHOLD = 0.5;
+
 /** 秒 → mm:ss / h:mm:ss 表示 */
 const fmtSec = (s?: number) => {
   const n = Math.max(0, Math.floor(Number(s) || 0));
@@ -523,6 +549,19 @@ export default function AdminManuals() {
       return;
     }
 
+    // 類似マニュアルがあれば登録前に確認(重複登録の抑止)
+    const _t = manualForm.title.trim();
+    const _sim = manuals
+      .filter((m) => m.manualId !== manualForm.manualId && m.title && kbSimilarity(_t, m.title) >= KB_SIM_THRESHOLD)
+      .sort((a, b) => kbSimilarity(_t, b.title) - kbSimilarity(_t, a.title))
+      .slice(0, 5);
+    if (_sim.length > 0) {
+      const ok = window.confirm(
+        `類似のマニュアルがあります:\n${_sim.map((m) => "・" + m.title).join("\n")}\n\nこのまま登録しますか？`
+      );
+      if (!ok) return;
+    }
+
     const finalTags = tagInput
       .split(/[,、\s]+/)
       .map((s) => s.trim())
@@ -616,6 +655,50 @@ export default function AdminManuals() {
   }, [manuals, filterText, showUncategorizedOnly, categoryMap]);
 
   const uncategorizedCount = useMemo(() => manuals.filter((m) => !m.categoryId).length, [manuals]);
+
+  // ===== 「もしかして？」類似サジェスト =====
+  // タイトル: 入力中のタイトルに似た既存マニュアル(自分以外)
+  const similarTitleManuals = useMemo(() => {
+    const t = (manualForm.title || "").trim();
+    if (t.length < 2) return [] as Manual[];
+    return manuals
+      .filter((m) => m.manualId !== manualForm.manualId && m.title)
+      .map((m) => ({ m, s: kbSimilarity(t, m.title) }))
+      .filter((x) => x.s >= KB_SIM_THRESHOLD)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 3)
+      .map((x) => x.m);
+  }, [manuals, manualForm.title, manualForm.manualId]);
+
+  // タグ: 全マニュアルの既存タグ集合。入力中(最後のカンマ以降)のタグに似たものを提示。
+  const allExistingTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of manuals) for (const tg of m.tags || []) if (tg) set.add(tg);
+    return [...set];
+  }, [manuals]);
+  const currentTags = useMemo(
+    () => new Set(tagInput.split(/[,、]/).map((s) => s.trim()).filter(Boolean)),
+    [tagInput]
+  );
+  const similarTags = useMemo(() => {
+    const seg = (tagInput.split(/[,、]/).pop() || "").trim();
+    if (seg.length < 1) return [] as string[];
+    return allExistingTags
+      .filter((tg) => !currentTags.has(tg) && tg.toLowerCase() !== seg.toLowerCase())
+      .map((tg) => ({ tg, s: kbSimilarity(seg, tg) }))
+      .filter((x) => x.s >= KB_SIM_THRESHOLD)
+      .sort((a, b) => b.s - a.s)
+      .slice(0, 6)
+      .map((x) => x.tg);
+  }, [allExistingTags, currentTags, tagInput]);
+
+  // サジェストされたタグを採用(入力中の最後のセグメントを置換して次を入力しやすく)
+  const applyTagSuggestion = (tag: string) => {
+    const segs = tagInput.split(/[,、]/);
+    segs[segs.length - 1] = tag;
+    const cleaned = segs.map((s) => s.trim()).filter(Boolean);
+    setTagInput(cleaned.join(", ") + ", ");
+  };
 
   return (
     <div className="kb-root">
@@ -810,6 +893,78 @@ export default function AdminManuals() {
                   readOnly={!isEditing}
                   disabled={busy}
                 />
+                {isEditing && similarTitleManuals.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      padding: "8px 10px",
+                      background: "#fff7ed",
+                      border: "1px solid #fdba74",
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: "#9a3412",
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>もしかして？</span> 似たマニュアルが既にあります：
+                    <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {similarTitleManuals.map((m) => (
+                        <span
+                          key={m.manualId}
+                          title={m.manualId}
+                          style={{
+                            background: "#ffedd5",
+                            border: "1px solid #fdba74",
+                            borderRadius: 4,
+                            padding: "2px 8px",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {m.type === "video" ? "🎬" : "📄"} {m.title}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="kb-admin-form-row">
+                <label className="kb-admin-label full">タグ（カンマ区切り）</label>
+                <input
+                  type="text"
+                  name="tags"
+                  className="kb-admin-input full"
+                  value={tagInput}
+                  onChange={handleInputChange}
+                  readOnly={!isEditing}
+                  disabled={busy}
+                  placeholder="例: 経理, 請求, PDF"
+                />
+                {isEditing && similarTags.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 13, color: "#374151" }}>
+                    <span style={{ fontWeight: 600, color: "#2563eb" }}>もしかして？</span>{" "}
+                    <span style={{ color: "#6b7280" }}>既存タグをクリックで採用：</span>
+                    <div style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {similarTags.map((tg) => (
+                        <button
+                          key={tg}
+                          type="button"
+                          onClick={() => applyTagSuggestion(tg)}
+                          style={{
+                            background: "#eff6ff",
+                            border: "1px solid #93c5fd",
+                            borderRadius: 4,
+                            padding: "2px 10px",
+                            fontSize: 13,
+                            color: "#1d4ed8",
+                            cursor: "pointer",
+                          }}
+                        >
+                          # {tg}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="kb-admin-form-row two-col">
@@ -948,19 +1103,6 @@ export default function AdminManuals() {
                 />
               </div>
 
-              <div className="kb-admin-form-row">
-                <label className="kb-admin-label full">タグ（カンマ区切り）</label>
-                <input
-                  type="text"
-                  name="tags"
-                  className="kb-admin-input full"
-                  value={tagInput}
-                  onChange={handleInputChange}
-                  readOnly={!isEditing}
-                  disabled={busy}
-                  placeholder="例: 経理, 請求, PDF"
-                />
-              </div>
 
               <div className="kb-admin-form-row">
                 <label className="kb-admin-label full">埋め込みURL（Google Drive/Slides）</label>
