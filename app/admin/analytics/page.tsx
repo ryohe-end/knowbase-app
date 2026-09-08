@@ -17,7 +17,6 @@ type UserData = {
   createdAt?: string;
 };
 
-const ROLE_OPTIONS = ["all", "admin", "sv", "editor", "store", "finance", "viewer"];
 const ROLE_LABEL: Record<string, string> = { all: "すべてのロール", admin: "admin(管理者)", sv: "sv(SV)", editor: "editor(編集)", store: "store(店舗)", finance: "finance(経理)", viewer: "viewer(閲覧)" };
 
 type NewsDetail = {
@@ -149,8 +148,15 @@ export default function AnalyticsPage() {
 
   const activityRateRole = roleActiveCount > 0 ? Math.round((uniqueActiveRole / roleActiveCount) * 1000) / 10 : 0;
 
+  // ロール選択肢は実データから動的生成（存在するロールのみ＋件数）。
+  // editor/store 等の該当者0のロールを固定表示して「選ぶと全部0」になる混乱を防ぐ。
+  const roleCounts = new Map<string, number>();
+  for (const u of users) { const r = u.role || "viewer"; roleCounts.set(r, (roleCounts.get(r) || 0) + 1); }
+  const availableRoles = ["all", ...Array.from(roleCounts.keys()).sort((a, b) => (roleCounts.get(b) || 0) - (roleCounts.get(a) || 0))];
+  const roleOptionLabel = (r: string) => r === "all" ? ROLE_LABEL.all : `${ROLE_LABEL[r] || r}（${roleCounts.get(r) || 0}）`;
+
   const periodLabel = filterDays === 0 ? "全期間" : `過去 ${filterDays} 日間`;
-  const roleLabel = roleFilter === "all" ? "全ロール" : ROLE_LABEL[roleFilter];
+  const roleLabel = roleFilter === "all" ? "全ロール" : (ROLE_LABEL[roleFilter] || roleFilter);
 
   const chartData = summaryData?.summary ? [
     { name: "有効・ログイン済", value: uniqueActiveRole },
@@ -190,8 +196,8 @@ export default function AnalyticsPage() {
         <div className="kb-topbar-inner">
           <Link href="/admin" className="kb-back-link">← メニューへ戻る</Link>
           <div className="kb-controls">
-            <select className="kb-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} title="ロール別に切り替え">
-              {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            <select className="kb-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} title="ロール別に切り替え（実在するロールのみ・カッコ内は人数）">
+              {availableRoles.map((r) => <option key={r} value={r}>{roleOptionLabel(r)}</option>)}
             </select>
             <select className="kb-select" value={filterDays} onChange={(e) => setFilterDays(Number(e.target.value))}>
               <option value={7}>過去 7 日間</option>
