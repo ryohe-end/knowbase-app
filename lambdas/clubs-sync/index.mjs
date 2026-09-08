@@ -24,8 +24,9 @@
 
 import { SecretsManagerClient, GetSecretValueCommand } from "@aws-sdk/client-secrets-manager";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, BatchWriteCommand, ScanCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
+import { randomUUID } from "node:crypto";
 import pg from "pg";
 
 const SECRET_ARN  = process.env.MOTIONBOARD_SECRET_ARN;
@@ -35,6 +36,7 @@ const ITEM_NAME   = process.env.MOTIONBOARD_ITEM_NAME || "クエリア";
 const READ_COUNT  = process.env.READ_COUNT || "500";
 const TABLE_NAME  = process.env.CLUBS_TABLE || "knowbie-clubs";
 const TABLE_REGION = process.env.CLUBS_TABLE_REGION || "us-east-1";
+const FC_TABLE    = process.env.FRANCHISE_COMPANIES_TABLE || "knowbie-franchise-companies";
 const MEMBER_SEARCH_FN     = process.env.MEMBER_SEARCH_FUNCTION || "knowbie-member-search";
 const MEMBER_SEARCH_REGION = process.env.MEMBER_SEARCH_REGION   || "ap-northeast-1";
 const PG_CONNECTION = process.env.PG_DATABASE_URL
@@ -291,6 +293,74 @@ async function syncToPostgres(motionboardItems, addressByCode, { dryRun }) {
   return result;
 }
 
+// --- 加盟店企業マスタ 自動リコンサイル ---------------------------------------
+// knowbie-franchise-companies の clubCodes を clubs 実態から日次で自動反映する。
+//   - companyGroup が "FC" で始まる店舗を companyName で束ね、各企業の clubCodes をその実態で上書き。
+//   - 新規加盟店企業(マスタ未登録)は shell (name + clubCodes / 連絡先は空) を自動作成。
+//   - 手入力項目(companyId / contact* / note / createdAt / createdBy)は温存し、
+//     clubCodes / updatedAt / updatedBy(=system:clubs-sync) のみ更新する。
+//   - FC店が無くなった既存企業は clubCodes=[] にする(エントリ自体は消さない=連絡先温存)。
+// dryRun=true のときは書き込まず計画のみ返す。
+async function reconcileFranchiseCompanies(items, { dryRun }) {
+  const nowIso = new Date().toISOString();
+  const sortNum = (a, b) => Number(a) - Number(b);
+
+  // 1) clubs 実態: FC区分(companyGroup が "FC" で始まる)店舗を companyName で束ねる
+  const fcByCompany = new Map(); // name -> Set(clubCode)
+  let skippedNoName = 0;
+  for (const it of items) {
+    if (!String(it.companyGroup ?? "").toUpperCase().startsWith("FC")) continue;
+    const name = String(it.companyName ?? "").trim();
+    if (!name) { skippedNoName++; continue; }
+    if (!fcByCompany.has(name)) fcByCompany.set(name, new Set());
+    fcByCompany.get(name).add(String(it.clubCode));
+  }
+
+  // 2) 既存マスタ全件
+  const existing = [];
+  let lastKey;
+  do {
+    const res = await ddb.send(new ScanCommand({ TableName: FC_TABLE, ExclusiveStartKey: lastKey }));
+    if (Array.isArray(res.Items)) existing.push(...res.Items);
+    lastKey = res.LastEvaluatedKey;
+  } while (lastKey);
+  const byName = new Map(existing.map((e) => [String(e.name ?? "").trim(), e]));
+
+  const plan = { created: [], updated: [], cleared: [], unchanged: 0 };
+
+  // 3) clubs にある FC企業を upsert (clubCodes を実態で上書き / 新規は shell 作成)
+  for (const [name, ccSet] of fcByCompany) {
+    const actual = [...ccSet].sort(sortNum);
+    const cur = byName.get(name);
+    if (cur) {
+      const curCc = Array.isArray(cur.clubCodes) ? cur.clubCodes.map(String) : [];
+      const same = curCc.length === actual.length && curCc.slice().sort(sortNum).join(",") === actual.join(",");
+      if (same) { plan.unchanged++; continue; }
+      plan.updated.push({ name, added: actual.filter((c) => !curCc.includes(c)), removed: curCc.filter((c) => !actual.includes(c)) });
+      if (!dryRun) await ddb.send(new PutCommand({ TableName: FC_TABLE, Item: { ...cur, clubCodes: actual, updatedAt: nowIso, updatedBy: "system:clubs-sync" } }));
+    } else {
+      plan.created.push({ name, clubCodes: actual });
+      if (!dryRun) await ddb.send(new PutCommand({ TableName: FC_TABLE, Item: { companyId: `fc-${randomUUID().slice(0, 8)}`, name, clubCodes: actual, createdAt: nowIso, updatedAt: nowIso, createdBy: "system:clubs-sync" } }));
+    }
+  }
+
+  // 4) マスタにあるが clubs に FC店が無い企業 → clubCodes を空に(エントリ温存)
+  for (const e of existing) {
+    const name = String(e.name ?? "").trim();
+    if (fcByCompany.has(name)) continue;
+    const curCc = Array.isArray(e.clubCodes) ? e.clubCodes.map(String) : [];
+    if (curCc.length === 0) continue;
+    plan.cleared.push({ name, removed: curCc });
+    if (!dryRun) await ddb.send(new PutCommand({ TableName: FC_TABLE, Item: { ...e, clubCodes: [], updatedAt: nowIso, updatedBy: "system:clubs-sync" } }));
+  }
+
+  return {
+    fcCompanies: fcByCompany.size, skippedNoName, unchanged: plan.unchanged,
+    createdCount: plan.created.length, updatedCount: plan.updated.length, clearedCount: plan.cleared.length,
+    created: plan.created, updated: plan.updated, cleared: plan.cleared,
+  };
+}
+
 export const handler = async (event) => {
   const dryRun = event?.dryRun === true;
   const skipPg = event?.skipPg === true;
@@ -305,6 +375,16 @@ export const handler = async (event) => {
 
   const wrote = await upsertAll(items);
   console.log(`[clubs-sync] upserted ${wrote} items to DynamoDB`);
+
+  // 加盟店企業マスタの自動リコンサイル (clubCodes を実態で上書き / 新規企業は自動作成)
+  let fcResult = null;
+  try {
+    fcResult = await reconcileFranchiseCompanies(items, { dryRun });
+    console.log(`[clubs-sync] franchise-companies ${dryRun ? "DRY-RUN" : "reconcile"}: ${JSON.stringify(fcResult)}`);
+  } catch (e) {
+    console.error(`[clubs-sync] franchise reconcile failed: ${e.message}`);
+    fcResult = { error: e.message };
+  }
 
   let pgResult = null;
   if (!skipPg) {
@@ -324,6 +404,7 @@ export const handler = async (event) => {
     fetched: rows.length,
     normalized: items.length,
     wrote,
+    franchise: fcResult,
     pg: pgResult,
     dryRun,
     skipPg,

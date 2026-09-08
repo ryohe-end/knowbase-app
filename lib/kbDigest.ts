@@ -21,7 +21,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://main.d5z4bnw4wyrxn.a
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 const bedrock = new BedrockRuntimeClient({ region: REGION });
 
-export type DigestFrequency = "weekly" | "biweekly" | "monthly";
+export type DigestFrequency = "weekly" | "biweekly" | "monthly" | "interval";
 
 // KB通信のコンテンツ・セクション (小出しにトグルで選ぶ)
 export type SectionId =
@@ -44,6 +44,7 @@ export type DigestConfig = {
   frequency: DigestFrequency;
   dayOfWeek: number; // 0=日..6=土 (weekly/biweekly)
   dayOfMonth: number; // 1..28 (monthly)
+  intervalDays: number; // N日ごと (frequency=interval)。既定10。前回配信日からの経過日数で判定
   sendHour: number; // 0..23 JST
   nextDraft: string; // 次回の内容(ざっくり)。空なら AI 自動生成
   targetType: "all" | "groups"; // 配信対象
@@ -66,6 +67,7 @@ const DEFAULT_CONFIG: DigestConfig = {
   frequency: "weekly",
   dayOfWeek: 1, // 月曜
   dayOfMonth: 1,
+  intervalDays: 10,
   sendHour: 9,
   nextDraft: "",
   targetType: "all",
@@ -235,7 +237,8 @@ export function buildDigestMessages(input: { cfg?: Partial<DigestConfig>; draft?
 - 件名は思わず開きたくなるキャッチーなもの(絵文字は1〜2個までOK)。
 - 読み手が「へぇ、使ってみよ」と思う具体例を必ず入れる。
 制約:
-- 出力は「1通の完結したHTMLメール」のみ。説明・前置き・コードフェンス(\`\`\`)は付けない。
+- 出力は「1通の完結したHTMLメール」のみ。説明・前置き・コードフェンス(\`\`\`)は付けない。必ず最後まで完結させる(末尾のCTAボタンまで閉じる)。
+- 各セクションは簡潔に(2〜4文程度)。メール全体が冗長になりすぎないよう、読み切れる分量にまとめる。
 - 1行目に "SUBJECT: <件名>" を必ず入れ、2行目以降にHTML本文。件名は40文字以内。
 - メールクライアント互換: table + インラインCSS。幅600px中央寄せ、max-width:100%。<script>/外部CSS/webフォント禁止。
 - アクセント色 #4f46e5。見出し・箇条書きで読みやすく。数字は誇張しない(データに忠実)。
@@ -264,11 +267,44 @@ export function parseDigestOutput(raw: string): { subject: string; html: string 
   return { subject, html: text };
 }
 
+// 生成HTMLに「必ず入れたい要素」を確実に挿入する(AIが落としても取りこぼさない安全網)。
+// - CTAボタン「KnowBaseを開く」: APP_URL へのリンクが無ければ末尾に固定挿入(既にあれば重複させない)。
+// - 説明会動画ボタン: seminarVideo セクションON かつ URL 指定時、そのURLが本文に無ければ固定挿入。
+// いずれも email 互換(table + インラインCSS)。挿入位置は </body> or </html> の直前、無ければ末尾。
+function fixedButton(href: string, label: string, bg: string): string {
+  const safeHref = String(href).replace(/"/g, "%22");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;"><tr><td align="center">`
+    + `<a href="${safeHref}" style="display:inline-block;background:${bg};color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;line-height:1;padding:14px 30px;border-radius:10px;">${label}</a>`
+    + `</td></tr></table>`;
+}
+export function ensureFixedElements(html: string, cfg?: Partial<DigestConfig>): string {
+  let out = html;
+  const inserts: string[] = [];
+  // 説明会動画ボタン(URLがあり、セクションON、まだ本文に無い場合)
+  const videoUrl = (cfg?.seminarVideoUrl || "").trim();
+  const videoOn = cfg?.sections ? cfg.sections.seminarVideo !== false : true;
+  if (videoUrl && videoOn && !out.includes(videoUrl)) {
+    inserts.push(fixedButton(videoUrl, "▶ 説明会動画を見る", "#dc2626"));
+  }
+  // CTAボタン(APP_URL へのリンクがまだ無い場合)
+  if (!out.includes(APP_URL)) {
+    inserts.push(fixedButton(APP_URL, "KnowBaseを開く →", "#4f46e5"));
+  }
+  if (inserts.length === 0) return out;
+  const block = inserts.join("\n");
+  const at = out.search(/<\/body>/i);
+  if (at !== -1) return out.slice(0, at) + block + out.slice(at);
+  const ah = out.search(/<\/html>/i);
+  if (ah !== -1) return out.slice(0, ah) + block + out.slice(ah);
+  return out + block;
+}
+
 export async function generateDigest(input: { cfg?: Partial<DigestConfig>; draft?: string; trends: Trends }): Promise<{ subject: string; html: string }> {
   const { system, user } = buildDigestMessages(input);
   const payload = {
     anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 4096,
+    // 4096/8192 では後半セクション(新着/お楽しみ枠)や末尾CTAが途中で打ち切られていたため拡大。
+    max_tokens: 16384,
     system,
     messages: [{ role: "user", content: [{ type: "text", text: user }] }],
   };
@@ -278,6 +314,7 @@ export async function generateDigest(input: { cfg?: Partial<DigestConfig>; draft
   const raw = JSON.parse(new TextDecoder().decode(res.body)).content?.map((b: any) => b.text).join("") || "";
   const out = parseDigestOutput(raw);
   if (!out.html) throw new Error("empty_generation");
+  out.html = ensureFixedElements(out.html, input.cfg);
   return out;
 }
 
@@ -326,6 +363,38 @@ export async function sendToAll(input: { subject: string; html: string; targetTy
   return { sent, failed };
 }
 
+// ===== テスト配信 (宛先を明示指定して送る。config/lastSentAt/issue には影響しない) =====
+export async function sendToList(input: { subject: string; html: string; emails: string[] }): Promise<{ sent: number; failed: number; recipients: string[] }> {
+  const key = (process.env.SENDGRID_API_KEY ?? "").trim().replace(/^['"]|['"]$/g, "");
+  const from = (process.env.SENDGRID_FROM_EMAIL ?? "").trim().replace(/^['"]|['"]$/g, "");
+  if (!key.startsWith("SG.") || !from) throw new Error("SendGrid 未設定");
+  sgMail.setApiKey(key);
+
+  const emails = [...new Set((input.emails || []).map((e) => String(e).trim()).filter(isValidEmail))];
+  if (emails.length === 0) throw new Error("有効な宛先メールアドレスがありません");
+
+  let sent = 0, failed = 0;
+  for (let i = 0; i < emails.length; i += 900) {
+    const batch = emails.slice(i, i + 900);
+    try {
+      // sendMultiple: 受信者は自分のアドレスのみ見える(相互に非開示)
+      await sgMail.sendMultiple({
+        to: batch,
+        from: { email: from, name: "KnowBase運営事務局" },
+        subject: input.subject,
+        html: input.html,
+        trackingSettings: { openTracking: { enable: false }, clickTracking: { enable: false } },
+        categories: ["kb-digest-test"],
+      });
+      sent += batch.length;
+    } catch (e) {
+      console.error("[kbDigest] test send batch failed:", (e as Error)?.message);
+      failed += batch.length;
+    }
+  }
+  return { sent, failed, recipients: emails };
+}
+
 export async function recordIssue(entry: { subject: string; html: string; sent: number; auto: boolean }): Promise<void> {
   const nowIso = new Date().toISOString();
   await ddb.send(new PutCommand({
@@ -345,6 +414,16 @@ export function isDue(cfg: DigestConfig, now: Date): boolean {
   if (cfg.lastSentAt) {
     const lastJstDay = new Date(new Date(cfg.lastSentAt).getTime() + 9 * 3600_000).toISOString().slice(0, 10);
     if (lastJstDay === today) return false;
+  }
+  // N日ごと: 前回配信日(JST)からの経過日数 >= intervalDays で配信。初回(未配信)は指定時刻で即配信。
+  if (cfg.frequency === "interval") {
+    const n = Math.max(1, Math.floor(Number(cfg.intervalDays) || 10));
+    if (!cfg.lastSentAt) return true;
+    const jstDayOrd = (ms: number) => {
+      const j = new Date(ms + 9 * 3600_000);
+      return Math.floor(Date.UTC(j.getUTCFullYear(), j.getUTCMonth(), j.getUTCDate()) / 86400_000);
+    };
+    return jstDayOrd(now.getTime()) - jstDayOrd(new Date(cfg.lastSentAt).getTime()) >= n;
   }
   if (cfg.frequency === "monthly") return jst.getUTCDate() === cfg.dayOfMonth;
   if (jst.getUTCDay() !== cfg.dayOfWeek) return false;

@@ -897,6 +897,112 @@ function buildWriteoffSchedule(rows) {
 function _fmtYmd(raw) { const s = raw != null ? String(raw) : ""; return s.length === 8 ? `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}` : null; }
 function _fmtYm(raw) { const s = raw != null ? String(raw) : ""; return s.length === 6 ? `${s.slice(0,4)}-${s.slice(4,6)}` : s; }
 
+// ===== 貸倒対象照合(経理連携): 会員別の未納・売掛・売上・入金・入金方式別内訳・最終残高 =====
+// 参照元の手組みSQLを、基準月 M からの相対オフセットで毎月動かせるよう再構成。
+//   当月売上=M / 売掛=M-1(SBは M-2,M-1) / 入金 振替=M-1→M・SBPS=M-2→M-1 / 入金方式別=M-1 /
+//   貸倒対象の未納 = 対応年月 = M-13(1年1ヶ月前)・入金区分4(今も未納)の1ヶ月分。委託先5=SB / ≠5=口振。
+// スキャンは [M-13, M] のみ。企業名=オカモト固定。
+// 最終当月末残高 = (借方:未納(M-13)+売掛+売上) - (貸方:入金2本) - Σ入金方式別 (参考値)。
+// 貸倒対象は 未納(SB未納額+口振未納金) > 0 (targetOnly=1 既定, all=1 で全件)。
+// 入金方式明細コード → 列名(参照SQLの並び順を保持)。sub1 の SUM / 最終SELECT の COALESCE / CSV見出しを一括生成。
+const RECONCILE_METHODS = [
+  [1, "ダイナース"], [2, "JCB"], [3, "DC"], [4, "UFJ"], [5, "NICOS"], [6, "Orico"], [16, "VISA"], [7, "日専連"],
+  [8, "セゾン"], [9, "ポケットカード"], [10, "UCグループ"], [11, "NCマック"], [12, "エスコート"], [13, "OMC"],
+  [14, "MASTER"], [15, "楽天"], [99, "その他"], [17, "Union_Pay"], [18, "Alipay"], [19, "We_chat"], [21, "オムニ"],
+  [22, "CAT_ニコス"], [23, "クレピコ"], [24, "SMSレジ"], [25, "代弁"], [26, "収代_JAC"], [27, "CAT_JCB"],
+  [28, "CAT_東京"], [29, "MUFG"], [30, "NCカード"], [31, "メルペイ"], [20, "PayPay"],
+];
+// CSV見出し / プレビュー列 / 合計対象。参照SQLの最終SELECT列順に一致。
+const RECONCILE_OUT_COLS = [
+  { key: "クラブコード" }, { key: "クラブ略称" }, { key: "業態" }, { key: "企業名" },
+  { key: "会員番号" }, { key: "漢字姓名" },
+  { key: "SB未納額", num: true }, { key: "口振未納金", num: true }, { key: "SB売掛金", num: true },
+  { key: "JACCS売掛金", num: true }, { key: "ORICO売掛金", num: true }, { key: "FD売掛金", num: true },
+  { key: "その他売掛金", num: true }, { key: "当月売上", num: true }, { key: "SBPS当月入金額", num: true },
+  { key: "振替当月入金額", num: true },
+  ...RECONCILE_METHODS.map(([, alias]) => ({ key: alias, num: true })),
+  { key: "当月_入金方式別合計", num: true }, { key: "最終当月末残高", num: true },
+];
+function reconcileSql() {
+  const sub1Sums = RECONCILE_METHODS
+    .map(([code, alias]) => `        SUM(CASE WHEN a.入金方式明細コード = ${code} THEN a.入金金額 ELSE 0 END) AS "${alias}"`)
+    .join(",\n");
+  const outMethods = RECONCILE_METHODS
+    .map(([, alias]) => `        COALESCE(sub1."${alias}", 0) AS "${alias}"`)
+    .join(",\n");
+  const methodSum = RECONCILE_METHODS.map(([, alias]) => `COALESCE(sub1."${alias}", 0)`).join(" + ");
+  return `
+    WITH d1 AS (
+      SELECT 契約者SEQ, 振替年月, MAX(クラブコード) AS クラブコード, MAX(振替結果コード) AS 振替結果コード
+      FROM FIT_ADMIN."振替契約者別"
+      WHERE 振替年月 BETWEEN :m13 AND :m
+      GROUP BY 契約者SEQ, 振替年月
+    ),
+    t2 AS (
+      SELECT
+        d1.クラブコード AS クラブコード, e.クラブ略称 AS クラブ略称, e.業態 AS 業態, e.企業名 AS 企業名,
+        b.会員番号 AS 会員番号, f.漢字姓名 AS 漢字姓名,
+        -- 貸倒対象の未納 = 対応年月が基準月の13ヶ月前(1年1ヶ月前)・入金区分4(未納=今も未回収)の1ヶ月分。委託先で SB/口振 に分ける。
+        SUM(CASE WHEN a.入金区分コード = 4 AND a.委託先コード = 5 AND a.対応年月 = :m13 THEN a.月相当額 ELSE 0 END) AS SB未納額,
+        SUM(CASE WHEN a.入金区分コード = 4 AND a.委託先コード <> 5 AND a.対応年月 = :m13 THEN a.月相当額 ELSE 0 END) AS 口振未納金,
+        SUM(CASE WHEN a.委託先コード = 5 AND a.対応年月 IN (:m2, :m1) THEN a.月相当額 ELSE 0 END) AS SB売掛金,
+        SUM(CASE WHEN a.対応年月 = :m1 AND a.委託先コード IN (2, 6) THEN a.月相当額 ELSE 0 END) AS JACCS売掛金,
+        SUM(CASE WHEN a.対応年月 = :m1 AND a.委託先コード = 3 THEN a.月相当額 ELSE 0 END) AS ORICO売掛金,
+        SUM(CASE WHEN a.対応年月 = :m1 AND a.委託先コード = 9 THEN a.月相当額 ELSE 0 END) AS FD売掛金,
+        SUM(CASE WHEN a.対応年月 = :m1 AND a.委託先コード NOT IN (2, 3, 5, 6, 9) THEN a.月相当額 ELSE 0 END) AS その他売掛金,
+        SUM(CASE WHEN a.対応年月 = :m THEN a.月相当額 ELSE 0 END) AS 当月売上,
+        SUM(CASE WHEN a.対応年月 = :m2 AND a.入金月度 = :m1 AND a.会費支払方式コード = 2 AND a.委託先コード = 5 AND a.入金区分コード = 3 THEN a.月相当額 ELSE 0 END) AS SBPS当月入金額,
+        SUM(CASE WHEN a.対応年月 = :m1 AND a.入金月度 = :m AND a.会費支払方式コード = 2 AND a.委託先コード <> 5 AND a.入金区分コード = 3 THEN a.月相当額 ELSE 0 END) AS 振替当月入金額,
+        (
+          SUM(CASE
+            WHEN a.入金区分コード = 4 AND a.対応年月 = :m13 THEN a.月相当額
+            WHEN a.対応年月 IN (:m2, :m1) THEN a.月相当額
+            WHEN a.対応年月 = :m THEN a.月相当額
+            ELSE 0 END)
+          -
+          SUM(CASE
+            WHEN a.対応年月 = :m2 AND a.入金月度 = :m1 AND a.会費支払方式コード = 2 AND a.委託先コード = 5 AND a.入金区分コード = 3 THEN a.月相当額
+            WHEN a.対応年月 = :m1 AND a.入金月度 = :m AND a.会費支払方式コード = 2 AND a.委託先コード <> 5 AND a.入金区分コード = 3 THEN a.月相当額
+            ELSE 0 END)
+        ) AS 当月末残高
+      FROM FIT_ADMIN."会員入金歴" a
+      INNER JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ = b.契約者SEQ
+      INNER JOIN d1 ON a.契約者SEQ = d1.契約者SEQ AND a.対応年月 = d1.振替年月
+      INNER JOIN FIT_ADMIN."クラブ情報" e ON d1.クラブコード = e.クラブコード
+      INNER JOIN FIT_ADMIN."個人" f ON b.個人SEQ = f.個人SEQ
+      WHERE a.対応年月 BETWEEN :m13 AND :m
+        AND e.企業名 = :company
+      GROUP BY d1.クラブコード, e.クラブ略称, e.業態, e.企業名, b.会員番号, f.漢字姓名
+    ),
+    sub1 AS (
+      SELECT
+        a.入金営業月度 AS 入金営業月度, c.会員番号 AS 会員番号,
+${sub1Sums}
+      FROM FIT_ADMIN."売上入金" a
+      INNER JOIN FIT_ADMIN."入金方式明細" b ON a.入金方式明細コード = b.入金方式明細コード AND a.入金方式コード = b.入金方式コード
+      INNER JOIN FIT_ADMIN."精算" c ON a.精算SEQ = c.精算SEQ
+      INNER JOIN FIT_ADMIN."クラブ情報" d ON c.クラブコード = d.クラブコード
+      WHERE a.入金方式コード = 2 AND a.入金営業月度 = :m1
+      GROUP BY a.入金営業月度, c.会員番号
+    )
+    SELECT * FROM (
+      SELECT
+        t2.クラブコード AS "クラブコード", t2.クラブ略称 AS "クラブ略称", t2.業態 AS "業態", t2.企業名 AS "企業名",
+        t2.会員番号 AS "会員番号", t2.漢字姓名 AS "漢字姓名",
+        t2.SB未納額 AS "SB未納額", t2.口振未納金 AS "口振未納金", t2.SB売掛金 AS "SB売掛金",
+        t2.JACCS売掛金 AS "JACCS売掛金", t2.ORICO売掛金 AS "ORICO売掛金", t2.FD売掛金 AS "FD売掛金",
+        t2.その他売掛金 AS "その他売掛金", t2.当月売上 AS "当月売上", t2.SBPS当月入金額 AS "SBPS当月入金額",
+        t2.振替当月入金額 AS "振替当月入金額",
+${outMethods},
+        (${methodSum}) AS "当月_入金方式別合計",
+        (t2.当月末残高 - (${methodSum})) AS "最終当月末残高"
+      FROM t2
+      LEFT JOIN sub1 ON t2.会員番号 = sub1.会員番号 AND sub1.入金営業月度 = :m1
+    ) q
+    WHERE (:targetOnly = 0 OR (q."SB未納額" + q."口振未納金") > 0)
+    ORDER BY q."クラブコード", q."会員番号"`;
+}
+
 // ⑥ 委託先コード → 名称 / 区分(JACCS・クレカ等)。会員入金歴.委託先コード に準拠。
 const CONSIGN_NAME = { 0: "現金", 1: "SMBCクレジット", 2: "JACCS収金代行", 3: "オリコ", 4: "りそな", 5: "ｿﾌﾄﾊﾞﾝｸ", 6: "JACCS(FIT)", 7: "GMO", 9: "ＦＤ自振", 88: "JACCS集金代行", 89: "JACCSクレジット", 90: "現金", 99: "振込" };
 function consignCategory(code) {
@@ -1118,10 +1224,12 @@ export const handler = async (event) => {
         SELECT t.クラブコード AS CLUB_CODE, t.契約形態コード AS FORM_CODE, e.契約形態名 AS FORM_NAME,
                t.会費適用区分コード AS FEE_APPLY_KUBUN, t.適用人数 AS APPLY_HEADCOUNT, t.適用年月 AS APPLY_YYYYMM,
                t.入会金 AS ENROLLMENT_FEE, t.事務手続料金 AS ADMIN_FEE, t.月会費 AS MONTHLY_FEE,
+               t.税コード AS TAX_CODE, z.税率 AS TAX_RATE,
                ROW_NUMBER() OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月 DESC) AS RN,
                MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM
         FROM FIT_ADMIN.契約会費金額 t
         LEFT JOIN FIT_ADMIN.契約形態 e ON e.契約形態コード = t.契約形態コード
+        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = t.税コード
         WHERE ${where}
       ) ${history ? "" : "WHERE RN = 1"}
       ORDER BY FORM_CODE, FEE_APPLY_KUBUN, APPLY_HEADCOUNT, APPLY_YYYYMM DESC`;
@@ -1481,6 +1589,57 @@ export const handler = async (event) => {
       const r = await conn.execute(sql, { ym, maxRow: offset + limit, off: offset }, { outFormat: oracledb.OUT_FORMAT_OBJECT });
       const rows = r.rows || [];
       return resp(200, { ym, offset, limit, rows, hasMore: rows.length === limit });
+    } catch (err) {
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
+  // 貸倒対象照合(経理連携): 会員別の未納/売掛/売上/入金/入金方式別内訳/最終残高。企業名=オカモト固定。
+  //   GET ?ym=YYYYMM                 → 既定: 合計値 + 先頭プレビュー(未納>0=SB未納額+口振未納金>0 の貸倒対象のみ)
+  //   GET ?ym=YYYYMM&all=1           → 全会員(未納=0 も含む)
+  //   GET ?ym=YYYYMM&gzip=1[&all=1]  → 全件CSV(全列)を gzip(base64)で返す(呼び出し側で解凍→Shift-JIS)
+  // 会員単位で行数が多くなり得るため resultSet でストリーム集計し、gzip 後に返して Lambda 6MB制限を回避。
+  if (type === "writeoff_reconcile") {
+    const m = Number(params.ym || 0);
+    if (!m || String(params.ym).length !== 6) return resp(400, { error: "missing_params", required: ["ym(YYYYMM)"] });
+    const m1 = _addMonthsYm(m, -1), m2 = _addMonthsYm(m, -2), m13 = _addMonthsYm(m, -13);
+    const targetOnly = params.all === "1" ? 0 : 1;
+    const binds = { m, m1, m2, m13, company: "オカモト", targetOnly };
+    const months = { base: m, prev1: m1, prev2: m2, aged: m13, scanStart: m13 };
+    const previewLimit = Math.min(Math.max(Number(params.limit) || 300, 1), 2000);
+    const wantCsv = params.gzip === "1";
+    let conn;
+    try {
+      const pool = await getPool(); conn = await pool.getConnection();
+      const t0 = Date.now();
+      const rs = (await conn.execute(reconcileSql(), binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, resultSet: true })).resultSet;
+      const cell = (v) => { const s = String(v ?? ""); return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const parts = wantCsv ? [RECONCILE_OUT_COLS.map((c) => cell(c.key)).join(",") + "\r\n"] : null;
+      const preview = [];
+      let count = 0;
+      const totals = { SB未納額: 0, 口振未納金: 0, 売掛金計: 0, 当月売上: 0, 入金方式別合計: 0, 最終当月末残高: 0 };
+      for (;;) {
+        const batch = await rs.getRows(2000);
+        if (batch.length === 0) break;
+        for (const x of batch) {
+          count++;
+          totals.SB未納額 += Number(x["SB未納額"]) || 0;
+          totals.口振未納金 += Number(x["口振未納金"]) || 0;
+          totals.売掛金計 += (Number(x["SB売掛金"]) || 0) + (Number(x["JACCS売掛金"]) || 0) + (Number(x["ORICO売掛金"]) || 0) + (Number(x["FD売掛金"]) || 0) + (Number(x["その他売掛金"]) || 0);
+          totals.当月売上 += Number(x["当月売上"]) || 0;
+          totals.入金方式別合計 += Number(x["当月_入金方式別合計"]) || 0;
+          totals.最終当月末残高 += Number(x["最終当月末残高"]) || 0;
+          if (wantCsv) parts.push(RECONCILE_OUT_COLS.map((c) => cell(x[c.key])).join(",") + "\r\n");
+          else if (preview.length < previewLimit) preview.push(x);
+        }
+      }
+      await rs.close();
+      if (wantCsv) {
+        const zlib = await import("node:zlib");
+        const gz = zlib.gzipSync(Buffer.from(parts.join(""), "utf-8"));
+        return resp(200, { ym: m, months, count, totals, queryMs: Date.now() - t0, gzB64: gz.toString("base64") });
+      }
+      return resp(200, { ym: m, months, count, targetOnly: targetOnly === 1, totals, rows: preview, hasMore: count > preview.length, previewLimit, queryMs: Date.now() - t0 });
     } catch (err) {
       return resp(500, { error: "internal_error", message: err.message });
     } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
