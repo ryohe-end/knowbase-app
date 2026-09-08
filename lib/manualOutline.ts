@@ -7,7 +7,9 @@ import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const OUTPUT_BUCKET = process.env.PREPROCESS_OUTPUT_BUCKET || "knowbie-preprocessed-manuals";
-const MODEL_ID = process.env.KB_MODEL_ID || "us.anthropic.claude-sonnet-4-6";
+// 目次/チャプター生成は精度重視で Claude Opus 4.8 を既定に。
+// kb-chat / digest が共有する KB_MODEL_ID(Sonnet) とは分離し、この用途だけ独立して切替可能にする。
+const MODEL_ID = process.env.KB_OUTLINE_MODEL_ID || "us.anthropic.claude-opus-4-8";
 const EVENT_BUS_NAME = process.env.PREPROCESS_EVENT_BUS || "default";
 
 const s3 = new S3Client({ region: REGION });
