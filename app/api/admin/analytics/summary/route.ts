@@ -119,9 +119,10 @@ export async function GET(req: Request) {
       createdAt: u.createdAt ? String(u.createdAt) : undefined,
     }));
 
-    // 3) 検索ワードランキング（SearchLogs）
+    // 3) 検索ワードランキング（SearchLogs）。ロール切替のため全体＋ロール別を集計。
     const searchLogs = await scanAll(SEARCH_LOGS_TABLE);
     const kwCounts = new Map<string, number>();
+    const kwByRole = new Map<string, Map<string, number>>(); // role -> (keyword -> count)
 
     for (const item of searchLogs) {
       const kw = String(item.keyword ?? item.Keyword ?? "").trim();
@@ -134,12 +135,21 @@ export async function GET(req: Request) {
       }
 
       kwCounts.set(kw, (kwCounts.get(kw) || 0) + 1);
+      const uid = String(item.userId ?? item.uid ?? "");
+      const role = String(userMap.get(uid)?.role ?? "viewer");
+      const rm = kwByRole.get(role) ?? new Map<string, number>();
+      rm.set(kw, (rm.get(kw) || 0) + 1);
+      kwByRole.set(role, rm);
     }
 
-    const searchRanking = Array.from(kwCounts.entries())
-      .map(([keyword, count]) => ({ keyword, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 10);
+    const topN = (m: Map<string, number>) =>
+      Array.from(m.entries())
+        .map(([keyword, count]) => ({ keyword, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+    const searchRanking = topN(kwCounts);
+    const searchRankingByRole: Record<string, { keyword: string; count: number }[]> = {};
+    for (const [role, m] of kwByRole.entries()) searchRankingByRole[role] = topN(m);
 
     // 4) ユーザー別ログイン回数（LoginLogs）
     const loginLogs = await scanAll(LOGIN_LOGS_TABLE);
@@ -276,10 +286,6 @@ export async function GET(req: Request) {
 
     const newsViewCount = newsViewsDetail.reduce((sum, n) => sum + n.views, 0);
 
-    // 7) Contacts（ここでは簡易：0固定）
-    const contactsCount = 0;
-    const contactsDetail: { name: string; email: string; createdAt: string }[] = [];
-
     // 8) Summary
     const totalUsers = users.length;
     const activeUsers = users.filter((u: any) => !!u.isActive).length;
@@ -295,7 +301,6 @@ export async function GET(req: Request) {
       totalLogins,
       totalManuals: manuals.length,
       totalManualViews,
-      contactsCount,
       newsViewCount,
     };
 
@@ -319,8 +324,8 @@ export async function GET(req: Request) {
       uniqueLoginUsers,
       allUsers,
       searchRanking,
+      searchRankingByRole,
       newsViewsDetail,
-      contactsDetail,
       allManuals,
       userLoginCounts,
       debug,
