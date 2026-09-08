@@ -73,7 +73,8 @@ export async function genChapters(md: string): Promise<Chapter[] | null> {
 
 // 本文を「# スライド N」でスライド単位に分解する(N は実在番号)。
 function splitSlides(md: string): { n: number; text: string }[] {
-  const re = /^#+\s*スライド\s*(\d+)\s*$/gm;
+  // 「# スライド N」(Google Slides) と「# ページ N」(PDF vision前処理) の両方を章の起点として拾う。
+  const re = /^#+\s*(?:スライド|ページ)\s*(\d+)\s*$/gm;
   const marks: { n: number; idx: number; end: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(md)) !== null) marks.push({ n: parseInt(m[1], 10), idx: m.index, end: re.lastIndex });
