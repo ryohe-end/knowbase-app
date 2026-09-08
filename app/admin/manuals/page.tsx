@@ -300,6 +300,32 @@ export default function AdminManuals() {
     finally { setChapGenBusy(false); }
   };
 
+  /* ===== 目次(資料・ページ番号付き)編集 ===== */
+  const [tocGenBusy, setTocGenBusy] = useState(false);
+  const toc = manualForm.toc || [];
+  const setToc = (next: { title: string; page?: number }[]) => setManualForm((f) => ({ ...f, toc: next }));
+  const updateTocItem = (i: number, patch: Partial<{ title: string; page?: number }>) =>
+    setToc(toc.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const addTocItem = () => setToc([...toc, { title: "" }]);
+  const removeTocItem = (i: number) => setToc(toc.filter((_, idx) => idx !== i));
+  const sortTocByPage = () => setToc([...toc].sort((a, b) => (a.page ?? 1e9) - (b.page ?? 1e9)));
+  // 前処理済みMarkdownから AI で目次を生成しフォームへ流し込む(保存で確定)。
+  const generateTocForForm = async () => {
+    if (!manualForm.manualId) return;
+    setTocGenBusy(true);
+    try {
+      const res = await fetch(`/api/manuals/${encodeURIComponent(manualForm.manualId)}/toc`, {
+        method: "POST",
+        headers: getAdminHeaders(),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 202) { alert(d.error || "前処理(Markdown化)を開始しました。数分後に再度お試しください。"); return; }
+      if (d.ok && Array.isArray(d.toc) && d.toc.length) setToc(d.toc);
+      else alert(d.error || "目次を生成できませんでした。");
+    } catch { alert("生成に失敗しました。"); }
+    finally { setTocGenBusy(false); }
+  };
+
   // ✅ 画面処理中（統一ローディング）
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
@@ -1027,6 +1053,53 @@ export default function AdminManuals() {
                   </div>
                   <div className="kb-subnote full" style={{ marginTop: 4 }}>
                     ※ 時刻は「1:23」や「1:02:03」形式。保存すると閲覧プレビューのチャプターに反映されます（YouTube動画はクリックで頭出し）。
+                  </div>
+                </div>
+              )}
+
+              {manualForm.type !== "video" && (
+                <div className="kb-admin-form-row full" style={{ marginTop: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <label className="kb-admin-label full" style={{ margin: 0 }}>目次（資料・ページ番号付き）</label>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={sortTocByPage} disabled={!isEditing || busy || toc.length < 2}
+                        style={{ fontSize: 12, padding: "4px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}>
+                        ページ順に並べ替え
+                      </button>
+                      <button type="button" onClick={generateTocForForm} disabled={!isEditing || busy || tocGenBusy}
+                        style={{ fontSize: 12, fontWeight: 700, padding: "4px 10px", borderRadius: 8, border: "1px solid #c7d2fe", background: "#eef2ff", color: "#4338ca", cursor: tocGenBusy ? "default" : "pointer" }}>
+                        {tocGenBusy ? "生成中…" : toc.length ? "AIで再生成" : "AIで生成"}
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8, marginTop: 6, background: "#fafafa" }}>
+                    {toc.length === 0 ? (
+                      <div style={{ fontSize: 12.5, color: "#94a3b8", padding: "10px 6px", textAlign: "center" }}>
+                        目次はまだありません。「AIで生成」または「＋ 行を追加」で作成できます。
+                      </div>
+                    ) : (
+                      toc.map((c, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                          <input type="number" min={1} value={c.page ?? ""} disabled={!isEditing || busy}
+                            onChange={(e) => { const v = e.target.value.trim(); updateTocItem(i, { page: v === "" ? undefined : Math.max(1, parseInt(v, 10) || 1) }); }}
+                            placeholder="P" title="開始ページ番号（任意）"
+                            style={{ width: 64, textAlign: "center", fontVariantNumeric: "tabular-nums", padding: "6px 8px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff" }} />
+                          <input type="text" value={c.title} disabled={!isEditing || busy}
+                            onChange={(e) => updateTocItem(i, { title: e.target.value })}
+                            placeholder="見出し"
+                            style={{ flex: 1, padding: "6px 10px", borderRadius: 8, border: "1px solid #d1d5db", background: "#fff" }} />
+                          <button type="button" onClick={() => removeTocItem(i)} disabled={!isEditing || busy}
+                            title="削除" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fef2f2", color: "#b91c1c", cursor: "pointer" }}>✕</button>
+                        </div>
+                      ))
+                    )}
+                    <button type="button" onClick={addTocItem} disabled={!isEditing || busy}
+                      style={{ marginTop: 4, fontSize: 12.5, fontWeight: 700, padding: "6px 12px", borderRadius: 8, border: "1px dashed #94a3b8", background: "#fff", color: "#334155", cursor: "pointer" }}>
+                      ＋ 行を追加
+                    </button>
+                  </div>
+                  <div className="kb-subnote full" style={{ marginTop: 4 }}>
+                    ※ ページ番号は任意（スライド／PDFの頭出しに使用）。保存すると閲覧の目次に反映されます。
                   </div>
                 </div>
               )}
