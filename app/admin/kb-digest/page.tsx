@@ -7,8 +7,8 @@ import Link from "next/link";
 type SectionId = string;
 type Config = {
   enabled: boolean;
-  frequency: "weekly" | "biweekly" | "monthly";
-  dayOfWeek: number; dayOfMonth: number; sendHour: number;
+  frequency: "weekly" | "biweekly" | "monthly" | "interval";
+  dayOfWeek: number; dayOfMonth: number; intervalDays: number; sendHour: number;
   nextDraft: string;
   targetType: "all" | "groups"; targetGroupIds: string[];
   sections: Record<SectionId, boolean>;
@@ -30,6 +30,8 @@ export default function KbDigestPage() {
   const [genStage, setGenStage] = useState("");
   const [preview, setPreview] = useState<{ subject: string; html: string } | null>(null);
   const [sending, setSending] = useState(false);
+  const [testEmails, setTestEmails] = useState("");
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     fetch("/api/admin/kb-digest", { cache: "no-store" })
@@ -85,6 +87,21 @@ export default function KbDigestPage() {
     finally { setSending(false); }
   }, [preview]);
 
+  const sendTest = useCallback(async () => {
+    const emails = testEmails.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (emails.length === 0) { setMsg({ ok: false, text: "テスト配信先のアドレスを入力してください" }); return; }
+    setTesting(true); setMsg(null);
+    try {
+      const body: { emails: string[]; subject?: string; html?: string } = { emails };
+      if (preview) { body.subject = preview.subject; body.html = preview.html; }
+      const res = await fetch("/api/admin/kb-digest/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const d = await res.json();
+      if (d.ok) setMsg({ ok: true, text: `テスト配信を開始しました（${d.count}件）。${preview ? "プレビュー内容を" : "AIが生成して"}指定アドレスへ届きます（件名は[テスト]付き）。` });
+      else setMsg({ ok: false, text: d.error || "テスト配信に失敗しました" });
+    } catch { setMsg({ ok: false, text: "テスト配信に失敗しました" }); }
+    finally { setTesting(false); }
+  }, [testEmails, preview]);
+
   if (loading) return <div className="kd-root"><div className="kd-loading">読み込み中…</div></div>;
   if (!cfg) return <div className="kd-root"><div className="kd-err">{msg?.text || "設定を取得できませんでした"}</div></div>;
 
@@ -115,12 +132,16 @@ export default function KbDigestPage() {
         <div className="kd-row">
           <label>頻度
             <select value={cfg.frequency} onChange={(e) => patch({ frequency: e.target.value as any })}>
-              <option value="weekly">毎週</option><option value="biweekly">隔週</option><option value="monthly">毎月</option>
+              <option value="weekly">毎週</option><option value="biweekly">隔週</option><option value="monthly">毎月</option><option value="interval">○日ごと</option>
             </select>
           </label>
           {cfg.frequency === "monthly" ? (
             <label>毎月<select value={cfg.dayOfMonth} onChange={(e) => patch({ dayOfMonth: Number(e.target.value) })}>
               {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}日</option>)}
+            </select></label>
+          ) : cfg.frequency === "interval" ? (
+            <label>間隔<select value={cfg.intervalDays ?? 10} onChange={(e) => patch({ intervalDays: Number(e.target.value) })}>
+              {[3, 5, 7, 10, 14, 20, 30].map((d) => <option key={d} value={d}>{d}日ごと</option>)}
             </select></label>
           ) : (
             <label>曜日<select value={cfg.dayOfWeek} onChange={(e) => patch({ dayOfWeek: Number(e.target.value) })}>
@@ -131,6 +152,11 @@ export default function KbDigestPage() {
             {Array.from({ length: 24 }, (_, i) => i).map((h) => <option key={h} value={h}>{h}:00</option>)}
           </select></label>
         </div>
+        {cfg.frequency === "interval" && (
+          <div className="kd-card-note" style={{ marginTop: 10 }}>
+            ※「○日ごと」は<b>前回配信日から{cfg.intervalDays ?? 10}日</b>経過したら指定時刻に配信します（初回はON後の最初の指定時刻に配信）。
+          </div>
+        )}
       </div>
 
       {/* 配信対象 */}
@@ -200,6 +226,17 @@ export default function KbDigestPage() {
         <div className="kd-card-note">箇条書きでOK。空欄ならアクセス動向からAIが自動で組み立てます。文章はユーモアを効かせて仕上げます。</div>
         <textarea className="kd-textarea" rows={5} value={cfg.nextDraft} onChange={(e) => patch({ nextDraft: e.target.value })}
           placeholder={"例：\n・新しい入会マニュアルが出た\n・Knowbieに「休会」と聞くと手順が出るよ、を推したい"} />
+      </div>
+
+      {/* テスト配信 (宛先を複数指定して確認送信) */}
+      <div className="kd-card">
+        <div className="kd-card-title">テスト配信</div>
+        <div className="kd-card-note">指定したアドレスにだけ送って確認できます（全員配信・スケジュールには影響しません）。複数はカンマ／改行区切りで最大50件。<b>プレビュー生成済みならその内容</b>を、無ければAIが生成して送ります。件名に「[テスト]」が付きます。</div>
+        <textarea className="kd-textarea" rows={2} value={testEmails} onChange={(e) => setTestEmails(e.target.value)}
+          placeholder={"例：\nyou@example.com, colleague@example.com"} />
+        <div style={{ marginTop: 10 }}>
+          <button className="kd-btn" onClick={sendTest} disabled={testing}>{testing ? "テスト配信中…" : "テスト配信する"}</button>
+        </div>
       </div>
 
       <div className="kd-actions">

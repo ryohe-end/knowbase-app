@@ -70644,6 +70644,7 @@ var DEFAULT_CONFIG = {
   dayOfWeek: 1,
   // 月曜
   dayOfMonth: 1,
+  intervalDays: 10,
   sendHour: 9,
   nextDraft: "",
   targetType: "all",
@@ -70769,7 +70770,8 @@ function buildDigestMessages(input) {
 - \u4EF6\u540D\u306F\u601D\u308F\u305A\u958B\u304D\u305F\u304F\u306A\u308B\u30AD\u30E3\u30C3\u30C1\u30FC\u306A\u3082\u306E(\u7D75\u6587\u5B57\u306F1\u301C2\u500B\u307E\u3067OK)\u3002
 - \u8AAD\u307F\u624B\u304C\u300C\u3078\u3047\u3001\u4F7F\u3063\u3066\u307F\u3088\u300D\u3068\u601D\u3046\u5177\u4F53\u4F8B\u3092\u5FC5\u305A\u5165\u308C\u308B\u3002
 \u5236\u7D04:
-- \u51FA\u529B\u306F\u300C1\u901A\u306E\u5B8C\u7D50\u3057\u305FHTML\u30E1\u30FC\u30EB\u300D\u306E\u307F\u3002\u8AAC\u660E\u30FB\u524D\u7F6E\u304D\u30FB\u30B3\u30FC\u30C9\u30D5\u30A7\u30F3\u30B9(\`\`\`)\u306F\u4ED8\u3051\u306A\u3044\u3002
+- \u51FA\u529B\u306F\u300C1\u901A\u306E\u5B8C\u7D50\u3057\u305FHTML\u30E1\u30FC\u30EB\u300D\u306E\u307F\u3002\u8AAC\u660E\u30FB\u524D\u7F6E\u304D\u30FB\u30B3\u30FC\u30C9\u30D5\u30A7\u30F3\u30B9(\`\`\`)\u306F\u4ED8\u3051\u306A\u3044\u3002\u5FC5\u305A\u6700\u5F8C\u307E\u3067\u5B8C\u7D50\u3055\u305B\u308B(\u672B\u5C3E\u306ECTA\u30DC\u30BF\u30F3\u307E\u3067\u9589\u3058\u308B)\u3002
+- \u5404\u30BB\u30AF\u30B7\u30E7\u30F3\u306F\u7C21\u6F54\u306B(2\u301C4\u6587\u7A0B\u5EA6)\u3002\u30E1\u30FC\u30EB\u5168\u4F53\u304C\u5197\u9577\u306B\u306A\u308A\u3059\u304E\u306A\u3044\u3088\u3046\u3001\u8AAD\u307F\u5207\u308C\u308B\u5206\u91CF\u306B\u307E\u3068\u3081\u308B\u3002
 - 1\u884C\u76EE\u306B "SUBJECT: <\u4EF6\u540D>" \u3092\u5FC5\u305A\u5165\u308C\u30012\u884C\u76EE\u4EE5\u964D\u306BHTML\u672C\u6587\u3002\u4EF6\u540D\u306F40\u6587\u5B57\u4EE5\u5185\u3002
 - \u30E1\u30FC\u30EB\u30AF\u30E9\u30A4\u30A2\u30F3\u30C8\u4E92\u63DB: table + \u30A4\u30F3\u30E9\u30A4\u30F3CSS\u3002\u5E45600px\u4E2D\u592E\u5BC4\u305B\u3001max-width:100%\u3002<script>/\u5916\u90E8CSS/web\u30D5\u30A9\u30F3\u30C8\u7981\u6B62\u3002
 - \u30A2\u30AF\u30BB\u30F3\u30C8\u8272 #4f46e5\u3002\u898B\u51FA\u3057\u30FB\u7B87\u6761\u66F8\u304D\u3067\u8AAD\u307F\u3084\u3059\u304F\u3002\u6570\u5B57\u306F\u8A87\u5F35\u3057\u306A\u3044(\u30C7\u30FC\u30BF\u306B\u5FE0\u5B9F)\u3002
@@ -70799,11 +70801,35 @@ function parseDigestOutput(raw) {
   }
   return { subject, html: text };
 }
+function fixedButton(href, label, bg) {
+  const safeHref = String(href).replace(/"/g, "%22");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;"><tr><td align="center"><a href="${safeHref}" style="display:inline-block;background:${bg};color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;line-height:1;padding:14px 30px;border-radius:10px;">${label}</a></td></tr></table>`;
+}
+function ensureFixedElements(html, cfg) {
+  let out = html;
+  const inserts = [];
+  const videoUrl = (cfg?.seminarVideoUrl || "").trim();
+  const videoOn = cfg?.sections ? cfg.sections.seminarVideo !== false : true;
+  if (videoUrl && videoOn && !out.includes(videoUrl)) {
+    inserts.push(fixedButton(videoUrl, "\u25B6 \u8AAC\u660E\u4F1A\u52D5\u753B\u3092\u898B\u308B", "#dc2626"));
+  }
+  if (!out.includes(APP_URL)) {
+    inserts.push(fixedButton(APP_URL, "KnowBase\u3092\u958B\u304F \u2192", "#4f46e5"));
+  }
+  if (inserts.length === 0) return out;
+  const block = inserts.join("\n");
+  const at = out.search(/<\/body>/i);
+  if (at !== -1) return out.slice(0, at) + block + out.slice(at);
+  const ah = out.search(/<\/html>/i);
+  if (ah !== -1) return out.slice(0, ah) + block + out.slice(ah);
+  return out + block;
+}
 async function generateDigest(input) {
   const { system, user } = buildDigestMessages(input);
   const payload2 = {
     anthropic_version: "bedrock-2023-05-31",
-    max_tokens: 4096,
+    // 4096/8192 では後半セクション(新着/お楽しみ枠)や末尾CTAが途中で打ち切られていたため拡大。
+    max_tokens: 16384,
     system,
     messages: [{ role: "user", content: [{ type: "text", text: user }] }]
   };
@@ -70816,6 +70842,7 @@ async function generateDigest(input) {
   const raw = JSON.parse(new TextDecoder().decode(res.body)).content?.map((b8) => b8.text).join("") || "";
   const out = parseDigestOutput(raw);
   if (!out.html) throw new Error("empty_generation");
+  out.html = ensureFixedElements(out.html, input.cfg);
   return out;
 }
 function isValidEmail(e8) {
@@ -70857,6 +70884,33 @@ async function sendToAll(input) {
   }
   return { sent, failed };
 }
+async function sendToList(input) {
+  const key = (process.env.SENDGRID_API_KEY ?? "").trim().replace(/^['"]|['"]$/g, "");
+  const from = (process.env.SENDGRID_FROM_EMAIL ?? "").trim().replace(/^['"]|['"]$/g, "");
+  if (!key.startsWith("SG.") || !from) throw new Error("SendGrid \u672A\u8A2D\u5B9A");
+  import_mail.default.setApiKey(key);
+  const emails = [...new Set((input.emails || []).map((e8) => String(e8).trim()).filter(isValidEmail))];
+  if (emails.length === 0) throw new Error("\u6709\u52B9\u306A\u5B9B\u5148\u30E1\u30FC\u30EB\u30A2\u30C9\u30EC\u30B9\u304C\u3042\u308A\u307E\u305B\u3093");
+  let sent = 0, failed = 0;
+  for (let i8 = 0; i8 < emails.length; i8 += 900) {
+    const batch = emails.slice(i8, i8 + 900);
+    try {
+      await import_mail.default.sendMultiple({
+        to: batch,
+        from: { email: from, name: "KnowBase\u904B\u55B6\u4E8B\u52D9\u5C40" },
+        subject: input.subject,
+        html: input.html,
+        trackingSettings: { openTracking: { enable: false }, clickTracking: { enable: false } },
+        categories: ["kb-digest-test"]
+      });
+      sent += batch.length;
+    } catch (e8) {
+      console.error("[kbDigest] test send batch failed:", e8?.message);
+      failed += batch.length;
+    }
+  }
+  return { sent, failed, recipients: emails };
+}
 async function recordIssue(entry) {
   const nowIso = (/* @__PURE__ */ new Date()).toISOString();
   await ddb.send(new import_lib_dynamodb.PutCommand({
@@ -70874,6 +70928,15 @@ function isDue(cfg, now) {
     const lastJstDay = new Date(new Date(cfg.lastSentAt).getTime() + 9 * 36e5).toISOString().slice(0, 10);
     if (lastJstDay === today) return false;
   }
+  if (cfg.frequency === "interval") {
+    const n6 = Math.max(1, Math.floor(Number(cfg.intervalDays) || 10));
+    if (!cfg.lastSentAt) return true;
+    const jstDayOrd = (ms) => {
+      const j8 = new Date(ms + 9 * 36e5);
+      return Math.floor(Date.UTC(j8.getUTCFullYear(), j8.getUTCMonth(), j8.getUTCDate()) / 864e5);
+    };
+    return jstDayOrd(now.getTime()) - jstDayOrd(new Date(cfg.lastSentAt).getTime()) >= n6;
+  }
   if (cfg.frequency === "monthly") return jst.getUTCDate() === cfg.dayOfMonth;
   if (jst.getUTCDay() !== cfg.dayOfWeek) return false;
   if (cfg.frequency === "weekly") return true;
@@ -70888,6 +70951,7 @@ var REGION2 = process.env.AWS_REGION || "us-east-1";
 var TABLE = process.env.KB_DIGEST_TABLE || "knowbie-kb-digest";
 var ddb2 = import_lib_dynamodb2.DynamoDBDocumentClient.from(new import_client_dynamodb2.DynamoDBClient({ region: REGION2 }));
 function periodFor(cfg) {
+  if (cfg.frequency === "interval") return Math.max(1, Math.floor(Number(cfg.intervalDays) || 10));
   return cfg.frequency === "monthly" ? 30 : cfg.frequency === "biweekly" ? 14 : 7;
 }
 var handler = async (event) => {
@@ -70932,6 +70996,27 @@ var handler = async (event) => {
     await saveConfig({ lastSentAt: (/* @__PURE__ */ new Date()).toISOString(), lastSubject: subject, nextDraft: "" });
     console.log(`[kb-digest] cron sent: "${subject}" sent=${sent}`);
     return { ok: true, due: true, sent, failed, subject };
+  }
+  if (action === "test") {
+    const cfg = await getConfig();
+    const emails = Array.isArray(event.emails) ? event.emails : [];
+    let subject = String(event.subject || "").trim();
+    let html = String(event.html || "").trim();
+    if (!subject || !html) {
+      const trends = await gatherTrends(periodFor(cfg));
+      const gen = await generateDigest({ cfg, trends });
+      subject = gen.subject;
+      html = gen.html;
+    }
+    if (!/^\[テスト\]/.test(subject)) subject = `[\u30C6\u30B9\u30C8] ${subject}`;
+    try {
+      const { sent, failed, recipients } = await sendToList({ subject, html, emails });
+      console.log(`[kb-digest] test sent: "${subject}" to ${recipients.length} (sent=${sent} failed=${failed})`);
+      return { ok: true, test: true, sent, failed, recipients };
+    } catch (e8) {
+      console.error(`[kb-digest] test failed: ${e8?.message || e8}`);
+      return { ok: false, error: String(e8?.message || e8) };
+    }
   }
   return { ok: false, error: "unknown action" };
 };

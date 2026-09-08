@@ -5,8 +5,9 @@
 //   "preview" … 生成して knowbie-kb-digest に preview#<id> として保存(UIはポーリング)
 //   "send"    … 生成(or 受領html)して全員配信 + issue記録 + config更新
 //   "cron"    … isDue判定 → 該当時のみ生成+全員配信 (EventBridge毎時)
+//   "test"    … 生成(or 受領html)して指定アドレスのみへテスト配信 (config/issueは触らない)
 import {
-  getConfig, gatherTrends, generateDigest, sendToAll, recordIssue, saveConfig, isDue,
+  getConfig, gatherTrends, generateDigest, sendToAll, sendToList, recordIssue, saveConfig, isDue,
 } from "../../lib/kbDigest.ts";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
@@ -16,6 +17,7 @@ const TABLE = process.env.KB_DIGEST_TABLE || "knowbie-kb-digest";
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
 
 function periodFor(cfg) {
+  if (cfg.frequency === "interval") return Math.max(1, Math.floor(Number(cfg.intervalDays) || 10));
   return cfg.frequency === "monthly" ? 30 : cfg.frequency === "biweekly" ? 14 : 7;
 }
 
@@ -63,6 +65,27 @@ export const handler = async (event) => {
     await saveConfig({ lastSentAt: new Date().toISOString(), lastSubject: subject, nextDraft: "" });
     console.log(`[kb-digest] cron sent: "${subject}" sent=${sent}`);
     return { ok: true, due: true, sent, failed, subject };
+  }
+
+  if (action === "test") {
+    const cfg = await getConfig();
+    const emails = Array.isArray(event.emails) ? event.emails : [];
+    let subject = String(event.subject || "").trim();
+    let html = String(event.html || "").trim();
+    if (!subject || !html) {
+      const trends = await gatherTrends(periodFor(cfg));
+      const gen = await generateDigest({ cfg, trends });
+      subject = gen.subject; html = gen.html;
+    }
+    if (!/^\[テスト\]/.test(subject)) subject = `[テスト] ${subject}`;
+    try {
+      const { sent, failed, recipients } = await sendToList({ subject, html, emails });
+      console.log(`[kb-digest] test sent: "${subject}" to ${recipients.length} (sent=${sent} failed=${failed})`);
+      return { ok: true, test: true, sent, failed, recipients };
+    } catch (e) {
+      console.error(`[kb-digest] test failed: ${e?.message || e}`);
+      return { ok: false, error: String(e?.message || e) };
+    }
   }
 
   return { ok: false, error: "unknown action" };

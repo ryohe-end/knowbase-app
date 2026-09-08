@@ -71,6 +71,11 @@ function getGoogleAuth() {
 }
 var AWS_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-east-1";
 var BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || "us.anthropic.claude-sonnet-4-6";
+// 画像中心/抽出失敗PDFを直読みする vision は精度重視で Opus 4.8(OCRの代替。全ページを理解し「# ページN」構造で出力)。
+var PDF_VISION_MODEL_ID = process.env.PDF_VISION_MODEL_ID || "us.anthropic.claude-opus-4-8";
+// pptx/docx の Google native 変換コピー先。サービスアカウントは My Drive 容量が実質0のため、
+// 共有ドライブ(SAがメンバー・書込可)にコピーして quota exceeded を回避する。
+var CONVERT_DRIVE_ID = process.env.PREPROCESS_CONVERT_DRIVE_ID || "0AJGh0hH-_9qWUk9PVA"; // 共有ドライブ「マニュアル自動生成」
 var bedrock = new BedrockRuntimeClient({ region: AWS_REGION });
 var textract = new TextractClient({ region: AWS_REGION });
 var s3 = new S3Client({ region: AWS_REGION });
@@ -99,6 +104,95 @@ async function describeImageWithClaude(imageBase64, mediaType, instruction) {
   const decoded = JSON.parse(Buffer.from(res.body).toString("utf-8"));
   const text = decoded?.content?.[0]?.text ?? decoded?.completion ?? "";
   return String(text || "").trim();
+}
+// PDF(またはその抜粋)を document ブロックで Opus に投入し、startPage から連番の「# ページ N + 要約」を得る。
+async function visionOnePdf(buf, startPage) {
+  const b64 = Buffer.from(buf).toString("base64");
+  const instruction = `これはマニュアル資料(PDF)の抜粋です。この抜粋の1ページ目は元資料の ${startPage} ページ目です。
+後で目次を作るための前処理として、各ページの内容を読み取ってください。
+出力は次の Markdown 形式のみ(前置き・説明・コードフェンス禁止):
+
+# ページ ${startPage}
+(このページの主題・見出し・重要な要素を日本語で簡潔に。図や画像内の文字も読み取る。1〜4行)
+
+# ページ ${startPage + 1}
+(...)
+
+必ず ${startPage} から連番の実ページ番号で「# ページ N」を1ページずつ出力してください。空白ページは「(空白)」と書いてください。`;
+  const body = {
+    anthropic_version: "bedrock-2023-05-31",
+    max_tokens: 8e3,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64 } },
+          { type: "text", text: instruction }
+        ]
+      }
+    ]
+  };
+  const cmd = new InvokeModelCommand({
+    modelId: PDF_VISION_MODEL_ID,
+    body: JSON.stringify(body),
+    contentType: "application/json",
+    accept: "application/json"
+  });
+  const res = await bedrock.send(cmd);
+  const decoded = JSON.parse(Buffer.from(res.body).toString("utf-8"));
+  return String((decoded?.content ?? []).map((b) => b.text ?? "").join("") || "").trim();
+}
+// pdf-lib で [start, end) ページの部分PDFを作って Uint8Array で返す。
+async function subPdfBytes(PDFDocument, src, startIdx, endIdx) {
+  const doc = await PDFDocument.create();
+  const idxs = [];
+  for (let p = startIdx; p < endIdx; p++) idxs.push(p);
+  const pages = await doc.copyPages(src, idxs);
+  pages.forEach((pg) => doc.addPage(pg));
+  return await doc.save();
+}
+// 画像中心/抽出失敗PDFを Opus vision で直読み(OCR代替)。Bedrock 同期の上限を超える大きいPDFは
+// pdf-lib でページ範囲に分割し、各抜粋を実ページ番号で読み取って連結する。
+async function describePdfWithClaude(buf) {
+  // Bedrock InvokeModel の本文サイズ上限(実測: base64後~13MBは可/~16MBは不可)に収めるため
+  // 1チャンクのPDFを ~7MB 以下(base64~9.4MB)に抑える。
+  const SAFE = 7 * 1024 * 1024;
+  const HARD = 9 * 1024 * 1024; // これを超えたチャンクは更に半分へ
+  const safeVision = async (bytes, startPage) => {
+    // 1チャンク失敗が全体を壊さないよう個別に握りつぶす。
+    try { return await visionOnePdf(Buffer.from(bytes), startPage); }
+    catch (e) { console.warn(`   vision失敗(page${startPage}~): ${e?.message ?? String(e)}`); return ""; }
+  };
+  if (buf.byteLength <= SAFE) return await safeVision(buf, 1);
+
+  const { PDFDocument } = await import("pdf-lib");
+  const src = await PDFDocument.load(buf, { ignoreEncryption: true, throwOnInvalidObject: false });
+  const total = src.getPageCount();
+  const avg = buf.byteLength / Math.max(1, total);
+  const per = Math.max(1, Math.floor(SAFE / Math.max(1, avg))); // 目標ページ/チャンク
+  console.log(`   \u{1F9E9} 大きいPDF(${(buf.byteLength / 1048576).toFixed(0)}MB/${total}p) を分割: ~${per}ページ/チャンク`);
+  const parts = [];
+  for (let start = 0; start < total; start += per) {
+    const end = Math.min(start + per, total);
+    const bytes = await subPdfBytes(PDFDocument, src, start, end);
+    // 単ページでも共有画像の複製で肥大するPDFがある。事前スキップせず送ってみて、
+    // Bedrockが受ければ採用・拒否すれば safeVision が握りつぶす(=そのページだけ欠落)。
+    // 明らかに上限外(base64で確実に超える ~16MB)だけ諦める。
+    const ABS = 16 * 1024 * 1024;
+    if (bytes.length > HARD && end - start > 1) {
+      for (let p = start; p < end; p++) {
+        const sb = await subPdfBytes(PDFDocument, src, p, p + 1);
+        if (sb.length > ABS) { console.warn(`   ページ${p + 1}が巨大(${(sb.length / 1048576).toFixed(1)}MB) vision不可`); continue; }
+        const md1 = await safeVision(sb, p + 1);
+        if (md1) parts.push(md1);
+      }
+      continue;
+    }
+    if (bytes.length > ABS) { console.warn(`   ページ${start + 1}が巨大 vision不可`); continue; }
+    const md = await safeVision(bytes, start + 1);
+    if (md) parts.push(md);
+  }
+  return parts.join("\n\n").trim();
 }
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -222,7 +316,8 @@ async function convertToNative(auth, fileId, name, targetMime) {
   const copy = await drive.files.copy({
     fileId,
     supportsAllDrives: true,
-    requestBody: { name: `${name} (preprocess-tmp)`, mimeType: targetMime }
+    // 共有ドライブに作成(SAのMy Drive容量0による quota exceeded を回避)。
+    requestBody: { name: `${name} (preprocess-tmp)`, mimeType: targetMime, parents: [CONVERT_DRIVE_ID] }
   });
   const tmpId = copy.data.id;
   console.log(`   \u5909\u63DB\u5B8C\u4E86 (tmp id=${tmpId})`);
@@ -314,7 +409,24 @@ async function processPdf(auth, fileId, fileMeta) {
       extractionMethod = "textract-failed";
     }
   }
-  return buildFrontMatter({
+  // \u62BD\u51FA\u304C\u307B\u307C\u7A7A(=\u753B\u50CF\u4E2D\u5FC3PDF / skipped-large \u7B49)\u306F Opus vision \u3067\u5168\u30DA\u30FC\u30B8\u3092\u76F4\u8AAD\u307F\u3057\u3066
+  // \u300C# \u30DA\u30FC\u30B8 N + \u8981\u7D04\u300D\u306E Markdown \u3092\u751F\u6210\u3059\u308B\u3002\u901A\u5E38\u306E\u30C6\u30AD\u30B9\u30C8PDF\u306F\u5F93\u6765\u3069\u304A\u308A(\u8FFD\u52A0\u30B3\u30B9\u30C80)\u3002
+  let visionMd = "";
+  // \u5927\u304D\u3044PDF\u306F describePdfWithClaude \u5185\u3067\u30DA\u30FC\u30B8\u5206\u5272\u3057\u3066\u51E6\u7406\u3059\u308B\u306E\u3067\u4E0A\u9650\u306F\u7DE9\u3081(\u524D\u51E6\u7406\u30B3\u30B9\u30C8\u904E\u5927\u306E\u66B4\u8D70\u306E\u307F\u6291\u6B62)\u3002
+  const VISION_MAX_BYTES = 150 * 1024 * 1024;
+  if (extracted.replace(/\s+/g, "").length < 600 && buf.byteLength <= VISION_MAX_BYTES) {
+    try {
+      console.log("   \u{1F50E} \u62BD\u51FA\u4E0D\u5341\u5206\u3002Opus vision \u3067 PDF \u3092\u76F4\u8AAD\u307F...");
+      visionMd = await describePdfWithClaude(buf);
+      if (visionMd) {
+        extractionMethod = "opus-vision";
+        console.log(`   \u2705 vision \u751F\u6210 ${visionMd.length} \u6587\u5B57`);
+      }
+    } catch (e) {
+      console.warn(`   vision \u30A8\u30E9\u30FC: ${e?.message ?? String(e)}`);
+    }
+  }
+  const front = buildFrontMatter({
     source_file_id: fileId,
     title: fileMeta.name ?? "",
     mime_type: fileMeta.mimeType,
@@ -322,7 +434,9 @@ async function processPdf(auth, fileId, fileMeta) {
     processor: "preprocess-manual.ts",
     extraction_method: extractionMethod,
     pdf_bytes: buf.byteLength
-  }) + "## \u62BD\u51FA\u30C6\u30AD\u30B9\u30C8\n\n```\n" + extracted.slice(0, 1e5) + "\n```\n";
+  });
+  if (visionMd) return front + visionMd + "\n";
+  return front + "## \u62BD\u51FA\u30C6\u30AD\u30B9\u30C8\n\n```\n" + extracted.slice(0, 1e5) + "\n```\n";
 }
 async function processSheets(auth, fileId, fileMeta) {
   const sheetsApi = google.sheets({ version: "v4", auth });
@@ -637,6 +751,23 @@ async function preprocessOne(input) {
         console.warn(`tmp \u524A\u9664\u30A8\u30E9\u30FC: ${e?.message ?? String(e)}`);
       }
     }
+  }
+}
+// 保存時チェック用: embedUrl のファイルにサービスアカウントがアクセスできるかだけを軽量に判定する。
+// (処理はせずメタ情報 files.get のみ。YouTube/非Driveは対象外=accessible扱い)
+export async function checkDriveAccess(input) {
+  if (!input) return { applicable: false, accessible: false, reason: "embedUrl未設定" };
+  if (extractYouTubeIfApplicable(input)) return { applicable: false, accessible: true, sourceType: "youtube" };
+  const fileId = extractDriveFileId(input);
+  if (!fileId) return { applicable: false, accessible: false, reason: "Driveリンクではありません" };
+  try {
+    const auth = getGoogleAuth();
+    await auth.authorize();
+    const drive = google.drive({ version: "v3", auth });
+    const meta = await drive.files.get({ fileId, fields: "id,name,mimeType", supportsAllDrives: true });
+    return { applicable: true, accessible: true, fileName: meta.data.name ?? "", mimeType: meta.data.mimeType ?? "" };
+  } catch (e) {
+    return { applicable: true, accessible: false, reason: e?.errors?.[0]?.reason || e?.message || String(e) };
   }
 }
 function extractYouTubeIfApplicable(input) {

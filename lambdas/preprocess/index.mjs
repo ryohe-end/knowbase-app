@@ -5,7 +5,7 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import { preprocessOne } from "./preprocess.mjs";
+import { preprocessOne, checkDriveAccess } from "./preprocess.mjs";
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const MANUALS_TABLE = process.env.KB_MANUALS_TABLE || "yamauchi-Manuals";
@@ -27,14 +27,15 @@ async function updateMeta(manualId, patch) {
   }));
 }
 
-async function runOne(manualId) {
+async function runOne(manualId, force = false) {
   const getRes = await ddb.send(new GetCommand({ TableName: MANUALS_TABLE, Key: { manualId } }));
   const manual = getRes.Item;
   if (!manual) throw new Error(`manual not found: ${manualId}`);
   const embedUrl = manual.embedUrl ? String(manual.embedUrl) : "";
   if (!embedUrl) throw new Error("embedUrl 未設定のため対象外");
 
-  if (manual.preprocessedStatus === "ok" && manual.preprocessedEmbedUrl === embedUrl) {
+  // force=true で再前処理(モデル/抽出ロジック更新後の作り直し用)。通常は同一embedUrlならスキップ。
+  if (!force && manual.preprocessedStatus === "ok" && manual.preprocessedEmbedUrl === embedUrl) {
     return { skipped: true, reason: "already processed (same embedUrl)" };
   }
   await updateMeta(manualId, { preprocessedStatus: "pending", preprocessedError: null });
@@ -58,6 +59,19 @@ async function runOne(manualId) {
 }
 
 export const handler = async (event) => {
+  // 保存時チェック: embedUrl(または manualId のembedUrl)にSAがアクセスできるかだけを返す(前処理はしない)。
+  if (event?.checkOnly) {
+    let embedUrl = event?.embedUrl || "";
+    if (!embedUrl && event?.manualId) {
+      try {
+        const r = await ddb.send(new GetCommand({ TableName: MANUALS_TABLE, Key: { manualId: String(event.manualId) }, ProjectionExpression: "embedUrl" }));
+        embedUrl = r.Item?.embedUrl ? String(r.Item.embedUrl) : "";
+      } catch {}
+    }
+    const res = await checkDriveAccess(embedUrl);
+    return { ok: true, checkOnly: true, embedUrl, ...res };
+  }
+
   // manualId を EventBridge(detail) / 直接invoke から取り出す
   let manualId = event?.manualId;
   if (!manualId && event?.detail) {
@@ -68,9 +82,10 @@ export const handler = async (event) => {
     console.error("[preprocess] no manualId in event", JSON.stringify(event)?.slice(0, 300));
     return { ok: false, error: "manualId required" };
   }
+  const force = event?.force === true || event?.detail?.force === true;
   const started = Date.now();
   try {
-    const result = await runOne(String(manualId));
+    const result = await runOne(String(manualId), force);
     console.log(`[preprocess] done manualId=${manualId}`, JSON.stringify(result), `${Date.now() - started}ms`);
     return { ok: true, manualId, ...result };
   } catch (e) {

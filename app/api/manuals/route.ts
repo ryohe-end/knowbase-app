@@ -8,6 +8,7 @@ import {
   GetCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
+import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
 import { isAdminRequest as checkAdmin } from "@/lib/auth";
 
 export const runtime = "nodejs";
@@ -57,6 +58,34 @@ const ddbDoc = DynamoDBDocumentClient.from(ddbClient);
 const EVENT_BUS_NAME = process.env.PREPROCESS_EVENT_BUS || "default";
 const EVENT_SOURCE = "knowbie.manual.saved";
 const eventBridge = new EventBridgeClient({ region: REGION });
+
+// 保存時の Drive 共有チェック用。前処理Lambda(knowbie-preprocess)を checkOnly で同期呼び出しし、
+// サービスアカウントが embedUrl のファイルにアクセスできるか判定する。
+const PREPROCESS_FN = process.env.PREPROCESS_FUNCTION || "knowbie-preprocess";
+const PREPROCESS_REGION = process.env.PREPROCESS_REGION || "us-east-1";
+const SERVICE_ACCOUNT_EMAIL = process.env.PREPROCESS_SA_EMAIL || "amazonq@yamauch-bot.iam.gserviceaccount.com";
+const lambdaClient = new LambdaClient({ region: PREPROCESS_REGION });
+
+// embedUrl のファイルにSAがアクセスできない場合に、管理画面へ出す警告文を返す(問題なければ null)。
+// 失敗時(権限不足・Lambdaエラー等)は null を返し、保存自体はブロックしない。
+async function driveShareWarning(embedUrl?: string): Promise<string | null> {
+  if (!embedUrl) return null;
+  try {
+    const res = await lambdaClient.send(new InvokeCommand({
+      FunctionName: PREPROCESS_FN,
+      InvocationType: "RequestResponse",
+      Payload: Buffer.from(JSON.stringify({ checkOnly: true, embedUrl })),
+    }));
+    if (res.FunctionError) return null;
+    const p: any = res.Payload ? JSON.parse(Buffer.from(res.Payload).toString("utf-8")) : null;
+    if (p && p.applicable && !p.accessible) {
+      return `このDriveファイルが自動処理用アカウント（${SERVICE_ACCOUNT_EMAIL}）に共有されていません（${p.reason || "アクセス不可"}）。このままだと目次/チャプターの自動生成ができません。共有ドライブ「マニュアル自動生成」に入れるか、上記アカウントを「閲覧者」以上で共有してください。`;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** マニュアル保存時に EventBridge へイベントを送信 (fire-and-forget) */
 async function emitManualSavedEvent(payload: {

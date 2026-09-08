@@ -19,9 +19,10 @@ export async function PUT(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 }); }
   const patch: Partial<DigestConfig> = {};
   if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
-  if (body.frequency === "weekly" || body.frequency === "biweekly" || body.frequency === "monthly") patch.frequency = body.frequency;
+  if (body.frequency === "weekly" || body.frequency === "biweekly" || body.frequency === "monthly" || body.frequency === "interval") patch.frequency = body.frequency;
   if (Number.isFinite(body.dayOfWeek as number)) patch.dayOfWeek = Math.min(6, Math.max(0, Number(body.dayOfWeek)));
   if (Number.isFinite(body.dayOfMonth as number)) patch.dayOfMonth = Math.min(28, Math.max(1, Number(body.dayOfMonth)));
+  if (Number.isFinite(body.intervalDays as number)) patch.intervalDays = Math.min(365, Math.max(1, Number(body.intervalDays)));
   if (Number.isFinite(body.sendHour as number)) patch.sendHour = Math.min(23, Math.max(0, Number(body.sendHour)));
   if (typeof body.nextDraft === "string") patch.nextDraft = body.nextDraft.slice(0, 4000);
   if (body.targetType === "all" || body.targetType === "groups") patch.targetType = body.targetType;
