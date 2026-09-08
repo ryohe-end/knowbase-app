@@ -94,15 +94,16 @@ export async function genToc(md: string): Promise<TocItem[]> {
     const validNums = slides.map((s) => s.n);
     const validSet = new Set(validNums);
     const minN = Math.min(...validNums), maxN = Math.max(...validNums);
-    const listing = slides.map((s) => `スライド${s.n}: ${s.text || "(本文なし)"}`).join("\n").slice(0, 15000);
+    // 長いスライド資料も全体をカバーするため一覧の打ち切りを拡大(従来15k)。
+    const listing = slides.map((s) => `スライド${s.n}: ${s.text || "(本文なし)"}`).join("\n").slice(0, 120000);
     const system = `あなたはスライド資料の目次を作る編集者です。各スライドは「スライドN: 本文」の形式で与えられます。
 資料を意味のまとまり(章)に分け、各章の見出しと、その章が始まるスライド番号を出力します。
 制約:
 - 出力は JSON 配列のみ。前置き/説明/コードフェンス禁止。
 - 形式: [{"title": "見出し(全角24文字以内・内容を的確に)", "page": 章の開始スライド番号(整数)}]
 - page は必ず入力に実在するスライド番号を使う(勝手な番号を作らない)。
-- 章は 4〜15 個。page は昇順で重複させない。最初の章は先頭スライド付近から。`;
-    const arr = await askJsonArray(system, `# スライド一覧(番号: 本文)\n${listing}\n\n上記の目次を JSON 配列で作成してください。各章の page は開始スライド番号です。`);
+- 資料全体を通して均等に章立てし、先頭に偏らず最後のスライドまでカバーする。章数は分量に応じ4〜20個。page は昇順で重複させない。`;
+    const arr = await askJsonArray(system, `# スライド一覧(番号: 本文)\n${listing}\n\n上記の目次を JSON 配列で作成してください。各章の page は開始スライド番号です。`, 3000);
     const seen = new Set<number>();
     const items = arr
       .map((c: any) => {
@@ -124,15 +125,24 @@ export async function genToc(md: string): Promise<TocItem[]> {
   }
 
   // スライド構造が無い資料(PDF/Doc等): ページ対応は取れないため見出しのみ。
-  const source = body.slice(0, 16000);
+  // 長文PDFの目次精度向上: 先頭16kで打ち切らず本文全体(最大18万字≒Opus 4.8の余裕内)を投入し、
+  // 全体を均等にカバーさせる。従来は先頭16kのみ→長い資料は後半が目次に反映されなかった。
+  const CAP = 180000;
+  const source = body.slice(0, CAP);
+  const truncated = body.length > CAP;
   const system = `あなたはマニュアル資料の目次を作る編集者です。
 制約:
 - 出力は JSON 配列のみ。前置き/説明/コードフェンス禁止。
 - 形式: [{"title": "見出し(全角24文字以内・内容を的確に)"}]
-- 見出しは 4〜15 個。資料の並び順に忠実に。`;
-  const arr = await askJsonArray(system, `# 本文\n${source}\n\n上記マニュアルの目次を JSON 配列で作成してください。`);
+- 資料の並び順に忠実に。資料全体を通して均等に章立てし、先頭部分だけに偏らないこと。冒頭から末尾まで漏れなくカバーする。
+- 見出しの数は分量に応じて調整する(短い資料は4〜8、長い資料は最大30まで)。意味のまとまりで区切る。`;
+  const arr = await askJsonArray(
+    system,
+    `# 本文${truncated ? "(長いため一部)" : ""}\n${source}\n\n上記マニュアルの目次を JSON 配列で作成してください。資料の末尾まで含め、全体をカバーしてください。`,
+    3000,
+  );
   return arr
     .map((c: any) => ({ title: String(c.title || "").slice(0, 48) } as TocItem))
     .filter((c: TocItem) => c.title)
-    .slice(0, 25);
+    .slice(0, 30);
 }
