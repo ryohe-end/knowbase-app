@@ -15,9 +15,54 @@
 import { NextResponse } from "next/server";
 import { callMemberSearch } from "@/lib/unpaid";
 import { requirePublicApiKey } from "@/lib/publicApiAuth";
+import { query } from "@/lib/memberDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// 店舗詳細(緯度経度/営業時間/定休日/スタッフ対応時間/電話/HP/プレ・グランドオープン/臨時休館日)は
+// 会員DB club__c(店舗設定「アプリ基本設定」で入力)から取得し、入力があれば返す。
+// clubCode(=Oracleクラブコード) と club__c.club_code__c で突合。
+async function fetchClubDetails(): Promise<Map<string, any>> {
+  try {
+    const r = await query(
+      `SELECT club_code__c AS code, latitude__c, longitude__c,
+              COALESCE(link_url__c, '') AS link_url,
+              COALESCE(business_hours, '') AS business_hours,
+              COALESCE(regular_holiday, '') AS regular_holiday,
+              COALESCE(staff_hours, '') AS staff_hours,
+              COALESCE(phone_number, '') AS phone_number,
+              COALESCE(temp_closed_dates, '') AS temp_closed_dates,
+              COALESCE(pre_open_date, '') AS pre_open_date,
+              COALESCE(grand_open_date, '') AS grand_open_date
+         FROM club__c
+        WHERE COALESCE(isdeleted, false) = false AND club_code__c IS NOT NULL`
+    );
+    const m = new Map<string, any>();
+    for (const row of r.rows) m.set(String(row.code), row);
+    return m;
+  } catch {
+    return new Map(); // 詳細取得に失敗しても一覧本体は返す(店舗詳細は null)
+  }
+}
+
+// club__c 1行 → 公開レスポンスの店舗詳細。未入力は null(臨時休館日は [])。
+function detailOf(d: any) {
+  const s = (v: any) => { const t = v == null ? "" : String(v).trim(); return t === "" ? null : t; };
+  const num = (v: any) => (v == null || v === "" || !Number.isFinite(Number(v))) ? null : Number(v);
+  return {
+    latitude: num(d?.latitude__c),
+    longitude: num(d?.longitude__c),
+    homepageUrl: s(d?.link_url),
+    phoneNumber: s(d?.phone_number),
+    businessHours: s(d?.business_hours),
+    regularHoliday: s(d?.regular_holiday),   // 毎週の定休日(曜日など)
+    staffHours: s(d?.staff_hours),           // スタッフ対応時間
+    tempClosedDates: d?.temp_closed_dates ? String(d.temp_closed_dates).split(",").map((x: string) => x.trim()).filter(Boolean) : [], // 臨時休館日(特定日)
+    preOpenDate: s(d?.pre_open_date),
+    grandOpenDate: s(d?.grand_open_date),
+  };
+}
 
 // 業態(赤/青/緑/FIT365/ｼﾞｮｲﾌｨｯﾄﾌﾟﾗｽ 等)から消費者ブランドを正規化。
 // FIT365 のみ FIT365、それ以外(JOYFIT系の色コード等)は JOYFIT。
@@ -61,6 +106,10 @@ export async function GET(req: Request) {
           : {}),
       };
     });
+
+    // 店舗詳細(club__c)を突合して各店に付与(入力があれば値、無ければ null / [])。
+    const detailMap = await fetchClubDetails();
+    for (const c of clubs) c.detail = detailOf(detailMap.get(c.clubCode));
 
     if (clubCode) {
       const one = clubs.find((x: any) => x.clubCode === clubCode);

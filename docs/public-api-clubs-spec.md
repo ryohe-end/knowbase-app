@@ -5,7 +5,8 @@
 
 - 認証: `x-api-key` ヘッダ（環境変数 `KB_PUBLIC_API_KEY` と照合）
 - データソース: Oracle adb01 `FIT_ADMIN.クラブ情報`（一覧・企業名）/ `FIT_ADMIN.クラブ`（経営企業コード）/ `FIT_ADMIN.契約会費金額`（契約形態フィルタ）（`knowbie_ro`、read-only）
-- 実装: Next.js route `app/api/public/clubs/route.ts` → member-search Lambda `type:"clubs-list"`
+  - **店舗詳細（`detail`）** は会員DB `club__c`（店舗設定→「アプリ基本設定」で入力）から取得し、クラブコードで突合
+- 実装: Next.js route `app/api/public/clubs/route.ts` → member-search Lambda `type:"clubs-list"` ＋ `club__c` 突合
 
 ---
 
@@ -64,7 +65,19 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
       "closed": false,
       "managementCompanyCode": "1",
       "companyName": "オカモト",
-      "matchedFormCodes": [711, 2052]
+      "matchedFormCodes": [711, 2052],
+      "detail": {
+        "latitude": 35.6812,
+        "longitude": 139.7671,
+        "homepageUrl": "https://…",
+        "phoneNumber": "03-1234-5678",
+        "businessHours": "24時間",
+        "regularHoliday": "毎週火曜",
+        "staffHours": "平日 10:00〜19:00",
+        "tempClosedDates": ["2026-08-13", "2026-08-14"],
+        "preOpenDate": "2026-03-25",
+        "grandOpenDate": "2026-04-01"
+      }
     }
   ]
 }
@@ -93,8 +106,18 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
 | `managementCompanyCode` | クラブ.クラブ経営企業コード | 経営企業コード（文字列。未設定は `null`） |
 | `companyName` | クラブ情報.企業名 | 経営企業名（未設定は `null`） |
 | `matchedFormCodes` | 契約会費金額.契約形態コード | `formCodes` 指定時のみ。その店が実際に契約可能な、要求コードのうちの契約形態コード配列 |
+| `detail` | club__c（アプリ基本設定） | 店舗詳細。**各店に常に付与**。各項目は未入力なら `null`（`tempClosedDates` は `[]`） |
+| `detail.latitude` / `detail.longitude` | club__c.latitude__c / longitude__c | 緯度・経度（近隣店舗検索用） |
+| `detail.homepageUrl` | club__c.link_url__c | 店舗HP（＝店舗設定の「外部リンク(店舗HP)」） |
+| `detail.phoneNumber` | club__c.phone_number | 電話番号 |
+| `detail.businessHours` | club__c.business_hours | 営業時間 |
+| `detail.regularHoliday` | club__c.regular_holiday | 定休日（毎週の曜日など） |
+| `detail.staffHours` | club__c.staff_hours | スタッフ対応時間 |
+| `detail.tempClosedDates` | club__c.temp_closed_dates | 臨時休館日（特定日の配列） |
+| `detail.preOpenDate` / `detail.grandOpenDate` | club__c.pre_open_date / grand_open_date | プレ／グランドオープン日（利用開始日計算用） |
 
-> 住所・都道府県はデータ未整備のため現時点では返さない（整備でき次第 追加）。
+> 店舗詳細（`detail`）は knowbase の「店舗設定→アプリ基本設定」で入力された値を返す。**未入力の項目は `null`（配列は `[]`）**。
+> 住所・都道府県（Oracle側）はデータ未整備のため現時点では返さない（整備でき次第 追加）。緯度経度は `detail` で返す。
 > 経営企業コード（`クラブ経営企業コード`）は `クラブ情報` には無く `FIT_ADMIN.クラブ` にのみ存在するため、クラブコードで LEFT JOIN して補う。
 
 ### エラー

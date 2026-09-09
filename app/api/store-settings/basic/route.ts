@@ -142,6 +142,13 @@ export async function GET(req: Request) {
         COALESCE(club_mail_address__c, '') AS club_email,
         COALESCE(notification_targets__c, '') AS notification_targets,
         COALESCE(personal_training_url, '') AS personal_training_url,
+        COALESCE(business_hours, '') AS business_hours,
+        COALESCE(regular_holiday, '') AS regular_holiday,
+        COALESCE(staff_hours, '') AS staff_hours,
+        COALESCE(phone_number, '') AS phone_number,
+        COALESCE(temp_closed_dates, '') AS temp_closed_dates,
+        COALESCE(pre_open_date, '') AS pre_open_date,
+        COALESCE(grand_open_date, '') AS grand_open_date,
         COALESCE(is_private__c, false) AS is_private,
         COALESCE(point_program_support_flag__c, false) AS point_support,
         COALESCE(recess_member_available_flag__c, false) AS recess_member,
@@ -257,6 +264,15 @@ export async function GET(req: Request) {
       externalLink: club.link_url,
       personalTrainingUrl: club.personal_training_url,
 
+      // 店舗詳細(公開API用)。空文字は undefined 扱いにして「未入力」を明確化。
+      businessHours: club.business_hours || undefined,
+      regularHoliday: club.regular_holiday || undefined,
+      staffHours: club.staff_hours || undefined,
+      phoneNumber: club.phone_number || undefined,
+      tempClosedDates: club.temp_closed_dates ? String(club.temp_closed_dates).split(",").map((s: string) => s.trim()).filter(Boolean) : [],
+      preOpenDate: club.pre_open_date || undefined,
+      grandOpenDate: club.grand_open_date || undefined,
+
       isPointSupported: club.point_support,
       pointSupportStartDate: club.point_support_start_date || "",
       appPointPopup: club.app_point_popup,
@@ -369,6 +385,13 @@ export async function POST(req: Request) {
          les_mills_member_available_flag__c = $13,
          hide_unpaid_warning_flag__c = $14,
          machine_names__c = $15,
+         business_hours = $16,
+         regular_holiday = $17,
+         staff_hours = $18,
+         phone_number = $19,
+         temp_closed_dates = $20,
+         pre_open_date = $21,
+         grand_open_date = $22,
          lastupdateddate = NOW()
        WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false`,
       [
@@ -387,6 +410,16 @@ export async function POST(req: Request) {
         toBool(body.lesMillsAvailable),
         !toBool(body.showUnpaidPayment), // showUnpaidPayment=true なら hide_unpaid=false
         machineNames,
+        toNullableString(body.businessHours),
+        toNullableString(body.regularHoliday),
+        toNullableString(body.staffHours),
+        toNullableString(body.phoneNumber),
+        // 臨時休館日は配列→カンマ区切りで保存(空配列はnull)
+        (Array.isArray(body.tempClosedDates) && body.tempClosedDates.length > 0)
+          ? body.tempClosedDates.map((s) => String(s).trim()).filter(Boolean).join(",")
+          : null,
+        toNullableString(body.preOpenDate),
+        toNullableString(body.grandOpenDate),
       ]
     );
 
