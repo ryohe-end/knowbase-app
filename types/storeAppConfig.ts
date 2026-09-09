@@ -48,6 +48,15 @@ export type StoreAppConfig = {
   externalLink?: string;
   personalTrainingUrl?: string;
 
+  // --- [店舗詳細(公開API用。入力があれば /api/public/clubs で返す)] ---
+  businessHours?: string;      // 営業時間
+  regularHoliday?: string;     // 定休日(毎週の曜日など)
+  staffHours?: string;         // スタッフ対応時間
+  phoneNumber?: string;        // 電話番号
+  tempClosedDates?: string[];  // 臨時休館日(特定日・複数)
+  preOpenDate?: string;        // プレオープン日
+  grandOpenDate?: string;      // グランドオープン日
+
   // --- [店舗設定] ---
   isPointSupported: boolean;
   pointSupportStartDate?: string;

@@ -727,6 +727,52 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                   <input type="url" name="personalTrainingUrl" value={form.personalTrainingUrl || ""} onChange={handleChange} className="kbs-input" placeholder="https://" />
                 </div>
               </div>
+
+              <div className="kbs-separator" />
+              <div className="kbs-field">
+                <label className="kbs-label">店舗詳細（アプリ表示・公開APIで返却）</label>
+                <p className="kbs-help" style={{ fontSize: 12, color: "#94a3b8", margin: "0 0 10px" }}>
+                  入力があれば公開API(/api/public/clubs)の <code>detail</code> で返します。空欄は返しません。HP URLは上の「外部リンク(店舗HP)」を使います。
+                </p>
+              </div>
+              <div className="kbs-field-grid-2">
+                <div className="kbs-field">
+                  <label className="kbs-label">電話番号</label>
+                  <input type="tel" name="phoneNumber" value={form.phoneNumber || ""} onChange={handleChange} className="kbs-input" placeholder="03-1234-5678" />
+                </div>
+                <div className="kbs-field">
+                  <label className="kbs-label">スタッフ対応時間</label>
+                  <input type="text" name="staffHours" value={form.staffHours || ""} onChange={handleChange} className="kbs-input" placeholder="例：平日 10:00〜19:00" />
+                </div>
+              </div>
+              <div className="kbs-field-grid-2">
+                <div className="kbs-field">
+                  <label className="kbs-label">営業時間</label>
+                  <input type="text" name="businessHours" value={form.businessHours || ""} onChange={handleChange} className="kbs-input" placeholder="例：24時間 / 平日 7:00〜23:00" />
+                </div>
+                <div className="kbs-field">
+                  <label className="kbs-label">定休日（毎週）</label>
+                  <input type="text" name="regularHoliday" value={form.regularHoliday || ""} onChange={handleChange} className="kbs-input" placeholder="例：毎週火曜 / 年中無休" />
+                </div>
+              </div>
+              <div className="kbs-field-grid-2">
+                <div className="kbs-field">
+                  <label className="kbs-label">プレオープン日</label>
+                  <input type="date" name="preOpenDate" value={form.preOpenDate || ""} onChange={handleChange} className="kbs-input" />
+                </div>
+                <div className="kbs-field">
+                  <label className="kbs-label">グランドオープン日</label>
+                  <input type="date" name="grandOpenDate" value={form.grandOpenDate || ""} onChange={handleChange} className="kbs-input" />
+                </div>
+              </div>
+              <div className="kbs-field">
+                <label className="kbs-label">臨時休館日（特定日・複数可。1行に1日付）</label>
+                <textarea
+                  name="tempClosedDates"
+                  value={(form.tempClosedDates || []).join("\n")}
+                  onChange={(e) => setForm({ ...form, tempClosedDates: e.target.value.split(/\n/).map((s) => s.trim()) })}
+                  className="kbs-input" rows={3} placeholder={"2026-08-13\n2026-08-14\n2026-12-31"} />
+              </div>
             </div>
           </section>
 
