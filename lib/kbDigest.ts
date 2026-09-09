@@ -4,7 +4,7 @@
 // - 内容が空なら AI がアクセス動向(人気検索/よく見られたマニュアル/新着/みんなの質問)から自動生成
 // - 全ユーザーへ SendGrid で配信
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { BedrockRuntimeClient, InvokeModelCommand } from "@aws-sdk/client-bedrock-runtime";
 import sgMail from "@sendgrid/mail";
 
@@ -110,6 +110,46 @@ export async function saveConfig(patch: Partial<DigestConfig>): Promise<DigestCo
   const next = { ...cur, ...patch };
   await ddb.send(new PutCommand({ TableName: DIGEST_TABLE, Item: { id: "config", ...next } }));
   return next;
+}
+
+// 全員配信(手動send)の連打防止アトミックロック。
+// 直近 cooldownMs 以内に配信起動があれば false(=ブロック)。DynamoDB の条件付き書き込みで
+// 競合下(非同期invoke・二度押し)でも確実に1回に絞る。force=true でクールダウンを無視して取得。
+export async function acquireSendLock(
+  cooldownMs: number,
+  force = false
+): Promise<{ ok: boolean; lastAt?: number }> {
+  const now = Date.now();
+  if (force) {
+    try {
+      await ddb.send(new UpdateCommand({
+        TableName: DIGEST_TABLE, Key: { id: "sendlock" },
+        UpdateExpression: "SET lockAt = :now", ExpressionAttributeValues: { ":now": now },
+      }));
+    } catch (e) {
+      console.error("[kbDigest] acquireSendLock(force) failed:", (e as Error)?.message);
+    }
+    return { ok: true };
+  }
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: DIGEST_TABLE, Key: { id: "sendlock" },
+      UpdateExpression: "SET lockAt = :now",
+      ConditionExpression: "attribute_not_exists(id) OR lockAt < :threshold",
+      ExpressionAttributeValues: { ":now": now, ":threshold": now - cooldownMs },
+    }));
+    return { ok: true };
+  } catch (e: any) {
+    if (e?.name === "ConditionalCheckFailedException") {
+      let lastAt: number | undefined;
+      try {
+        const g = await ddb.send(new GetCommand({ TableName: DIGEST_TABLE, Key: { id: "sendlock" } }));
+        lastAt = Number((g.Item as any)?.lockAt) || undefined;
+      } catch {}
+      return { ok: false, lastAt };
+    }
+    throw e; // 権限エラー等は呼び出し側で fail-closed(配信しない)扱いにする
+  }
 }
 
 // ===== トレンド収集 =====

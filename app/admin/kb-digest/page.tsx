@@ -24,7 +24,7 @@ export default function KbDigestPage() {
   const [sectionDefs, setSectionDefs] = useState<SectionDef[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string; blocked?: boolean } | null>(null);
 
   const [genLoading, setGenLoading] = useState(false);
   const [genStage, setGenStage] = useState("");
@@ -74,14 +74,21 @@ export default function KbDigestPage() {
     finally { setGenLoading(false); setGenStage(""); }
   }, [cfg]);
 
-  const sendNow = useCallback(async () => {
-    if (!confirm("KB通信を対象全員に今すぐ配信します。よろしいですか？")) return;
+  const sendNow = useCallback(async (force = false) => {
+    if (!force && !confirm("KB通信を対象全員に今すぐ配信します。よろしいですか？")) return;
+    if (force && !confirm("⚠ 直近に配信済みです。連打防止を無視して【もう一度】全員に配信します。本当によろしいですか？")) return;
     setSending(true); setMsg(null);
     try {
-      const body = preview ? { subject: preview.subject, html: preview.html } : {};
+      const body: { subject?: string; html?: string; force?: boolean } =
+        preview ? { subject: preview.subject, html: preview.html } : {};
+      if (force) body.force = true;
       const res = await fetch("/api/admin/kb-digest/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const d = await res.json();
       if (d.ok) { setMsg({ ok: true, text: "配信を開始しました。数十秒〜数分で対象者へ順次届きます。" }); setPreview(null); patch({ nextDraft: "" }); }
+      else if (d.blocked) {
+        // 連打防止でブロック。強制再配信の導線を出す。
+        setMsg({ ok: false, text: `${d.error}\n（本当に再送する場合は下の「強制再配信」を押してください）`, blocked: true });
+      }
       else setMsg({ ok: false, text: d.error || "配信失敗" });
     } catch { setMsg({ ok: false, text: "配信に失敗しました" }); }
     finally { setSending(false); }
@@ -111,7 +118,23 @@ export default function KbDigestPage() {
       <h1>KB通信（メールマガジン）</h1>
       <p className="kd-sub">KnowBaseの魅力を全社に届ける定期メール。内容が空ならアクセス動向からAIが自動生成し、スケジュールで自動配信します。</p>
 
-      {msg && <div className={`kd-msg ${msg.ok ? "ok" : "ng"}`}>{msg.text}</div>}
+      {msg && (
+        <div className={`kd-msg ${msg.ok ? "ok" : "ng"}`} style={{ whiteSpace: "pre-line" }}>
+          {msg.text}
+          {msg.blocked && (
+            <div style={{ marginTop: 8 }}>
+              <button
+                className="kd-btn"
+                onClick={() => sendNow(true)}
+                disabled={sending}
+                style={{ borderColor: "#dc2626", color: "#dc2626" }}
+              >
+                {sending ? "配信中…" : "強制再配信する"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 配信ON/OFF */}
       <div className="kd-card">
@@ -242,7 +265,7 @@ export default function KbDigestPage() {
       <div className="kd-actions">
         <button className="kd-btn" onClick={save} disabled={saving}>{saving ? "保存中…" : "設定を保存"}</button>
         <button className="kd-btn" onClick={generate} disabled={genLoading}>{genLoading ? (genStage || "生成中…") : "プレビュー生成"}</button>
-        <button className="kd-btn primary" onClick={sendNow} disabled={sending}>{sending ? "配信中…" : "今すぐ配信"}</button>
+        <button className="kd-btn primary" onClick={() => sendNow(false)} disabled={sending}>{sending ? "配信中…" : "今すぐ配信"}</button>
       </div>
 
       {cfg.lastSentAt && <div className="kd-last">最終配信: {new Date(cfg.lastSentAt).toLocaleString("ja-JP")} ／ {cfg.lastSubject || ""}</div>}
