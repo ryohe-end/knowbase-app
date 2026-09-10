@@ -1843,6 +1843,7 @@ function StoreSettingsSubMenu({ clubCode }: { clubCode: string }) {
     {
       category: "会員手続き",
       items: [
+        { title: "入会管理（契約・違約金）", desc: "契約形態ごとの入会可否ON/OFFと、違約金など契約マスタを設定します。", href: `/store-settings/admin-portal/enrollment?clubCode=${clubCode}`, color: "#e11d48", iconPath: "M18 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 019.374 21c-2.331 0-4.512-.645-6.374-1.766z" },
         { title: "休会申請 一覧・分析", desc: "月別の休会申請者一覧と分析（店舗別・推移・季節性）を確認します。", href: `/store-settings/recess`, color: "#6d28d9", iconPath: "M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" },
       ],
     },
