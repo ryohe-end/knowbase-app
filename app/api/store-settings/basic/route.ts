@@ -109,6 +109,40 @@ function toNullableString(v: any): string | null {
   return s === "" ? null : s;
 }
 
+// 拡張店舗詳細(detail_ext__c JSONB)の正規化。GET返却・PUT保存の両方で使い、形と上限を担保する。
+// pg は jsonb を JS オブジェクトで返す。文字列で来た場合(念のため)も parse する。
+function normalizeDetailExt(raw: any): {
+  postalCode?: string; access?: string; parking?: string; floorArea?: string;
+  snsLinks: { label: string; url: string }[]; photos: string[]; facilityTags: string[];
+} {
+  let o: any = raw;
+  if (typeof raw === "string") { try { o = JSON.parse(raw); } catch { o = null; } }
+  o = o && typeof o === "object" ? o : {};
+  const str = (v: any, max: number) => {
+    const s = v === null || v === undefined ? "" : String(v).trim();
+    return s ? s.slice(0, max) : undefined;
+  };
+  const snsLinks = Array.isArray(o.snsLinks)
+    ? o.snsLinks
+        .map((x: any) => ({ label: String(x?.label ?? "").trim().slice(0, 40), url: String(x?.url ?? "").trim().slice(0, 500) }))
+        .filter((x: any) => x.url)
+        .slice(0, 20)
+    : [];
+  const photos = Array.isArray(o.photos)
+    ? o.photos.map((x: any) => String(x ?? "").trim()).filter(Boolean).slice(0, 30)
+    : [];
+  const facilityTags = Array.isArray(o.facilityTags)
+    ? o.facilityTags.map((x: any) => String(x ?? "").trim()).filter(Boolean).slice(0, 60)
+    : [];
+  return {
+    postalCode: str(o.postalCode, 20),
+    access: str(o.access, 2000),
+    parking: str(o.parking, 1000),
+    floorArea: str(o.floorArea, 100),
+    snsLinks, photos, facilityTags,
+  };
+}
+
 
 export async function GET(req: Request) {
   const user = await getCurrentUser();
@@ -149,6 +183,7 @@ export async function GET(req: Request) {
         COALESCE(temp_closed_dates, '') AS temp_closed_dates,
         COALESCE(pre_open_date, '') AS pre_open_date,
         COALESCE(grand_open_date, '') AS grand_open_date,
+        detail_ext__c,
         COALESCE(is_private__c, false) AS is_private,
         COALESCE(point_program_support_flag__c, false) AS point_support,
         COALESCE(recess_member_available_flag__c, false) AS recess_member,
@@ -273,6 +308,9 @@ export async function GET(req: Request) {
       preOpenDate: club.pre_open_date || undefined,
       grandOpenDate: club.grand_open_date || undefined,
 
+      // 拡張店舗詳細(JSONB)。pg は jsonb を JS オブジェクトとして返す。未設定は空。
+      detailExt: normalizeDetailExt(club.detail_ext__c),
+
       isPointSupported: club.point_support,
       pointSupportStartDate: club.point_support_start_date || "",
       appPointPopup: club.app_point_popup,
@@ -392,6 +430,7 @@ export async function POST(req: Request) {
          temp_closed_dates = $20,
          pre_open_date = $21,
          grand_open_date = $22,
+         detail_ext__c = $23::jsonb,
          lastupdateddate = NOW()
        WHERE club_code__c = $1 AND COALESCE(isdeleted, false) = false`,
       [
@@ -420,6 +459,7 @@ export async function POST(req: Request) {
           : null,
         toNullableString(body.preOpenDate),
         toNullableString(body.grandOpenDate),
+        JSON.stringify(normalizeDetailExt((body as any).detailExt)),
       ]
     );
 

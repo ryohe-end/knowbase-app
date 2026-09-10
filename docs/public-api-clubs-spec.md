@@ -76,7 +76,14 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
         "staffHours": "平日 10:00〜19:00",
         "tempClosedDates": ["2026-08-13", "2026-08-14"],
         "preOpenDate": "2026-03-25",
-        "grandOpenDate": "2026-04-01"
+        "grandOpenDate": "2026-04-01",
+        "postalCode": "150-0001",
+        "access": "JR渋谷駅 東口より徒歩5分",
+        "parking": "提携コインパーキングあり（2時間無料）",
+        "floorArea": "350㎡",
+        "snsLinks": [{ "label": "Instagram", "url": "https://…" }],
+        "photos": ["https://…/photo1.jpg", "https://…/photo2.jpg"],
+        "facilityTags": ["シャワー", "サウナ", "女性専用エリア"]
       }
     }
   ]
@@ -115,6 +122,13 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
 | `detail.staffHours` | club__c.staff_hours | スタッフ対応時間 |
 | `detail.tempClosedDates` | club__c.temp_closed_dates | 臨時休館日（特定日の配列） |
 | `detail.preOpenDate` / `detail.grandOpenDate` | club__c.pre_open_date / grand_open_date | プレ／グランドオープン日（利用開始日計算用） |
+| `detail.postalCode` | club__c.detail_ext__c.postalCode | 郵便番号 |
+| `detail.access` | club__c.detail_ext__c.access | アクセス（最寄駅・道順） |
+| `detail.parking` | club__c.detail_ext__c.parking | 駐車場 |
+| `detail.floorArea` | club__c.detail_ext__c.floorArea | 面積（単位込み文字列） |
+| `detail.snsLinks` | club__c.detail_ext__c.snsLinks | SNSリンク配列 `[{label,url}]`（未入力は `[]`） |
+| `detail.photos` | club__c.detail_ext__c.photos | 店舗写真URL配列（S3公開URL・未入力は `[]`） |
+| `detail.facilityTags` | club__c.detail_ext__c.facilityTags | 設備タグ配列（未入力は `[]`） |
 
 > 店舗詳細（`detail`）は knowbase の「店舗設定→アプリ基本設定」で入力された値を返す。**未入力の項目は `null`（配列は `[]`）**。
 > 住所・都道府県（Oracle側）はデータ未整備のため現時点では返さない（整備でき次第 追加）。緯度経度は `detail` で返す。

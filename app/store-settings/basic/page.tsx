@@ -154,6 +154,9 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
   // マシン画像アップロード状態
   const [machineImgUploading, setMachineImgUploading] = useState(false);
   const [machineImgError, setMachineImgError] = useState("");
+  const [storePhotoBusy, setStorePhotoBusy] = useState(false);
+  const [storePhotoError, setStorePhotoError] = useState("");
+  const [facilityTagInput, setFacilityTagInput] = useState("");
 
   // バリデーション
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -436,6 +439,56 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
       setMachineImgUploading(false);
     }
   };
+
+  // ===== 拡張店舗詳細(detailExt: 郵便番号/アクセス/駐車場/面積/SNS/写真/設備タグ) =====
+  const detailExt = form.detailExt || {};
+  const patchDetailExt = (patch: Partial<NonNullable<StoreAppConfig["detailExt"]>>) =>
+    setForm((prev) => ({ ...prev, detailExt: { ...(prev.detailExt || {}), ...patch } }));
+  // SNSリンク
+  const snsLinks = detailExt.snsLinks || [];
+  const addSnsLink = () => patchDetailExt({ snsLinks: [...snsLinks, { label: "", url: "" }] });
+  const updateSnsLink = (i: number, key: "label" | "url", v: string) =>
+    patchDetailExt({ snsLinks: snsLinks.map((s, idx) => (idx === i ? { ...s, [key]: v } : s)) });
+  const removeSnsLink = (i: number) => patchDetailExt({ snsLinks: snsLinks.filter((_, idx) => idx !== i) });
+  // 設備タグ
+  const facilityTags = detailExt.facilityTags || [];
+  const addFacilityTag = () => {
+    const t = facilityTagInput.trim();
+    if (!t || facilityTags.includes(t)) { setFacilityTagInput(""); return; }
+    patchDetailExt({ facilityTags: [...facilityTags, t] });
+    setFacilityTagInput("");
+  };
+  const removeFacilityTag = (t: string) => patchDetailExt({ facilityTags: facilityTags.filter((x) => x !== t) });
+  // 店舗写真(複数。S3 presign→PUT→publicUrl)
+  const photos = detailExt.photos || [];
+  const handleStorePhotoUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setStorePhotoError("");
+    setStorePhotoBusy(true);
+    try {
+      const allowed = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+      const added: string[] = [];
+      for (const file of Array.from(files)) {
+        if (!allowed.includes(file.type)) { setStorePhotoError("PNG / JPEG / WebP / GIF のみアップロードできます。"); continue; }
+        if (file.size > 10 * 1024 * 1024) { setStorePhotoError("ファイルサイズは 10MB 以内にしてください。"); continue; }
+        const initRes = await fetch("/api/store-settings/media/upload-image", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+        });
+        const init = await initRes.json();
+        if (!initRes.ok || !init.ok) throw new Error(init?.error || "アップロード準備に失敗しました");
+        const putRes = await fetch(init.presignedUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
+        if (!putRes.ok) throw new Error("S3 へのアップロードに失敗しました");
+        added.push(init.publicUrl);
+      }
+      if (added.length) patchDetailExt({ photos: [...photos, ...added].slice(0, 30) });
+    } catch (e: any) {
+      setStorePhotoError(e?.message || "アップロードに失敗しました");
+    } finally {
+      setStorePhotoBusy(false);
+    }
+  };
+  const removePhoto = (url: string) => patchDetailExt({ photos: photos.filter((p) => p !== url) });
   const handleAddMachine = async () => {
     const name = newMachine.name.trim();
     const maker = newMachine.maker.trim();
@@ -772,6 +825,81 @@ function BasicSettingsPageInner({ clubCode }: { clubCode: string }) {
                   value={(form.tempClosedDates || []).join("\n")}
                   onChange={(e) => setForm({ ...form, tempClosedDates: e.target.value.split(/\n/).map((s) => s.trim()) })}
                   className="kbs-input" rows={3} placeholder={"2026-08-13\n2026-08-14\n2026-12-31"} />
+              </div>
+
+              {/* 追加店舗詳細(公開API /clubs の detail で返却) */}
+              <div className="kbs-field-grid-2">
+                <div className="kbs-field">
+                  <label className="kbs-label">郵便番号</label>
+                  <input type="text" value={detailExt.postalCode || ""} onChange={(e) => patchDetailExt({ postalCode: e.target.value })} className="kbs-input" placeholder="例：150-0001" />
+                </div>
+                <div className="kbs-field">
+                  <label className="kbs-label">面積</label>
+                  <input type="text" value={detailExt.floorArea || ""} onChange={(e) => patchDetailExt({ floorArea: e.target.value })} className="kbs-input" placeholder="例：350㎡ / 約120坪" />
+                </div>
+              </div>
+              <div className="kbs-field">
+                <label className="kbs-label">アクセス（最寄駅・道順）</label>
+                <textarea value={detailExt.access || ""} onChange={(e) => patchDetailExt({ access: e.target.value })} className="kbs-input" rows={2} placeholder="例：JR渋谷駅 東口より徒歩5分" />
+              </div>
+              <div className="kbs-field">
+                <label className="kbs-label">駐車場</label>
+                <input type="text" value={detailExt.parking || ""} onChange={(e) => patchDetailExt({ parking: e.target.value })} className="kbs-input" placeholder="例：提携コインパーキングあり（2時間無料）" />
+              </div>
+
+              {/* SNSリンク(複数) */}
+              <div className="kbs-field">
+                <label className="kbs-label">SNSリンク</label>
+                {snsLinks.map((sns, i) => (
+                  <div key={i} className="kbs-field-grid-2" style={{ marginBottom: 6, alignItems: "center" }}>
+                    <input type="text" value={sns.label} onChange={(e) => updateSnsLink(i, "label", e.target.value)} className="kbs-input" placeholder="種類（例：Instagram）" />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="url" value={sns.url} onChange={(e) => updateSnsLink(i, "url", e.target.value)} className="kbs-input" placeholder="https://" style={{ flex: 1 }} />
+                      <button type="button" className="kbs-btn-ghost" onClick={() => removeSnsLink(i)} title="削除">×</button>
+                    </div>
+                  </div>
+                ))}
+                <button type="button" className="kbs-btn-ghost" onClick={addSnsLink}>＋ SNSを追加</button>
+              </div>
+
+              {/* 設備タグ(複数) */}
+              <div className="kbs-field">
+                <label className="kbs-label">設備タグ</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                  {facilityTags.map((t) => (
+                    <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "2px 10px", fontSize: 13 }}>
+                      {t}
+                      <button type="button" onClick={() => removeFacilityTag(t)} style={{ border: "none", background: "none", cursor: "pointer", color: "#6366f1" }}>×</button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input type="text" value={facilityTagInput} onChange={(e) => setFacilityTagInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addFacilityTag(); } }}
+                    className="kbs-input" placeholder="例：シャワー / サウナ / 女性専用エリア（Enterで追加）" style={{ flex: 1 }} />
+                  <button type="button" className="kbs-btn-ghost" onClick={addFacilityTag}>追加</button>
+                </div>
+              </div>
+
+              {/* 店舗写真(複数・S3アップロード) */}
+              <div className="kbs-field">
+                <label className="kbs-label">店舗写真</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+                  {photos.map((url) => (
+                    <div key={url} style={{ position: "relative", width: 110, height: 82 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt="店舗写真" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 6, border: "1px solid #e2e8f0" }} />
+                      <button type="button" onClick={() => removePhoto(url)}
+                        style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 999, border: "none", background: "#ef4444", color: "#fff", cursor: "pointer", fontSize: 12, lineHeight: "20px" }}>×</button>
+                    </div>
+                  ))}
+                </div>
+                <label className={`kbs-btn-ghost${storePhotoBusy ? " uploading" : ""}`} style={{ cursor: storePhotoBusy ? "wait" : "pointer" }}>
+                  {storePhotoBusy ? "アップロード中…" : "＋ 写真を追加（複数可）"}
+                  <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple disabled={storePhotoBusy}
+                    onChange={(e) => { handleStorePhotoUpload(e.target.files); e.target.value = ""; }} style={{ display: "none" }} />
+                </label>
+                {storePhotoError && <p className="kbs-help" style={{ color: "#ef4444", fontSize: 12, margin: "6px 0 0" }}>{storePhotoError}</p>}
               </div>
             </div>
           </section>

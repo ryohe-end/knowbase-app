@@ -34,7 +34,8 @@ async function fetchClubDetails(): Promise<Map<string, any>> {
               COALESCE(phone_number, '') AS phone_number,
               COALESCE(temp_closed_dates, '') AS temp_closed_dates,
               COALESCE(pre_open_date, '') AS pre_open_date,
-              COALESCE(grand_open_date, '') AS grand_open_date
+              COALESCE(grand_open_date, '') AS grand_open_date,
+              detail_ext__c
          FROM club__c
         WHERE COALESCE(isdeleted, false) = false AND club_code__c IS NOT NULL`
     );
@@ -50,6 +51,11 @@ async function fetchClubDetails(): Promise<Map<string, any>> {
 function detailOf(d: any) {
   const s = (v: any) => { const t = v == null ? "" : String(v).trim(); return t === "" ? null : t; };
   const num = (v: any) => (v == null || v === "" || !Number.isFinite(Number(v))) ? null : Number(v);
+  // 拡張店舗詳細(detail_ext__c JSONB)。pg は object で返すが文字列の場合も parse。
+  let ext: any = d?.detail_ext__c;
+  if (typeof ext === "string") { try { ext = JSON.parse(ext); } catch { ext = null; } }
+  ext = ext && typeof ext === "object" ? ext : {};
+  const arr = (v: any) => (Array.isArray(v) ? v : []);
   return {
     latitude: num(d?.latitude__c),
     longitude: num(d?.longitude__c),
@@ -61,6 +67,14 @@ function detailOf(d: any) {
     tempClosedDates: d?.temp_closed_dates ? String(d.temp_closed_dates).split(",").map((x: string) => x.trim()).filter(Boolean) : [], // 臨時休館日(特定日)
     preOpenDate: s(d?.pre_open_date),
     grandOpenDate: s(d?.grand_open_date),
+    // 拡張項目(アプリ基本設定「店舗詳細」で入力)
+    postalCode: s(ext.postalCode),
+    access: s(ext.access),
+    parking: s(ext.parking),
+    floorArea: s(ext.floorArea),
+    snsLinks: arr(ext.snsLinks).map((x: any) => ({ label: s(x?.label), url: s(x?.url) })).filter((x: any) => x.url),
+    photos: arr(ext.photos).map((x: any) => s(x)).filter(Boolean),
+    facilityTags: arr(ext.facilityTags).map((x: any) => s(x)).filter(Boolean),
   };
 }
 

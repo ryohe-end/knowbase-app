@@ -29,6 +29,18 @@ export type UnlockDeviceConfig = {
   displayName: string;
 };
 
+// 拡張店舗詳細(アプリ基本設定「店舗詳細」で入力 → club__c.detail_ext__c JSONB。公開API /clubs で返す)
+export type StoreSnsLink = { label: string; url: string };
+export type StoreDetailExt = {
+  postalCode?: string;      // 郵便番号
+  access?: string;          // アクセス(最寄駅・道順など)
+  parking?: string;         // 駐車場
+  floorArea?: string;       // 面積(単位込み文字列可: "350㎡" 等)
+  snsLinks?: StoreSnsLink[]; // SNSリンク(複数)
+  photos?: string[];        // 店舗写真URL(S3 publicUrl。複数)
+  facilityTags?: string[];  // 設備タグ(複数)
+};
+
 export type StoreAppConfig = {
   // --- [店舗情報] ---
   clubCode: string;
@@ -56,6 +68,9 @@ export type StoreAppConfig = {
   tempClosedDates?: string[];  // 臨時休館日(特定日・複数)
   preOpenDate?: string;        // プレオープン日
   grandOpenDate?: string;      // グランドオープン日
+
+  // 拡張店舗詳細(郵便番号/アクセス/駐車場/面積/SNS/写真/設備タグ)。club__c.detail_ext__c に保存。
+  detailExt?: StoreDetailExt;
 
   // --- [店舗設定] ---
   isPointSupported: boolean;
