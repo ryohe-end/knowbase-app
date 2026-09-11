@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { signValue, verifySignedValue } from "@/lib/auth";
-import { canViewAccounting } from "@/lib/accountingAuth";
+import { canViewAccounting, canViewWriteoffReconcile } from "@/lib/accountingAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,6 +102,8 @@ export async function GET() {
         permissions: normalizeStringArray(user.permissions),
         // 経理(会計)管理画面の閲覧可否 (role=finance / permission=accounting / 許可メール)
         canViewAccounting: canViewAccounting({ email: user.email, role: user.role, permissions: normalizeStringArray(user.permissions) }),
+        // 貸倒対象照合の閲覧可否 (指定メールだけ。既定=永田/山本)
+        canViewWriteoffReconcile: canViewWriteoffReconcile({ email: user.email, role: user.role, permissions: normalizeStringArray(user.permissions) }),
 
         // ✅ 両方返す（フロント互換）
         groupId,      // ← 追加：page.tsx が今見てるやつ

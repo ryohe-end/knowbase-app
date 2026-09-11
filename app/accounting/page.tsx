@@ -61,6 +61,7 @@ export default function AccountingHome() {
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "forbidden">("loading");
   const [name, setName] = useState("");
+  const [canWriteoffReconcile, setCanWriteoffReconcile] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -70,6 +71,7 @@ export default function AccountingHome() {
         const u = json?.user;
         if (res.ok && u?.canViewAccounting) {
           setName(u.name || "");
+          setCanWriteoffReconcile(u?.canViewWriteoffReconcile === true);
           setState("ok");
         } else {
           setState("forbidden");
@@ -109,7 +111,7 @@ export default function AccountingHome() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 20 }}>
-          {MENU.map((m) => (
+          {MENU.filter((m) => m.href !== "/accounting/writeoff-reconcile" || canWriteoffReconcile).map((m) => (
             <Link key={m.href} href={m.href} style={{ textDecoration: "none", color: "inherit" }}>
               <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
                 <div style={{ height: 5, background: m.color }} />

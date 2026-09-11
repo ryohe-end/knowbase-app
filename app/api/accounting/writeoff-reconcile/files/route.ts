@@ -6,7 +6,7 @@
 //   POST { ym }    → その基準月のCSVを非同期生成(knowbie-writeoff-reconcile-batch を Event invoke)
 // クエリが重い(~40s)ため生成はバッチに委譲し、画面はS3から直接DLする(タイムアウト回避)。
 import { NextRequest, NextResponse } from "next/server";
-import { requireAccounting } from "@/lib/accountingAuth";
+import { requireWriteoffReconcile } from "@/lib/accountingAuth";
 import { S3Client, ListObjectsV2Command, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { LambdaClient, InvokeCommand } from "@aws-sdk/client-lambda";
@@ -32,7 +32,7 @@ function filenameFor(ym: string, scope: string): string {
 }
 
 export async function GET(req: NextRequest) {
-  const user = await requireAccounting();
+  const user = await requireWriteoffReconcile();
   if (!user) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   const ym = (req.nextUrl.searchParams.get("ym") || "").trim();
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
 
 // 生成トリガ(非同期): バッチ Lambda を Event invoke。~1-2分後に GET で一覧を再取得する。
 export async function POST(req: NextRequest) {
-  const user = await requireAccounting();
+  const user = await requireWriteoffReconcile();
   if (!user) return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
 
   let body: any = {};

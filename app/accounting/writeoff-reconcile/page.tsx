@@ -36,7 +36,7 @@ export default function WriteoffReconcilePage() {
       try {
         const res = await fetch("/api/me", { cache: "no-store" });
         const json = await res.json();
-        if (res.ok && json?.user?.canViewAccounting) setAuthState("ok");
+        if (res.ok && json?.user?.canViewWriteoffReconcile) setAuthState("ok");
         else { setAuthState("forbidden"); setTimeout(() => router.replace("/"), 1500); }
       } catch { setAuthState("forbidden"); setTimeout(() => router.replace("/"), 1500); }
     })();

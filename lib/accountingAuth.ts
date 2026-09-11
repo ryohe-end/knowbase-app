@@ -23,6 +23,17 @@ const ALLOW_EMAILS = (process.env.ACCOUNTING_ALLOW_EMAILS || "r-endo@okamoto-gro
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
 
+// 貸倒対象照合(/accounting/writeoff-reconcile)専用の許可メール。
+// オカモト会員別の機微データのため、一般経理(finance/accounting/r-endo)ではなく指定メールだけに限定する。
+// env WRITEOFF_RECONCILE_ALLOW_EMAILS(カンマ区切り)で上書き可。
+const WRITEOFF_RECONCILE_ALLOW_EMAILS = (
+  process.env.WRITEOFF_RECONCILE_ALLOW_EMAILS ||
+  "a-nagata@okamoto-group.co.jp,ke-yamamoto@okamoto-group.co.jp"
+)
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
 export type AccountingIdentity = { email?: string | null; role?: string | null; permissions?: string[] | null };
 
 // 純粋判定(クライアント/サーバ共用可)。
@@ -32,6 +43,12 @@ export function canViewAccounting(u: AccountingIdentity | null | undefined): boo
   if (Array.isArray(u.permissions) && u.permissions.includes(ACCOUNTING_PERMISSION)) return true;
   if (u.email && ALLOW_EMAILS.includes(String(u.email).toLowerCase())) return true;
   return false;
+}
+
+// 貸倒対象照合の閲覧可否。指定メール(既定=永田/山本)だけ許可。一般経理では不可。
+export function canViewWriteoffReconcile(u: AccountingIdentity | null | undefined): boolean {
+  if (!u || !u.email) return false;
+  return WRITEOFF_RECONCILE_ALLOW_EMAILS.includes(String(u.email).toLowerCase());
 }
 
 function normArr(raw: any): string[] {
@@ -65,4 +82,10 @@ export async function getAccountingIdentity(): Promise<{ email: string; role: st
 export async function requireAccounting() {
   const u = await getAccountingIdentity();
   return u && canViewAccounting(u) ? u : null;
+}
+
+// API ゲート用: 貸倒対象照合の許可メールなら identity を返し、不可なら null。
+export async function requireWriteoffReconcile() {
+  const u = await getAccountingIdentity();
+  return u && canViewWriteoffReconcile(u) ? u : null;
 }
