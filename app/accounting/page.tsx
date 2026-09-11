@@ -61,6 +61,7 @@ export default function AccountingHome() {
   const router = useRouter();
   const [state, setState] = useState<"loading" | "ok" | "forbidden">("loading");
   const [name, setName] = useState("");
+  const [canAccounting, setCanAccounting] = useState(false);
   const [canWriteoffReconcile, setCanWriteoffReconcile] = useState(false);
 
   useEffect(() => {
@@ -69,8 +70,10 @@ export default function AccountingHome() {
         const res = await fetch("/api/me", { cache: "no-store" });
         const json = await res.json();
         const u = json?.user;
-        if (res.ok && u?.canViewAccounting) {
+        // 一般経理(canViewAccounting) または 貸倒対象照合の許可メール(canViewWriteoffReconcile)で入室可。
+        if (res.ok && (u?.canViewAccounting || u?.canViewWriteoffReconcile)) {
           setName(u.name || "");
+          setCanAccounting(u?.canViewAccounting === true);
           setCanWriteoffReconcile(u?.canViewWriteoffReconcile === true);
           setState("ok");
         } else {
@@ -111,7 +114,7 @@ export default function AccountingHome() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 20 }}>
-          {MENU.filter((m) => m.href !== "/accounting/writeoff-reconcile" || canWriteoffReconcile).map((m) => (
+          {MENU.filter((m) => (m.href === "/accounting/writeoff-reconcile" ? canWriteoffReconcile : canAccounting)).map((m) => (
             <Link key={m.href} href={m.href} style={{ textDecoration: "none", color: "inherit" }}>
               <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", position: "relative", height: "100%", display: "flex", flexDirection: "column" }}>
                 <div style={{ height: 5, background: m.color }} />
