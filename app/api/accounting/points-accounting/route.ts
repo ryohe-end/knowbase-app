@@ -4,8 +4,9 @@
 // 全店横断で集計し、店舗別に「期間内の取得/使用」と「対象月末までの累積残高(取得−使用)」を返す。
 //   GET ?from=YYYY-MM&to=YYYY-MM&brand=FIT365|JOYFIT
 //     - 取得/使用 = [from..to] 合計
-//     - 残高      = 期首(全期間)〜to までの Σ(granted−used) 累積 (A方式: 失効未反映の近似)
-// 残高の精緻化(CPSS原資 or 真の累積)は夜間集計側で後日対応(B方式)。
+//     - 残高      = to から遡って13ヶ月の Σ(granted−used) (ローリング: CPSS失効=EXTA≈1年を近似反映)。
+//                   任意月を to に選べば、その月末の失効反映残高になる(月毎の残高)。
+//                   原資(knowbie-point-fund)がある店は真残高(発行−消費−失効)で上書き。
 import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
@@ -87,6 +88,11 @@ export async function GET(req: Request) {
   const sp = new URL(req.url).searchParams;
   const to = /^\d{4}-\d{2}$/.test(sp.get("to") || "") ? (sp.get("to") as string) : thisMonth();
   const from = /^\d{4}-\d{2}$/.test(sp.get("from") || "") ? (sp.get("from") as string) : to;
+  // 残高(B方式相当): CPSSの失効=EXTA(活動から約1年ローリング)を近似するため、
+  // 「to から遡って ROLLING_MONTHS ヶ月」の Σ(付与−利用) を当月末残高とみなす。
+  // 古い(=失効済み)ポイントを自然に落とせ、全期間累積(A方式)の過大計上を防ぐ。
+  const ROLLING_MONTHS = 13;
+  const rollStart = addMonths(to, -(ROLLING_MONTHS - 1));
   const brandFilter = (sp.get("brand") || "").toUpperCase();
 
   let items: any[];
@@ -111,7 +117,7 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "cumulative"; memberCount: number };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling"; memberCount: number };
   const byClub = new Map<string, Row>();
   // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used}
   const monthAgg = new Map<string, { granted: number; used: number }>();
@@ -135,10 +141,10 @@ export async function GET(req: Request) {
     let row = byClub.get(clubCode);
     if (!row) {
       const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "cumulative", memberCount: 0 };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0 };
       byClub.set(clubCode, row);
     }
-    row.balance += g - u; // 期首〜to の累積(A方式)
+    if (ym >= rollStart && ym <= to) row.balance += g - u; // 直近ROLLING_MONTHSヶ月のΣ(付与−利用)=失効(EXTA≈1年)近似
     if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
     if (ym === to) row.memberCount = num(it.memberCount);
   }

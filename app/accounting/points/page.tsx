@@ -5,7 +5,7 @@ import Link from "next/link";
 
 type Row = {
   clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string;
-  granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "cumulative"; memberCount: number;
+  granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling"; memberCount: number;
 };
 type AreaRow = { area: string; granted: number; used: number; expired: number; balance: number; stores: number };
 type MonthPoint = { ym: string; granted: number; used: number; balance: number };
@@ -91,7 +91,7 @@ export default function PointsAccountingPage() {
       footer = ["合計", viewTotals.granted, viewTotals.used, viewTotals.expired, viewTotals.balance, viewTotals.stores];
     } else {
       header = ["店舗コード", "店舗名", "ブランド", "エリア", `取得(${from}〜${to})`, `使用(${from}〜${to})`, "失効(累計)", "残高", "残高種別", "会員数"];
-      body = filtered.map((r) => [r.clubCode, r.clubName, r.brand, r.area, r.granted, r.used, r.expired, r.balance, r.balanceSource === "fund" ? "真残高" : "累積近似", r.memberCount]);
+      body = filtered.map((r) => [r.clubCode, r.clubName, r.brand, r.area, r.granted, r.used, r.expired, r.balance, r.balanceSource === "fund" ? "真残高" : "13ヶ月近似", r.memberCount]);
       footer = ["合計", "", "", "", viewTotals.granted, viewTotals.used, viewTotals.expired, viewTotals.balance, "", ""];
     }
     const lines = [header, ...body, footer].map((row) => row.map(esc).join(","));
@@ -112,13 +112,13 @@ export default function PointsAccountingPage() {
           <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: "0 0 4px" }}>ポイント会計ダッシュボード</h1>
           <p style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
             各店舗のポイント取得・使用・失効・残高を会計向けに集計します。残高は原資（発行−消費−失効＝真残高）を優先し、
-            未取込店は「取得−使用」の累積（近似）で表示します。
+            未取込店は「対象月末から直近13ヶ月の取得−使用」で表示します（CPSS失効=活動から約1年を近似反映）。
           </p>
         </div>
         <button onClick={() => { setImpOpen(true); setImpMsg(""); setImpMonth(to); }} style={{ ...btn, background: "#334155", color: "#fff" }}>原資インポート</button>
       </div>
       {fundStores > 0 && <div style={{ fontSize: 11, color: "#0f766e", background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 8, padding: "6px 10px", display: "inline-block", marginBottom: 12 }}>
-        原資(真残高)取込済み: {fundStores}店。未取込店は累積近似です。
+        原資(真残高)取込済み: {fundStores}店。未取込店は13ヶ月ローリング近似です。
       </div>}
 
       {/* コントロール */}
@@ -200,7 +200,7 @@ export default function PointsAccountingPage() {
                   <td style={{ ...td, textAlign: "left", color: "#64748b", fontSize: 12 }}>{r.area}</td>
                   <td style={td}>{yen(r.granted)}</td><td style={td}>{yen(r.used)}</td>
                   <td style={{ ...td, color: "#dc2626" }}>{yen(r.expired)}</td>
-                  <td style={{ ...td, fontWeight: 800, color: "#0f766e" }} title={r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : "累積近似(取得-使用)"}>
+                  <td style={{ ...td, fontWeight: 800, color: "#0f766e" }} title={r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : "13ヶ月ローリング近似(直近13ヶ月の取得-使用)"}>
                     {yen(r.balance)}{r.balanceSource !== "fund" && <span style={{ fontSize: 10, color: "#f59e0b", marginLeft: 3 }}>≈</span>}
                   </td>
                   <td style={{ ...td, color: "#64748b" }}>{yen(r.memberCount)}</td>
