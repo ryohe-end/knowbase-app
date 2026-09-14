@@ -173,17 +173,17 @@ export async function GET(req: Request) {
   }
   const byArea = [...areaMap.values()].sort((a, b) => b.balance - a.balance || a.area.localeCompare(b.area, "ja"));
 
-  // 月次推移: to から遡って12ヶ月。各月の granted/used と、その月末までの累積残高。
+  // 月次推移: to から遡って12ヶ月。各月の granted/used と、その月末の残高。
+  // 残高は店舗別と同じ「その月から遡ってROLLING_MONTHSヶ月のΣ(granted−used)」(失効EXTA≈1年 近似)。
   const monthly: { ym: string; granted: number; used: number; balance: number }[] = [];
-  let running = 0;
   const start12 = addMonths(to, -11);
-  // 累積残高の起点(start12より前)を先に足し込む
-  for (const [ym, ma] of monthAgg) if (ym < start12) running += ma.granted - ma.used;
   for (let i = 0; i < 12; i++) {
     const ym = addMonths(start12, i);
     const ma = monthAgg.get(ym) || { granted: 0, used: 0 };
-    running += ma.granted - ma.used;
-    monthly.push({ ym, granted: ma.granted, used: ma.used, balance: running });
+    const rs = addMonths(ym, -(ROLLING_MONTHS - 1)); // その月の13ヶ月窓の起点
+    let bal = 0;
+    for (const [k, v] of monthAgg) if (k >= rs && k <= ym) bal += v.granted - v.used;
+    monthly.push({ ym, granted: ma.granted, used: ma.used, balance: bal });
   }
 
   return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, balanceMethod: fundStores > 0 ? "fund(発行-消費-失効) + cumulative fallback" : "cumulative(granted-used)" });
