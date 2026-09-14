@@ -5,7 +5,7 @@ import Link from "next/link";
 
 type Row = {
   clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string;
-  granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active"; memberCount: number;
+  granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active" | "true"; memberCount: number; balTrueAt?: string | null;
 };
 type AreaRow = { area: string; granted: number; used: number; expired: number; balance: number; stores: number };
 type MonthPoint = { ym: string; granted: number; used: number; balance: number };
@@ -36,6 +36,35 @@ export default function PointsAccountingPage() {
   const [impText, setImpText] = useState("");
   const [impBusy, setImpBusy] = useState(false);
   const [impMsg, setImpMsg] = useState("");
+  // オンデマンド真残高: clubCode -> "計算中" | 値(数値) | エラー文字列
+  const [trueBusy, setTrueBusy] = useState<Record<string, boolean>>({});
+
+  // 1店の真残高を計算(POST→GETポーリング)。完了したらその行のbalanceを真残高で置換。
+  const fetchTrueBalance = useCallback(async (clubCode: string) => {
+    setTrueBusy((p) => ({ ...p, [clubCode]: true }));
+    try {
+      const post = await fetch("/api/accounting/points-accounting/true-balance", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clubCode }),
+      });
+      const pj = await post.json();
+      if (!post.ok || !pj.ok) throw new Error(pj?.error || "開始に失敗");
+      // 会員数が多い店は数分。最大10分ポーリング(15秒間隔)。
+      for (let i = 0; i < 40; i++) {
+        await new Promise((r) => setTimeout(r, 15000));
+        const g = await fetch(`/api/accounting/points-accounting/true-balance?clubCode=${clubCode}`, { cache: "no-store" });
+        const gj = await g.json();
+        if (gj.ok && gj.ready) {
+          setRows((prev) => prev.map((r) => (r.clubCode === clubCode ? { ...r, balance: Number(gj.balanceTrue) || 0, balanceSource: "true", balTrueAt: gj.at } : r)));
+          return;
+        }
+      }
+      alert(`${clubCode}: 真残高の計算がタイムアウトしました。時間をおいて再度お試しください。`);
+    } catch (e: any) {
+      alert(`${clubCode}: 真残高の取得に失敗しました（${e?.message || e}）`);
+    } finally {
+      setTrueBusy((p) => { const n = { ...p }; delete n[clubCode]; return n; });
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true); setErr("");
@@ -102,6 +131,30 @@ export default function PointsAccountingPage() {
     a.click(); URL.revokeObjectURL(url);
   };
 
+  // 月×店 残高マトリクスCSV(全期間 2022-01〜対象月)。行=店舗, 列=各月の残高(退会者除外優先/近似)。
+  const [matrixBusy, setMatrixBusy] = useState(false);
+  const downloadBalanceMatrix = async () => {
+    setMatrixBusy(true);
+    try {
+      const params = new URLSearchParams({ from: "2022-01", to, brand, matrix: "1" });
+      const res = await fetch(`/api/accounting/points-accounting?${params}`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok || !data.ok || !data.matrix) throw new Error(data?.error || "取得に失敗しました");
+      const { months, rows: mrows } = data.matrix as { months: string[]; rows: { clubCode: string; clubName: string; brand: string; area: string; balances: Record<string, number | null> }[] };
+      const esc = (v: any) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+      const header = ["店舗コード", "店舗名", "ブランド", "エリア", ...months];
+      const body = mrows.map((r) => [r.clubCode, r.clubName, r.brand, r.area, ...months.map((m) => (r.balances[m] == null ? "" : r.balances[m]))]);
+      const lines = [header, ...body].map((row) => row.map(esc).join(","));
+      const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `points_balance_matrix_2022-01_${to}${brand !== "ALL" ? "_" + brand : ""}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch (e: any) {
+      alert(`残高マトリクスの出力に失敗しました（${e?.message || e}）`);
+    } finally { setMatrixBusy(false); }
+  };
+
   return (
     <div style={{ maxWidth: 1160, margin: "0 auto", padding: "24px 16px" }}>
       <div style={{ marginBottom: 8 }}>
@@ -132,6 +185,7 @@ export default function PointsAccountingPage() {
         </div>
         <div style={{ flex: 1, minWidth: 140 }}><label style={lbl}>店舗検索</label><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="店舗名・コード・エリア" style={{ ...inp, width: "100%" }} /></div>
         <button onClick={downloadCsv} disabled={(group === "area" ? byArea.length : filtered.length) === 0} style={{ ...btn, background: "#0f766e", color: "#fff", opacity: (group === "area" ? byArea.length : filtered.length) === 0 ? 0.5 : 1 }}>CSV出力</button>
+        <button onClick={downloadBalanceMatrix} disabled={matrixBusy} title="行=店舗・列=各月の残高(退会者除外優先/未集計月は13ヶ月ローリング近似)。2022-01〜対象月の全期間。" style={{ ...btn, background: "#0369a1", color: "#fff", opacity: matrixBusy ? 0.6 : 1 }}>{matrixBusy ? "作成中…" : "残高CSV（月×店・全期間）"}</button>
       </div>
 
       {err && <div style={errBox}>{err}</div>}
@@ -190,7 +244,7 @@ export default function PointsAccountingPage() {
           <table style={table}>
             <thead><tr style={theadRow}>
               <th style={{ ...th, textAlign: "left" }}>店舗</th><th style={{ ...th, textAlign: "center" }}>ブランド</th>
-              <th style={{ ...th, textAlign: "left" }}>エリア</th><th style={th}>取得</th><th style={th}>使用</th><th style={th}>失効</th><th style={th}>残高</th><th style={th}>会員数</th>
+              <th style={{ ...th, textAlign: "left" }}>エリア</th><th style={th}>取得</th><th style={th}>使用</th><th style={th}>失効</th><th style={th}>残高</th><th style={th}>会員数</th><th style={{ ...th, textAlign: "center" }}>真残高</th>
             </tr></thead>
             <tbody>
               {filtered.map((r) => (
@@ -200,10 +254,22 @@ export default function PointsAccountingPage() {
                   <td style={{ ...td, textAlign: "left", color: "#64748b", fontSize: 12 }}>{r.area}</td>
                   <td style={td}>{yen(r.granted)}</td><td style={td}>{yen(r.used)}</td>
                   <td style={{ ...td, color: "#dc2626" }}>{yen(r.expired)}</td>
-                  <td style={{ ...td, fontWeight: 800, color: "#0f766e" }} title={r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : r.balanceSource === "active" ? "退会者除外の残高(退会日以降は計上しない・直近13ヶ月ローリング)" : "13ヶ月ローリング近似(直近13ヶ月の取得-使用・退会者除外前)"}>
-                    {yen(r.balance)}{r.balanceSource === "rolling" && <span style={{ fontSize: 10, color: "#f59e0b", marginLeft: 3 }}>≈</span>}
+                  <td style={{ ...td, fontWeight: 800, color: r.balanceSource === "true" ? "#0369a1" : "#0f766e" }} title={r.balanceSource === "true" ? `真残高(会員実残高の合算・退会者除外) ${r.balTrueAt ? new Date(r.balTrueAt).toLocaleString("ja-JP") : ""}` : r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : r.balanceSource === "active" ? "退会者除外の残高(退会日以降は計上しない・直近13ヶ月ローリング)" : "13ヶ月ローリング近似(直近13ヶ月の取得-使用・退会者除外前)"}>
+                    {yen(r.balance)}
+                    {r.balanceSource === "rolling" && <span style={{ fontSize: 10, color: "#f59e0b", marginLeft: 3 }}>≈</span>}
+                    {r.balanceSource === "true" && <span style={{ fontSize: 10, color: "#0369a1", marginLeft: 3 }} title="真残高(確定)">✓</span>}
                   </td>
                   <td style={{ ...td, color: "#64748b" }}>{yen(r.memberCount)}</td>
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <button
+                      onClick={() => fetchTrueBalance(r.clubCode)}
+                      disabled={!!trueBusy[r.clubCode]}
+                      title="この店の会員実残高を合算して正確な現在残高を出します(退会者除外・数分かかる場合あり)"
+                      style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid #bae6fd", background: trueBusy[r.clubCode] ? "#e0f2fe" : "#f0f9ff", color: "#0369a1", cursor: trueBusy[r.clubCode] ? "wait" : "pointer", whiteSpace: "nowrap" }}
+                    >
+                      {trueBusy[r.clubCode] ? "計算中…" : r.balanceSource === "true" ? "再取得" : "真残高を取得"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

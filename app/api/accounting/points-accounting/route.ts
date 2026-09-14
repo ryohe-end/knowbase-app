@@ -117,10 +117,12 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active"; memberCount: number; balActive?: number | null };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active" | "true"; memberCount: number; balActive?: number | null; balTrue?: number | null; balTrueAt?: string | null };
   const byClub = new Map<string, Row>();
   // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used, balActive合計, balActiveあり}
   const monthAgg = new Map<string, { granted: number; used: number; balActive: number; hasActive: boolean }>();
+  // 月×店 残高マトリクス用: clubCode -> ym -> {g,u,ba}
+  const clubMonth = new Map<string, Map<string, { g: number; u: number; ba: number | null }>>();
   const inBrand = (b: "FIT365" | "JOYFIT") => !(brandFilter === "FIT365" || brandFilter === "JOYFIT") || b === brandFilter;
 
   for (const it of items) {
@@ -143,23 +145,36 @@ export async function GET(req: Request) {
     if (ba != null) { ma.balActive += ba; ma.hasActive = true; }
     monthAgg.set(ym, ma);
 
+    // 月×店 マトリクス用
+    let cm = clubMonth.get(clubCode);
+    if (!cm) { cm = new Map(); clubMonth.set(clubCode, cm); }
+    cm.set(ym, { g, u, ba });
+
     // 店舗別
     let row = byClub.get(clubCode);
     if (!row) {
       const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0, balActive: null };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0, balActive: null, balTrue: null, balTrueAt: null };
       byClub.set(clubCode, row);
     }
     if (ym >= rollStart && ym <= to) row.balance += g - u; // フォールバック用: 直近13ヶ月Σ(付与−利用)
     if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
-    if (ym === to) { row.memberCount = num(it.memberCount); row.balActive = ba; } // 対象月末のbalanceActive
+    if (ym === to) {
+      row.memberCount = num(it.memberCount);
+      row.balActive = ba; // 対象月末のbalanceActive(退会者除外ローリング)
+      const bt = (it as any).balanceTrue; // オンデマンド真残高(現在月のみ)
+      if (bt != null && Number.isFinite(Number(bt))) { row.balTrue = Number(bt); row.balTrueAt = (it as any).balanceTrueAt ?? null; }
+    }
   }
 
-  // 残高の確定: balanceActive(退会者除外)を最優先 → 原資(真残高) → ローリング総額(フォールバック)。
+  // 残高の確定: 真残高(オンデマンド)を最優先 → 退会者除外ローリング(0丸め) → 原資 → ローリング総額(0丸め)。
+  const clampNonNeg = (n: number) => (n < 0 ? 0 : n); // ローリング近似はマイナスに振れうるので残高は0未満にしない
   for (const row of byClub.values()) {
-    if (row.balActive != null) { row.balance = row.balActive; row.balanceSource = "active"; continue; }
+    if (row.balTrue != null) { row.balance = row.balTrue; row.balanceSource = "true"; continue; }
+    if (row.balActive != null) { row.balance = clampNonNeg(row.balActive); row.balanceSource = "active"; continue; }
     const f = fund.get(row.clubCode);
-    if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceSource = "fund"; }
+    if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceSource = "fund"; continue; }
+    row.balance = clampNonNeg(row.balance); // ローリング総額フォールバックも0丸め
   }
 
   const rows = [...byClub.values()].sort((a, b) => b.balance - a.balance || a.clubCode.localeCompare(b.clubCode));
@@ -195,9 +210,34 @@ export async function GET(req: Request) {
       bal = 0;
       for (const [k, v] of monthAgg) if (k >= rs && k <= ym) bal += v.granted - v.used;
     }
-    monthly.push({ ym, granted: ma.granted, used: ma.used, balance: bal });
+    monthly.push({ ym, granted: ma.granted, used: ma.used, balance: clampNonNeg(bal) });
   }
 
   const activeStores = rows.filter((r) => r.balanceSource === "active").length;
-  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, activeStores, balanceMethod: "balanceActive(退会者除外) 優先 → fund → 13ヶ月ローリング" });
+  const trueStores = rows.filter((r) => r.balanceSource === "true").length;
+
+  // 月×店 残高マトリクス(?matrix=1)。[from..to] の各月について、店ごとの残高を返す。
+  // 残高 = その月に balanceActive(退会者除外)があればそれ(0丸め)、無ければ13ヶ月ローリング(0丸め)。
+  if (new URL(req.url).searchParams.get("matrix") === "1") {
+    const monthsCols: string[] = [];
+    for (let m = from; m <= to; m = addMonths(m, 1)) monthsCols.push(m);
+    const matrixRows = [...byClub.values()].sort((a, b) => a.clubCode.localeCompare(b.clubCode)).map((r) => {
+      const cm = clubMonth.get(r.clubCode);
+      const balances: Record<string, number | null> = {};
+      for (const M of monthsCols) {
+        if (!cm) { balances[M] = null; continue; }
+        const cur = cm.get(M);
+        if (cur?.ba != null) { balances[M] = clampNonNeg(cur.ba); continue; } // 退会者除外
+        // フォールバック: 直近13ヶ月ローリング(その店のΣ(g-u))
+        const rs = addMonths(M, -(ROLLING_MONTHS - 1));
+        let bal = 0, seen = false;
+        for (let k = rs; k <= M; k = addMonths(k, 1)) { const v = cm.get(k); if (v) { bal += v.g - v.u; seen = true; } }
+        balances[M] = seen ? clampNonNeg(bal) : null; // データが全く無い月は空
+      }
+      return { clubCode: r.clubCode, clubName: r.clubName, brand: r.brand, area: r.area, balances };
+    });
+    return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", matrix: { months: monthsCols, rows: matrixRows }, note: "残高=退会者除外(balanceActive)優先/無い月は13ヶ月ローリング・マイナスは0丸め。過去月は近似(CPSSに過去残高APIが無いため)" });
+  }
+
+  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, activeStores, trueStores, balanceMethod: "真残高(オンデマンド) 優先 → 退会者除外ローリング(0丸め) → fund → 13ヶ月ローリング" });
 }
