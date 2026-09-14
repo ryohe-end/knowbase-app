@@ -117,10 +117,10 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling"; memberCount: number };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active"; memberCount: number; balActive?: number | null };
   const byClub = new Map<string, Row>();
-  // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used}
-  const monthAgg = new Map<string, { granted: number; used: number }>();
+  // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used, balActive合計, balActiveあり}
+  const monthAgg = new Map<string, { granted: number; used: number; balActive: number; hasActive: boolean }>();
   const inBrand = (b: "FIT365" | "JOYFIT") => !(brandFilter === "FIT365" || brandFilter === "JOYFIT") || b === brandFilter;
 
   for (const it of items) {
@@ -133,24 +133,31 @@ export async function GET(req: Request) {
     const g = num(it.granted);
     const u = num(it.used);
 
-    // 月次推移(全期間・ブランドフィルタ後)
-    const ma = monthAgg.get(ym) || { granted: 0, used: 0 };
-    ma.granted += g; ma.used += u; monthAgg.set(ym, ma);
+    // balanceActive(退会者除外の残高。集計側で店×月に保存済みなら優先採用)
+    const baRaw = (it as any).balanceActive;
+    const ba = baRaw != null && Number.isFinite(Number(baRaw)) ? Number(baRaw) : null;
+
+    // 月次推移(全期間・ブランドフィルタ後)。balActiveがある月は退会者除外を優先。
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false };
+    ma.granted += g; ma.used += u;
+    if (ba != null) { ma.balActive += ba; ma.hasActive = true; }
+    monthAgg.set(ym, ma);
 
     // 店舗別
     let row = byClub.get(clubCode);
     if (!row) {
       const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0 };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0, balActive: null };
       byClub.set(clubCode, row);
     }
-    if (ym >= rollStart && ym <= to) row.balance += g - u; // 直近ROLLING_MONTHSヶ月のΣ(付与−利用)=失効(EXTA≈1年)近似
+    if (ym >= rollStart && ym <= to) row.balance += g - u; // フォールバック用: 直近13ヶ月Σ(付与−利用)
     if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
-    if (ym === to) row.memberCount = num(it.memberCount);
+    if (ym === to) { row.memberCount = num(it.memberCount); row.balActive = ba; } // 対象月末のbalanceActive
   }
 
-  // 原資(真残高 B方式)で上書き: 失効を反映し balance=発行−消費−失効 に。原資が無い店は累積(A)のまま。
+  // 残高の確定: balanceActive(退会者除外)を最優先 → 原資(真残高) → ローリング総額(フォールバック)。
   for (const row of byClub.values()) {
+    if (row.balActive != null) { row.balance = row.balActive; row.balanceSource = "active"; continue; }
     const f = fund.get(row.clubCode);
     if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceSource = "fund"; }
   }
@@ -174,17 +181,23 @@ export async function GET(req: Request) {
   const byArea = [...areaMap.values()].sort((a, b) => b.balance - a.balance || a.area.localeCompare(b.area, "ja"));
 
   // 月次推移: to から遡って12ヶ月。各月の granted/used と、その月末の残高。
-  // 残高は店舗別と同じ「その月から遡ってROLLING_MONTHSヶ月のΣ(granted−used)」(失効EXTA≈1年 近似)。
+  // 残高はその月に balanceActive(退会者除外)があればそれを優先、無ければ「その月から遡って13ヶ月のΣ(granted−used)」。
   const monthly: { ym: string; granted: number; used: number; balance: number }[] = [];
   const start12 = addMonths(to, -11);
   for (let i = 0; i < 12; i++) {
     const ym = addMonths(start12, i);
-    const ma = monthAgg.get(ym) || { granted: 0, used: 0 };
-    const rs = addMonths(ym, -(ROLLING_MONTHS - 1)); // その月の13ヶ月窓の起点
-    let bal = 0;
-    for (const [k, v] of monthAgg) if (k >= rs && k <= ym) bal += v.granted - v.used;
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false };
+    let bal;
+    if (ma.hasActive) {
+      bal = ma.balActive; // 退会者除外(集計側 balanceActive の全店合計)
+    } else {
+      const rs = addMonths(ym, -(ROLLING_MONTHS - 1));
+      bal = 0;
+      for (const [k, v] of monthAgg) if (k >= rs && k <= ym) bal += v.granted - v.used;
+    }
     monthly.push({ ym, granted: ma.granted, used: ma.used, balance: bal });
   }
 
-  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, balanceMethod: fundStores > 0 ? "fund(発行-消費-失効) + cumulative fallback" : "cumulative(granted-used)" });
+  const activeStores = rows.filter((r) => r.balanceSource === "active").length;
+  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, activeStores, balanceMethod: "balanceActive(退会者除外) 優先 → fund → 13ヶ月ローリング" });
 }
