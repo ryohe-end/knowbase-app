@@ -1,7 +1,7 @@
 "use client";
 // 入会管理(店舗詳細管理): クラブの契約ごとに「入会可否 ON/OFF」＋契約マスタ(違約金フルセット)を管理。
 // 一覧の土台は Oracle 近似(直近入会実績)、ON/OFF・違約金は Knowbase が権威保持。
-import React, { useCallback, useEffect, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
@@ -21,7 +21,16 @@ type Contract = {
 
 const yen = (n?: number) => (typeof n === "number" ? `¥${n.toLocaleString()}` : "—");
 
+// useSearchParams を使う本体は Suspense で包む(Next.js の CSR bailout 要件)。
 export default function EnrollmentAdminPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40, color: "#94a3b8" }}>読み込み中…</div>}>
+      <EnrollmentAdminInner />
+    </Suspense>
+  );
+}
+
+function EnrollmentAdminInner() {
   const clubCode = (useSearchParams().get("clubCode") || "").trim();
   const [rows, setRows] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
