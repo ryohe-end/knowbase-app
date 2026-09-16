@@ -322,6 +322,65 @@ export default function ApiReferencePage() {
       </table>
       <div style={s.note}>※「契約可能」の判定は直近 <code style={s.code}>sinceMonths</code> ヶ月の入会実績ベースの<b>近似</b>です（<code style={s.code}>derivation.approximate=true</code>）。募集開始直後の契約形態は実績が無く返らず、募集停止直後の契約形態は実績が残り返る場合があります。「募集中の契約形態」を厳密に表す権威マスタが提供されれば、実績代理からそのマスタ参照へ置き換えます。</div>
 
+      {/* ===== 5. 会員ステータス状況確認 ===== */}
+      <h2 style={s.h2}>5. 会員ステータス状況確認（getMemberInfo 互換）</h2>
+      <p style={s.p}>会員番号を指定し、会員情報・契約情報・支払情報・入館履歴を取得します。本家 getMemberInfo と同一のリクエスト/レスポンス形式です。</p>
+      <Endpoint method="POST" path="/api/public/getMemberInfo" />
+      <div style={s.note}>※データ源はミラーDB（夜間バッチで日次更新）のため、当日の更新（入金・契約変更・入館）は反映が最大約24時間遅れます。リアルタイム必須の用途には適しません。<code style={s.code}>type=3</code>（YOGAスタジオ履歴）は非対応（<code style={s.code}>NG</code>）。</div>
+      <h3 style={s.h3}>リクエスト（JSON）</h3>
+      <pre style={s.pre}>{`POST ${BASE}/api/public/getMemberInfo
+Content-Type: application/json
+
+{
+  "memberID": "1180002455",   // 会員番号(必須)
+  "type": 1,                   // 1:会員認証/契約 2:支払 3:YOGA(非対応) 4:入館
+  "historyFrom": "20260801",   // type=4で必須(YYYYMMDD, 最大366日)
+  "historyTo": "20260915"
+}`}</pre>
+      <h3 style={s.h3}>レスポンス例（type=1）</h3>
+      <pre style={s.pre}>{`{
+  "resultCode": "OK",
+  "memberID": 1180002455,
+  "type": 1,
+  "reqTimestamp": "2026-09-16 10:00:00",
+  "memberInfo": { "memberID": 1180002455, "name": "山田太郎", "clubCode": 118, "paymentType": 2 },
+  "contractInfo": [
+    { "memberType": 1, "memberTypeName": "フィットネス", "contractCode": 3866,
+      "contractName": "ナショナル溶岩YOGA", "startDate": "2024-04-16", "endDate": "9999-12-31" }
+  ]
+}`}</pre>
+      <h3 style={s.h3}>フィールド</h3>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>resultCode</code></td><td style={s.td}><code style={s.code}>OK</code> / <code style={s.code}>NG</code>（会員が存在しない/退会済みは NG）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>memberInfo</code></td><td style={s.td}>会員番号 / 会員名 / 所属クラブ / <code style={s.code}>paymentType</code>=委託先コード</td></tr>
+          <tr><td style={s.td}><code style={s.code}>contractInfo[]</code>（type=1）</td><td style={s.td}>在籍契約。会員区分 / 契約形態 / 開始日(利用開始日) / 終了日(なしは 9999-12-31)</td></tr>
+          <tr><td style={s.td}><code style={s.code}>payInfo[]</code>（type=2）</td><td style={s.td}>直近7ヶ月。対応年月 / 金額 / 入金区分(1義務なし2未請求3済4未納) / 入金日</td></tr>
+          <tr><td style={s.td}><code style={s.code}>clubHistory[]</code>（type=4）</td><td style={s.td}>入館履歴。営業年月日 / 入館中フラグ / 入館・退館時刻 / 入館クラブ</td></tr>
+        </tbody>
+      </table>
+
+      {/* ===== 6. 入会完了メール送信 ===== */}
+      <h2 style={s.h2}>6. 入会完了メール送信（enrollmentMail）</h2>
+      <p style={s.p}>入会完了時に、KnowBaseで店舗ごと・キャンペーン(CP)単位に設定した入会完了メールを、指定アドレスへ送信します。CPは店舗設定画面で登録し、発行される <code style={s.code}>campaignId</code> を送信時に指定します。</p>
+      <Endpoint method="POST" path="/api/public/enrollmentMail" />
+      <h3 style={s.h3}>リクエスト（JSON）</h3>
+      <pre style={s.pre}>{`POST ${BASE}/api/public/enrollmentMail
+Content-Type: application/json
+
+{
+  "campaignId": "cp-1a2b3c4d",       // KnowBaseで発行(必須)
+  "email": "member@example.com",      // 送信先(必須)
+  "variables": { "name": "山田太郎", "clubName": "JOYFIT新宿" }
+}`}</pre>
+      <h3 style={s.h3}>レスポンス例</h3>
+      <pre style={s.pre}>{`{
+  "ok": true, "sent": true, "campaignId": "cp-1a2b3c4d", "clubCode": "305",
+  "to": "member@example.com", "subject": "【JOYFIT新宿】ご入会ありがとうございます"
+}`}</pre>
+      <div style={s.note}>件名・本文の <code style={s.code}>{"{{name}}"}</code> <code style={s.code}>{"{{clubName}}"}</code> 等は <code style={s.code}>variables</code> の値で置換されます（本文はHTMLエスケープ）。CPが無効の場合は <code style={s.code}>409</code>、存在しない場合は <code style={s.code}>404</code> を返します。</div>
+
       <h2 style={s.h2}>呼び出し例（cURL）</h2>
       <pre style={s.pre}>{`# クラブ一覧(閉店含む)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/clubs"
@@ -345,7 +404,18 @@ curl -H "x-api-key: $KEY" "${BASE}/api/public/terms?brand=FIT365&category=1DayPa
 # 契約形態(そのクラブで契約可能な契約)
 curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375"
 # 直近24ヶ月の入会実績から導出
-curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375&sinceMonths=24"`}</pre>
+curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375&sinceMonths=24"
+
+# 会員ステータス状況確認(POST): type=1 契約情報
+curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \\
+  -d '{"memberID":"1180002455","type":1}' "${BASE}/api/public/getMemberInfo"
+# type=4 入館履歴(期間指定)
+curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \\
+  -d '{"memberID":"1180002455","type":4,"historyFrom":"20260801","historyTo":"20260915"}' "${BASE}/api/public/getMemberInfo"
+
+# 入会完了メール送信(POST)
+curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \\
+  -d '{"campaignId":"cp-1a2b3c4d","email":"member@example.com","variables":{"name":"山田太郎","clubName":"JOYFIT新宿"}}' "${BASE}/api/public/enrollmentMail"`}</pre>
     </div>
   );
 }

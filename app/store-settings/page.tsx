@@ -68,6 +68,7 @@ export default function StoreSettingsMenu() {
       items: [
         { title: "アプリ基本設定", desc: "店舗情報・機能フラグ・解錠機器・マシンリスト・ポイント/料金/未納などの店舗機能をまとめて管理します。", href: "/store-settings/basic", icon: <CogIcon />, color: "#3b82f6" },
         { title: "規約管理", desc: "利用規約・プライバシーポリシーなどの法的文書を編集・更新します。", href: "/store-settings/terms", icon: <DocumentTextIcon />, color: "#8b5cf6" },
+        { title: "キャンペーン（入会メール）", desc: "店舗ごとにキャンペーン(CP)を登録し、入会完了メールをCP単位で設定します。外部の入会システムからAPIで送信します。", href: "/store-settings/campaigns", icon: <EnvelopeIcon />, color: "#f97316" },
         { title: "店舗詳細管理", desc: "Web入会システムの管理者メニュー（入会情報・退会機能・メール設定等）。", href: "/store-settings/admin-portal", icon: <StorefrontIcon />, color: "#e11d48", comingSoon: true },
         ...(isAdmin
           ? [{ title: "操作監査ログ", desc: "Push/DM送信・会員抽出・未納CSV出力・返金/入金操作の実行履歴（管理者専用）。", href: "/store-settings/audit", icon: <ShieldIcon />, color: "#64748b" }]
