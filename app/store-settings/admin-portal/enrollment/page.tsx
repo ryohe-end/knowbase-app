@@ -5,6 +5,9 @@ import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 
+// useSearchParams を使うため静的プリレンダを無効化(ビルドの CSR bailout エラー回避)。
+export const dynamic = "force-dynamic";
+
 type Penalty = {
   penaltyAmount?: number; penaltyFormula?: string; minTermMonths?: number;
   earlyCancelAllowed?: boolean; adminFee?: number; cancelFee?: number;
