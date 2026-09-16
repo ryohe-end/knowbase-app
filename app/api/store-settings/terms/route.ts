@@ -12,6 +12,7 @@ import {
 import { verifySignedValue } from "@/lib/auth";
 import { isAdminLike } from "@/lib/roles";
 import type { StoreTerm } from "@/types/storeTerms";
+import { generateVersionPdfs } from "@/lib/termsPdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +67,7 @@ function validateTerm(body: any): { ok: true; term: StoreTerm } | { ok: false; e
       baseTitle: body.baseTitle,
       variants: Array.isArray(body.variants) ? body.variants.map(String) : [],
       categories: Array.isArray(body.categories) ? body.categories.map(String) : [],
+      isRequired: body.isRequired === true, // 同意必須フラグ (既定 false=任意)
       versions: body.versions,
       createdAt: typeof body.createdAt === "string" ? body.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -119,6 +121,20 @@ export async function POST(req: Request) {
 
   const v = validateTerm(body);
   if (!v.ok) return NextResponse.json({ ok: false, error: v.error }, { status: 400 });
+
+  // 現行バージョンの PDF を生成して S3 に保存し、pdfUrlByVariant を更新する(ベストエフォート)。
+  // 生成失敗は保存自体を止めない(PDFはリンクが無いだけで規約本文は保存される)。
+  try {
+    const term = v.term;
+    const current =
+      term.versions.find((ver: any) => ver.isCurrent) ?? term.versions[term.versions.length - 1];
+    if (current) {
+      const urls = await generateVersionPdfs(term, current);
+      current.pdfUrlByVariant = urls;
+    }
+  } catch (e) {
+    console.error("[terms API] PDF generation failed (ignored):", e);
+  }
 
   try {
     await docClient.send(

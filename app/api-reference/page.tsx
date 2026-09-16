@@ -140,7 +140,7 @@ export default function ApiReferencePage() {
 
       {/* 会費 */}
       <h2 style={s.h2}>2. 会費（クラブ別 契約会費金額）</h2>
-      <p style={s.p}>クラブごとの会費（入会金 / 事務手数料 / 月会費）を <b>適用年月</b>付きで返します。<code style={s.code}>isLatest</code> で最新かどうかを判定できます。</p>
+      <p style={s.p}>クラブごとの会費（入会金 / 事務手数料 / 月会費）を <b>適用年月</b>付きで返します。<code style={s.code}>isLatest</code> で最新かどうかを判定できます。各金額は<b>税抜・税込の両方</b>と<b>税率</b>を含みます。</p>
       <Endpoint method="GET" path="/api/public/fees?clubCode={クラブコード}" />
       <h3 style={s.h3}>クエリパラメータ</h3>
       <table style={s.table}>
@@ -172,10 +172,12 @@ export default function ApiReferencePage() {
       "applyHeadcount": 1,
       "applyYearMonth": 201712,
       "isLatest": true,
+      "taxCode": 1,
+      "taxRate": 0.1,
       "amounts": {
-        "enrollmentFee": 0,
-        "adminFee": 0,
-        "monthlyFee": 8227
+        "enrollmentFee": { "taxExcluded": 0, "taxIncluded": 0 },
+        "adminFee": { "taxExcluded": 0, "taxIncluded": 0 },
+        "monthlyFee": { "taxExcluded": 8227, "taxIncluded": 9050 }
       }
     }
   ]
@@ -186,19 +188,22 @@ export default function ApiReferencePage() {
         <tbody>
           <tr><td style={s.td}><code style={s.code}>clubCode</code></td><td style={s.td}>クラブ（店舗）コード</td></tr>
           <tr><td style={s.td}><code style={s.code}>formCode</code> / <code style={s.code}>formName</code></td><td style={s.td}>契約形態コード / 契約形態名</td></tr>
-          <tr><td style={s.td}><code style={s.code}>feeApplyKubun</code></td><td style={s.td}>会費適用区分コード</td></tr>
+          <tr><td style={s.td}><code style={s.code}>feeApplyKubun</code></td><td style={s.td}>会費適用区分コード（契約会費金額.会費適用区分コードを透過。取り得る値・意味はマスタ定義に準拠）</td></tr>
           <tr><td style={s.td}><code style={s.code}>applyHeadcount</code></td><td style={s.td}>適用人数</td></tr>
           <tr><td style={s.td}><code style={s.code}>applyYearMonth</code></td><td style={s.td}>適用年月（YYYYMM の数値）</td></tr>
           <tr><td style={s.td}><code style={s.code}>isLatest</code></td><td style={s.td}>この単位で最新の適用年月なら true</td></tr>
-          <tr><td style={s.td}><code style={s.code}>amounts.enrollmentFee</code></td><td style={s.td}>入会金</td></tr>
-          <tr><td style={s.td}><code style={s.code}>amounts.adminFee</code></td><td style={s.td}>事務手数料</td></tr>
-          <tr><td style={s.td}><code style={s.code}>amounts.monthlyFee</code></td><td style={s.td}>月会費</td></tr>
+          <tr><td style={s.td}><code style={s.code}>taxCode</code></td><td style={s.td}>税コード（契約会費金額.税コード）。税テーブル未紐付けは <code style={s.code}>null</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>taxRate</code></td><td style={s.td}>税率（<code style={s.code}>0.1</code>=10% の小数形式）。税テーブル（税.税率）由来</td></tr>
+          <tr><td style={s.td}><code style={s.code}>amounts.enrollmentFee</code></td><td style={s.td}>入会金。<code style={s.code}>{`{ taxExcluded, taxIncluded }`}</code>（税抜・税込）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>amounts.adminFee</code></td><td style={s.td}>事務手数料。<code style={s.code}>{`{ taxExcluded, taxIncluded }`}</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>amounts.monthlyFee</code></td><td style={s.td}>月会費。<code style={s.code}>{`{ taxExcluded, taxIncluded }`}</code></td></tr>
         </tbody>
       </table>
+      <div style={s.note}>※ 各金額は<b>税抜（taxExcluded）・税込（taxIncluded）</b>の両方を返します。税率はクラブ×契約の <code style={s.code}>税コード</code>→税テーブルの <code style={s.code}>税率</code>由来です。</div>
 
       {/* 規約 */}
       <h2 style={s.h2}>3. 規約</h2>
-      <p style={s.p}>入会・利用にあたっての各種<b>規約</b>（利用規約 / 個人情報の取り扱い / プライバシーポリシー等）を、現行版の本文つきで返します。ブランドや掲出カテゴリ（Web入会 / 1DayPass 等）で絞り込めます。</p>
+      <p style={s.p}>入会・利用にあたっての各種<b>規約</b>（利用規約 / 個人情報の取り扱い / プライバシーポリシー等）を、現行版の本文つきで返します。<b>同意必須フラグ（<code style={s.code}>isRequired</code>）</b>と<b>PDF公開URL（<code style={s.code}>pdfUrlByVariant</code>）</b>も含みます。ブランドや掲出カテゴリ（Web入会 / 1DayPass 等）で絞り込めます。</p>
       <Endpoint method="GET" path="/api/public/terms" />
       <h3 style={s.h3}>クエリパラメータ</h3>
       <table style={s.table}>
@@ -224,13 +229,15 @@ export default function ApiReferencePage() {
       "baseTitle": "１Day Pass利用規約",
       "variants": [],
       "categories": ["1DayPass"],
+      "isRequired": true,
       "updatedAt": "2026-01-15T09:00:00.000Z",
       "current": {
         "id": "v3",
         "label": "2026年1月版",
         "note": null,
         "createdAt": "2026-01-15T09:00:00.000Z",
-        "contentByVariant": { "_default": "<h2>１Day Pass利用規約</h2> …本文…" }
+        "contentByVariant": { "_default": "<h2>１Day Pass利用規約</h2> …本文…" },
+        "pdfUrlByVariant": { "_default": "https://houjin-manual.s3.us-east-2.amazonaws.com/terms/…/_default.pdf" }
       }
     }
   ]
@@ -239,13 +246,15 @@ export default function ApiReferencePage() {
       <table style={s.table}>
         <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
         <tbody>
-          <tr><td style={s.td}><code style={s.code}>termId</code></td><td style={s.td}>規約ID（一意）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>termId</code></td><td style={s.td}>規約ID（一意）。管理画面で採番・管理され、一覧は本APIで取得可</td></tr>
           <tr><td style={s.td}><code style={s.code}>brand</code></td><td style={s.td}>ブランド（FIT365 / JOYFIT）</td></tr>
           <tr><td style={s.td}><code style={s.code}>baseTitle</code></td><td style={s.td}>規約タイトル</td></tr>
+          <tr><td style={s.td}><code style={s.code}>isRequired</code></td><td style={s.td}>同意必須なら <code style={s.code}>true</code>、任意なら <code style={s.code}>false</code></td></tr>
           <tr><td style={s.td}><code style={s.code}>categories</code></td><td style={s.td}>掲出カテゴリ配列（Web入会 / 1DayPass / KIOSK(…) 等）</td></tr>
           <tr><td style={s.td}><code style={s.code}>variants</code></td><td style={s.td}>バリアント（宛先/媒体別の版）識別子。無ければ <code style={s.code}>_default</code> のみ</td></tr>
           <tr><td style={s.td}><code style={s.code}>current</code></td><td style={s.td}>現行版。<code style={s.code}>label</code>（版名）・<code style={s.code}>createdAt</code>・<code style={s.code}>contentByVariant</code>（バリアント別の本文HTML）</td></tr>
           <tr><td style={s.td}><code style={s.code}>current.contentByVariant._default</code></td><td style={s.td}>既定バリアントの規約本文（HTML）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>current.pdfUrlByVariant</code></td><td style={s.td}>バリアント別の規約PDF公開URL（S3）。管理画面での保存時に生成。未生成のバリアントは含まれない</td></tr>
         </tbody>
       </table>
 
@@ -268,6 +277,7 @@ export default function ApiReferencePage() {
   "ok": true,
   "clubCode": "375",
   "sinceMonths": 12,
+  "derivation": { "method": "recent-signups", "approximate": true, "note": "直近入会実績に基づく近似" },
   "count": 8,
   "contracts": [
     {
@@ -302,13 +312,15 @@ export default function ApiReferencePage() {
           <tr><td style={s.td}><code style={s.code}>flags.groupDiscount</code></td><td style={s.td}>家族/団体割引の対象</td></tr>
           <tr><td style={s.td}><code style={s.code}>flags.pausable</code></td><td style={s.td}>休会可</td></tr>
           <tr><td style={s.td}><code style={s.code}>monthlyUses</code> / <code style={s.code}>yearlyUses</code></td><td style={s.td}>月間 / 年間の利用回数制限（<code style={s.code}>0</code>=無制限）</td></tr>
-          <tr><td style={s.td}><code style={s.code}>productCodes.*</code></td><td style={s.td}>預り金 / 入会金 / 事務手数料 / 月会費 / 年会費 の商品コード（該当なしは <code style={s.code}>null</code>）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>productCodes.deposit</code></td><td style={s.td}>保証金（預り金）商品コード。契約形態マスタに元から存在する項目。<code style={s.code}>null</code>=当該契約に保証金設定なし（請求なし）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>productCodes.*</code></td><td style={s.td}>入会金 / 事務手数料 / 月会費 / 年会費 の商品コード（該当なしは <code style={s.code}>null</code>）</td></tr>
           <tr><td style={s.td}><code style={s.code}>sortNo</code></td><td style={s.td}>表示順</td></tr>
           <tr><td style={s.td}><code style={s.code}>recentSignups</code></td><td style={s.td}>直近 <code style={s.code}>sinceMonths</code> の新規契約数（多い＝現役の契約形態）</td></tr>
           <tr><td style={s.td}><code style={s.code}>latestSignupDate</code></td><td style={s.td}>直近の入会届出日（<code style={s.code}>YYYYMMDD</code>）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>derivation</code></td><td style={s.td}>導出方法メタ。<code style={s.code}>method</code>=recent-signups / <code style={s.code}>approximate</code>=true（近似である旨）</td></tr>
         </tbody>
       </table>
-      <div style={s.note}>※「契約可能」の判定は直近 <code style={s.code}>sinceMonths</code> ヶ月の入会実績ベースです。実績の無い契約形態は返りません（<code style={s.code}>sinceMonths</code> を延ばすと範囲が広がります）。</div>
+      <div style={s.note}>※「契約可能」の判定は直近 <code style={s.code}>sinceMonths</code> ヶ月の入会実績ベースの<b>近似</b>です（<code style={s.code}>derivation.approximate=true</code>）。募集開始直後の契約形態は実績が無く返らず、募集停止直後の契約形態は実績が残り返る場合があります。「募集中の契約形態」を厳密に表す権威マスタが提供されれば、実績代理からそのマスタ参照へ置き換えます。</div>
 
       <h2 style={s.h2}>呼び出し例（cURL）</h2>
       <pre style={s.pre}>{`# クラブ一覧(閉店含む)

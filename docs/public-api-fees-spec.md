@@ -57,10 +57,12 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
       "applyHeadcount": 1,
       "applyYearMonth": 201712,
       "isLatest": true,
+      "taxCode": 1,
+      "taxRate": 0.1,
       "amounts": {
-        "enrollmentFee": 0,
-        "adminFee": 0,
-        "monthlyFee": 8227
+        "enrollmentFee": { "taxExcluded": 0, "taxIncluded": 0 },
+        "adminFee": { "taxExcluded": 0, "taxIncluded": 0 },
+        "monthlyFee": { "taxExcluded": 8227, "taxIncluded": 9050 }
       }
     }
   ]
@@ -74,13 +76,19 @@ Header: x-api-key: <KB_PUBLIC_API_KEY>
 | `clubCode` | クラブコード | クラブ（店舗）コード |
 | `formCode` | 契約形態コード | 契約形態コード |
 | `formName` | 契約形態.契約形態名 | 契約形態名（例: レギュラー） |
-| `feeApplyKubun` | 会費適用区分コード | 会費適用区分 |
+| `feeApplyKubun` | 会費適用区分コード | 会費適用区分（値・意味はマスタ定義に準拠して透過返却） |
 | `applyHeadcount` | 適用人数 | 適用人数（グループ契約等） |
 | `applyYearMonth` | 適用年月 | 適用年月（`YYYYMM` の数値） |
 | `isLatest` | – | このキーで最新の適用年月なら `true` |
-| `amounts.enrollmentFee` | 入会金 | 入会金 |
-| `amounts.adminFee` | 事務手続料金 | 事務手数料 |
-| `amounts.monthlyFee` | 月会費 | 月会費 |
+| `taxCode` | 税コード | 税コード。税テーブル未紐付けは `null` |
+| `taxRate` | 税.税率 | 税率（`0.1`=10% の小数形式）。`税コード`→`FIT_ADMIN."税".税率` 由来 |
+| `amounts.enrollmentFee` | 入会金 | 入会金 `{ taxExcluded, taxIncluded }`（税抜・税込） |
+| `amounts.adminFee` | 事務手続料金 | 事務手数料 `{ taxExcluded, taxIncluded }` |
+| `amounts.monthlyFee` | 月会費 | 月会費 `{ taxExcluded, taxIncluded }` |
+
+> **税の扱い**: `契約会費金額` の格納金額（生値）は既定で **税抜（本体価格）** として扱い、`taxIncluded = round(税抜 × (1 + taxRate))` を算出して両方返す。
+> 実データが税込格納と判明した場合は `app/api/public/fees/route.ts` の `STORED_TAX_BASIS` を `"included"` に変更するだけで割戻し算出に切り替わる。
+> `税率`は `契約会費金額.税コード` → `FIT_ADMIN."税".税率` を LEFT JOIN して取得する（`knowbie_ro` に `税` は GRANT 済）。
 
 ### エラー
 
