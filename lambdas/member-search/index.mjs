@@ -1224,12 +1224,13 @@ export const handler = async (event) => {
         SELECT t.クラブコード AS CLUB_CODE, t.契約形態コード AS FORM_CODE, e.契約形態名 AS FORM_NAME,
                t.会費適用区分コード AS FEE_APPLY_KUBUN, t.適用人数 AS APPLY_HEADCOUNT, t.適用年月 AS APPLY_YYYYMM,
                t.入会金 AS ENROLLMENT_FEE, t.事務手続料金 AS ADMIN_FEE, t.月会費 AS MONTHLY_FEE,
-               t.税コード AS TAX_CODE, z.税率 AS TAX_RATE,
+               p.税コード AS TAX_CODE, z.税率 AS TAX_RATE,
                ROW_NUMBER() OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月 DESC) AS RN,
                MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM
         FROM FIT_ADMIN.契約会費金額 t
         LEFT JOIN FIT_ADMIN.契約形態 e ON e.契約形態コード = t.契約形態コード
-        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = t.税コード
+        LEFT JOIN FIT_ADMIN."商品" p ON p.商品コード = e.会費商品コード
+        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = p.税コード AND z.適用終了月 = 999999
         WHERE ${where}
       ) ${history ? "" : "WHERE RN = 1"}
       ORDER BY FORM_CODE, FEE_APPLY_KUBUN, APPLY_HEADCOUNT, APPLY_YYYYMM DESC`;
@@ -1956,6 +1957,100 @@ export const handler = async (event) => {
       return resp(200, { results, totalCount: results.length, visitCountIgnored });
     } catch (err) {
       console.error("member_extract error", err);
+      return resp(500, { error: "internal_error", message: err.message });
+    } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
+  }
+
+  // 会員ステータス状況確認API相当(自前 getMemberInfo, adb01ベース)。本家 wellness-frontier.com/api/getMemberInfo と
+  // 同一レスポンス形式。infoType 1=会員認証/契約情報, 2=支払情報, 4=入館履歴。3(YOGAスタジオ履歴)はadb01に無く非対応(NG)。
+  //   params: memberID(必須), infoType(1/2/4), historyFrom/historyTo(YYYYMMDD, type=4用)
+  //   ※adb01は夜間スナップショット由来のため当日更新は反映されない(最大~24h遅延)。リアルタイム要件には本家APIを使う。
+  if (type === "member_info") {
+    const memberID = String(params.memberID || "").trim();
+    const infoType = String(params.infoType || params.reqType || "1").trim();
+    if (!/^\d+$/.test(memberID)) return resp(400, { error: "missing_params", required: ["memberID"] });
+    const now = new Date();
+    const p2 = (n) => String(n).padStart(2, "0");
+    const reqTimestamp = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
+    const historyFrom = params.historyFrom ? Number(params.historyFrom) : null;
+    const historyTo = params.historyTo ? Number(params.historyTo) : null;
+    const o = { outFormat: oracledb.OUT_FORMAT_OBJECT };
+    let conn;
+    try {
+      const pool = await getPool(); conn = await pool.getConnection();
+      // memberInfo (全typeで共通)。clubCode=主契約(会員区分1/60/70)の最新クラブ、
+      // paymentType=会員契約者口座.委託先コード(0現金/2JACCS収金/5SBK/90現金 等。会費支払方式ではない)。
+      const miQ = await conn.execute(
+        `SELECT b.会員番号 AS "memberID", f.漢字姓名 AS "name",
+           (SELECT クラブコード FROM (SELECT クラブコード FROM FIT_ADMIN."会員契約" WHERE 契約者SEQ=b.契約者SEQ AND 会員区分コード IN (1,60,70) ORDER BY 入会届出日 DESC) WHERE ROWNUM=1) AS "clubCode",
+           COALESCE(
+             (SELECT 委託先コード FROM (SELECT 委託先コード FROM FIT_ADMIN."会員契約者口座" WHERE 契約者SEQ=b.契約者SEQ ORDER BY 会員契約者口座SEQ DESC) WHERE ROWNUM=1),
+             (SELECT 委託先コード FROM (SELECT 委託先コード FROM FIT_ADMIN."会員入金歴" WHERE 契約者SEQ=b.契約者SEQ AND 委託先コード IS NOT NULL ORDER BY 対応年月 DESC) WHERE ROWNUM=1)
+           ) AS "paymentType"
+         FROM FIT_ADMIN."会員番号" b JOIN FIT_ADMIN."個人" f ON b.個人SEQ=f.個人SEQ WHERE b.会員番号=:mid AND ROWNUM=1`,
+        { mid: Number(memberID) }, o);
+      const memberInfo = (miQ.rows || [])[0] || null;
+      if (!memberInfo) {
+        return resp(200, { resultCode: "NG", memberID: Number(memberID), type: Number(infoType), reqTimestamp, historyFrom, historyTo, memberInfo: null });
+      }
+      const out = { resultCode: "OK", memberID: Number(memberID), type: Number(infoType), reqTimestamp, historyFrom, historyTo, memberInfo };
+
+      if (infoType === "1") {
+        // 契約情報: 在籍(終了年月日=99999999)の契約のみ。主契約+オプション両方。
+        // memberTypeName は固定変換(1→フィットネス/8→タイム会員/70→法人個人/他→オプション契約)。会員区分名マスタは使わない。
+        // startDate は 会員契約.入会届出日(契約の当初開始日)。明細.開始年月日は改定日なので使わない。
+        const r = await conn.execute(
+          `SELECT c.会員区分コード AS "memberType",
+             CASE c.会員区分コード WHEN 1 THEN 'フィットネス' WHEN 8 THEN 'タイム会員' WHEN 70 THEN '法人個人' ELSE 'オプション契約' END AS "memberTypeName",
+             d.契約形態コード AS "contractCode", e.契約形態名 AS "contractName",
+             TO_CHAR(TO_DATE(TO_CHAR(c.利用開始日),'YYYYMMDD'),'YYYY-MM-DD') AS "startDate",
+             CASE WHEN d.終了年月日=99999999 THEN '9999-12-31' ELSE TO_CHAR(TO_DATE(TO_CHAR(d.終了年月日),'YYYYMMDD'),'YYYY-MM-DD') END AS "endDate"
+           FROM FIT_ADMIN."会員契約" c JOIN FIT_ADMIN."会員契約明細" d ON c.契約SEQ=d.契約SEQ
+           JOIN FIT_ADMIN."契約形態" e ON d.契約形態コード=e.契約形態コード
+           JOIN FIT_ADMIN."会員番号" b ON c.契約者SEQ=b.契約者SEQ
+           WHERE b.会員番号=:mid AND d.終了年月日=99999999 ORDER BY c.会員区分コード, d.契約形態コード, c.利用開始日`,
+          { mid: Number(memberID) }, o);
+        out.contractInfo = r.rows || [];
+      } else if (infoType === "2") {
+        // 支払情報: 直近7ヶ月(当月-6)の 会員入金歴。金額=請求額、入金日NULL=未入金は 9999-12-31。
+        const fromYm = (() => { let y = now.getFullYear(), m = now.getMonth() + 1 - 6; while (m < 1) { m += 12; y--; } return y * 100 + m; })();
+        // contractName: 会費分類=1(会費)は契約形態名、=50(年管理費)は固定文言、それ以外(入会金0/保証金60/更新費90/事務手数料91/その他99等)は会費分類名。
+        // payImmediate: 都度決済(KIOSK/WEB)フラグ。正確な源は 対応売上明細SEQ→売上明細→精算 の精算チャネルだが
+        //   売上明細がknowbie_ro未GRANT(ORA-00942)のため現状 0 固定(要GRANT+検証で精緻化)。振替=会員管理が大多数。
+        const r = await conn.execute(
+          `SELECT a.対応年月 AS "requestMonth", a.契約形態コード AS "contractCode",
+             CASE WHEN a.会費分類コード=50 THEN 'セキュリティ管理／施設メンテナンス料'
+                  WHEN a.会費分類コード=1 THEN e.契約形態名
+                  ELSE bn.会費分類名 END AS "contractName",
+             TO_CHAR(TO_DATE(TO_CHAR(COALESCE(a.請求年月日,a.入金年月日)),'YYYYMMDD'),'YYYY-MM-DD') AS "requestDate",
+             a.請求額 AS "amount", a.入金区分コード AS "payStatus",
+             0 AS "payImmediate",
+             CASE WHEN a.入金年月日 IS NULL THEN '9999-12-31' ELSE TO_CHAR(TO_DATE(TO_CHAR(a.入金年月日),'YYYYMMDD'),'YYYY-MM-DD') END AS "payDate"
+           FROM FIT_ADMIN."会員入金歴" a
+           JOIN FIT_ADMIN."契約形態" e ON a.契約形態コード=e.契約形態コード
+           LEFT JOIN FIT_ADMIN."会費分類" bn ON a.会費分類コード=bn.会費分類コード
+           JOIN FIT_ADMIN."会員番号" b ON a.契約者SEQ=b.契約者SEQ
+           WHERE b.会員番号=:mid AND a.対応年月>=:fromYm ORDER BY a.対応年月 DESC, a.契約形態コード, a.請求年月日`,
+          { mid: Number(memberID), fromYm }, o);
+        out.payInfo = r.rows || [];
+      } else if (infoType === "4") {
+        // 入館履歴: 入館トラン。historyFrom/To(YYYYMMDD)で営業年月日を絞る。inDate/outDateはYYYYMMDDHH24MISSの数値。
+        const hf = historyFrom || 0, ht = historyTo || 99999999;
+        const r = await conn.execute(
+          `SELECT 営業年月日 AS "businessDay", 入館中フラグ AS "inFlag",
+             TO_NUMBER(TO_CHAR(入館時刻,'YYYYMMDDHH24MISS')) AS "inDate",
+             TO_NUMBER(TO_CHAR(退館時刻,'YYYYMMDDHH24MISS')) AS "outDate",
+             クラブコード AS "inClubCode"
+           FROM FIT_ADMIN."入館トラン" WHERE 会員番号=:mid AND 営業年月日 BETWEEN :hf AND :ht ORDER BY 営業年月日, 入館時刻, クラブコード`,
+          { mid: Number(memberID), hf, ht }, o);
+        out.clubHistory = r.rows || [];
+      } else if (infoType === "3") {
+        // YOGAスタジオ履歴: adb01(FIT_ADMIN)に該当データが無いため非対応。
+        out.resultCode = "NG";
+        out.yogaStudioHistory = [];
+      }
+      return resp(200, out);
+    } catch (err) {
       return resp(500, { error: "internal_error", message: err.message });
     } finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
