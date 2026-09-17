@@ -2,7 +2,8 @@
 // 公開API: 会員ステータス状況確認(本家 wellness-frontier.com/api/getMemberInfo 互換)。
 // adb01(FIT_ADMIN)ベースで member-search Lambda(type=member_info)から生成。外部パートナーが
 // 本家APIのドロップイン置換として使えるよう、同一のリクエスト/レスポンス形式を返す。
-//   認証: x-api-key ヘッダ(KB_PUBLIC_API_KEY と照合)
+//   認証: 送信元IP許可制(env KB_GETMEMBERINFO_ALLOW_IPS。既定に本番パートナーIP内蔵)
+//        ※他の公開API(enrollmentMail/clubs/fees)は x-api-key。本APIのみIPで切り分け。
 //   メソッド: POST(本家同様) ※GETも可(クエリ/ボディどちらでも memberID/type を受ける)
 //   リクエスト(JSON): { userID?, memberID, type(1|2|3|4), reqTimestamp?, historyFrom?, historyTo? }
 //     type=1 会員認証/契約情報, 2 支払情報, 3 YOGAスタジオ履歴, 4 入館履歴
@@ -12,7 +13,7 @@
 //   ※データ源 adb01 は夜間スナップショット由来のため当日更新は最大~24h遅延。
 import { NextResponse } from "next/server";
 import { callMemberSearch } from "@/lib/unpaid";
-import { requirePublicApiKey } from "@/lib/publicApiAuth";
+import { requireAllowedIp } from "@/lib/publicApiIpAllow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ function nowTimestamp(): string {
 }
 
 async function handle(req: Request, input: Record<string, any>) {
-  const authErr = requirePublicApiKey(req);
+  const authErr = requireAllowedIp(req);
   if (authErr) return authErr;
 
   const memberID = String(input.memberID ?? "").trim();

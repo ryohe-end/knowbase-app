@@ -3,7 +3,9 @@
 外部システム向け公開API。会員の**会員情報・契約情報・支払情報・入館履歴**を返す。
 本家 `wellness-frontier.com/api/getMemberInfo` の**ドロップイン置換**として、同一のリクエスト/レスポンス形式で提供する。
 
-- 認証: `x-api-key` ヘッダ（環境変数 `KB_PUBLIC_API_KEY` と照合。カンマ区切りでパートナー別キー発行可）
+- 認証: **送信元IP許可制**（このAPIのみ。他の公開APIの `x-api-key` は不要／使用しない）。
+  許可IPは環境変数 `KB_GETMEMBERINFO_ALLOW_IPS`（カンマ区切り）＋コード内の既定IP。許可外は `403 forbidden_ip`。
+  実IP判定は `cloudfront-viewer-address` 優先→`x-forwarded-for` の右端の公開IP（CloudFront/Amplify背後・詐称対策）。
 - メソッド: **POST**（本家同様。動作確認用に GET も可）
 - データソース: Oracle adb01 `FIT_ADMIN`（`knowbie_ro`, read-only）を member-search Lambda `type:"member_info"` で整形
 - 実装: `app/api/public/getMemberInfo/route.ts`
@@ -16,8 +18,8 @@
 
 ```
 POST /api/public/getMemberInfo
-Header: x-api-key: <KB_PUBLIC_API_KEY>
 Content-Type: application/json
+# ※ x-api-key は不要。許可済みの固定IPから呼び出すこと。
 ```
 
 ### リクエスト（JSON）
@@ -95,20 +97,20 @@ businessDay昇順, inDate昇順, inClubCode昇順で出力。
 | ステータス | body | 条件 |
 |---|---|---|
 | 400 | `{ resultCode:"NG", error:"..." }` | memberID/type/historyFrom/To の形式不正 |
-| 401 | `{ ok:false, error:"unauthorized" }` | `x-api-key` 不一致 |
+| 403 | `{ ok:false, error:"forbidden_ip", ip:"<判定IP>" }` | 送信元IPが許可リスト外 |
 | 502 | `{ resultCode:"NG", error:"..." }` | member-search 呼び出し失敗 |
-| 503 | `{ ok:false, error:"public_api_not_configured" }` | `KB_PUBLIC_API_KEY` 未設定 |
+| 503 | `{ ok:false, error:"ip_allowlist_not_configured" }` | 許可IPが未設定 |
 
 ---
 
 ## 使用例
 ```sh
 # type=1 契約情報
-curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+curl -X POST -H "Content-Type: application/json" \
   -d '{"memberID":"1180002455","type":1}' https://<host>/api/public/getMemberInfo
 
 # type=4 入館履歴（期間指定）
-curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \
+curl -X POST -H "Content-Type: application/json" \
   -d '{"memberID":"1180002455","type":4,"historyFrom":"20260801","historyTo":"20260915"}' \
   https://<host>/api/public/getMemberInfo
 ```

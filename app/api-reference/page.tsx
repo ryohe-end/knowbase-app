@@ -50,7 +50,8 @@ export default function ApiReferencePage() {
       <pre style={s.pre}>{BASE}</pre>
       <h3 style={s.h3}>認証</h3>
       <p style={s.p}>
-        すべてのエンドポイントで <code style={s.code}>x-api-key</code> ヘッダが必要です。キーは別途、安全な手段でお渡しします。
+        原則、各エンドポイントで <code style={s.code}>x-api-key</code> ヘッダが必要です。キーは別途、安全な手段でお渡しします。
+        <br />ただし <b>「5. 会員ステータス状況確認（getMemberInfo）」のみ例外</b>で、<code style={s.code}>x-api-key</code> は使わず<b>送信元IP許可制</b>です（事前申請いただいた固定IPからのみ利用可）。
       </p>
       <pre style={s.pre}>x-api-key: &lt;お渡しした API キー&gt;</pre>
       <h3 style={s.h3}>共通エラー</h3>
@@ -326,6 +327,7 @@ export default function ApiReferencePage() {
       <h2 style={s.h2}>5. 会員ステータス状況確認（getMemberInfo 互換）</h2>
       <p style={s.p}>会員番号を指定し、会員情報・契約情報・支払情報・入館履歴を取得します。本家 getMemberInfo と同一のリクエスト/レスポンス形式です。</p>
       <Endpoint method="POST" path="/api/public/getMemberInfo" />
+      <div style={s.note}><b>認証はこのAPIのみ「送信元IP許可制」です</b>（他のAPIの <code style={s.code}>x-api-key</code> は不要）。事前に申請いただいた固定IPからのみ利用できます。許可外は <code style={s.code}>403 forbidden_ip</code> を返します。</div>
       <div style={s.note}>※データ源はミラーDB（夜間バッチで日次更新）のため、当日の更新（入金・契約変更・入館）は反映が最大約24時間遅れます。リアルタイム必須の用途には適しません。<code style={s.code}>type=3</code>（YOGAスタジオ履歴）は非対応（<code style={s.code}>NG</code>）。</div>
       <h3 style={s.h3}>リクエスト（JSON）</h3>
       <pre style={s.pre}>{`POST ${BASE}/api/public/getMemberInfo
@@ -406,11 +408,12 @@ curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375"
 # 直近24ヶ月の入会実績から導出
 curl -H "x-api-key: $KEY" "${BASE}/api/public/contracts?clubCode=375&sinceMonths=24"
 
-# 会員ステータス状況確認(POST): type=1 契約情報
-curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \\
+# 会員ステータス状況確認(POST): このAPIのみ x-api-key 不要(IP許可制)。許可IPから実行:
+# type=1 契約情報
+curl -X POST -H "Content-Type: application/json" \\
   -d '{"memberID":"1180002455","type":1}' "${BASE}/api/public/getMemberInfo"
 # type=4 入館履歴(期間指定)
-curl -X POST -H "x-api-key: $KEY" -H "Content-Type: application/json" \\
+curl -X POST -H "Content-Type: application/json" \\
   -d '{"memberID":"1180002455","type":4,"historyFrom":"20260801","historyTo":"20260915"}' "${BASE}/api/public/getMemberInfo"
 
 # 入会完了メール送信(POST)
