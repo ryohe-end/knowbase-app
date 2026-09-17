@@ -2,6 +2,9 @@
 // Shopify連携で使う CPSS 照会の薄いラッパー。会員番号=CPSS aid（変換不要）。
 // 読み取り(getMemberForApp)は shopid 不要（既存 points/member/route.ts 準拠）。
 import { cpssCall, type CpssBrand, type CpssEnvName } from "@/lib/cpssProxy";
+import { loadRuntimeEnv } from "@/lib/runtimeEnv";
+
+loadRuntimeEnv();
 
 const CPSS_ENV = ((process.env.CPSS_ENV as CpssEnvName) || "stg");
 const BRAND = ((process.env.CPSS_BRAND as CpssBrand) || "FIT365");

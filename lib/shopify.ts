@@ -4,6 +4,9 @@
 //   - Admin API (GraphQL) で顧客メタフィールドの読み書き・email検索
 // 設計: docs/shopify-loyalty-integration.md
 import crypto from "node:crypto";
+import { loadRuntimeEnv } from "@/lib/runtimeEnv";
+
+loadRuntimeEnv();
 
 const SHOP_DOMAIN = process.env.SHOPIFY_SHOP_DOMAIN || "";
 const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN || "";
