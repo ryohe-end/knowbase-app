@@ -12,7 +12,11 @@
 import { NextResponse } from "next/server";
 
 // 既定の許可IP(env未設定でも動くよう内蔵。env指定分は追加される)
-const DEFAULT_ALLOW_IPS = ["13.159.44.116"];
+const DEFAULT_ALLOW_IPS = [
+  "13.159.44.116",
+  "218.219.247.248", // 追加(2026-09-18 開発中の動作確認)
+  "160.16.142.108",  // 追加(2026-09-18 開発中の動作確認)
+];
 
 function isPrivateIp(ip: string): boolean {
   if (!ip) return true;

@@ -52,6 +52,8 @@ async function handle(req: Request, input: Record<string, any>) {
     const params: Record<string, string> = { type: "member_info", memberID, infoType: type };
     if (historyFrom) params.historyFrom = historyFrom;
     if (historyTo) params.historyTo = historyTo;
+    // reqTimestamp を Lambda へ転送(contractInfo を「endDate > reqTimestamp」で絞るため。本家挙動一致)。
+    if (reqTimestamp) params.reqTimestamp = reqTimestamp;
     const data = await callMemberSearch(params);
     // Lambda応答は既に getMemberInfo 互換。userID(リクエスト値)と reqTimestamp(呼び出し時刻)を付与して返す。
     return NextResponse.json({ userID, ...data, reqTimestamp });

@@ -1971,7 +1971,13 @@ export const handler = async (event) => {
     if (!/^\d+$/.test(memberID)) return resp(400, { error: "missing_params", required: ["memberID"] });
     const now = new Date();
     const p2 = (n) => String(n).padStart(2, "0");
-    const reqTimestamp = `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
+    // reqTimestamp: 呼び出し側が指定可(本家getMemberInfo同様)。未指定なら現在時刻。
+    const reqTsIn = String(params.reqTimestamp || "").trim();
+    const reqTimestamp = reqTsIn || `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
+    // contractInfo フィルタ用: reqTimestamp の日付(YYYYMMDD)。終了年月日 > reqDate の契約(=reqTimestamp時点で
+    // 終了していない=期間内+開始前予約)を返し、終了後(解約済み)を除外する。本家APIの挙動に一致。
+    const rdm = reqTimestamp.match(/(\d{4})\D?(\d{2})\D?(\d{2})/);
+    const reqDate = rdm ? Number(`${rdm[1]}${rdm[2]}${rdm[3]}`) : Number(`${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}`);
     const historyFrom = params.historyFrom ? Number(params.historyFrom) : null;
     const historyTo = params.historyTo ? Number(params.historyTo) : null;
     const o = { outFormat: oracledb.OUT_FORMAT_OBJECT };
@@ -1996,7 +2002,9 @@ export const handler = async (event) => {
       const out = { resultCode: "OK", memberID: Number(memberID), type: Number(infoType), reqTimestamp, historyFrom, historyTo, memberInfo };
 
       if (infoType === "1") {
-        // 契約情報: 在籍(終了年月日=99999999)の契約のみ。主契約+オプション両方。
+        // 契約情報: reqTimestamp時点で終了していない契約(終了年月日 > reqDate = 無期限99999999+期間内+開始前予約)。
+        //   終了後(解約済み)は除外。本家getMemberInfoの挙動(endDateがreqTimestamp以降)に一致。
+        //   ※GRANDEは十分古いreqTimestampを指定して解約済み含む全契約を取得する運用。
         // memberTypeName は固定変換(1→フィットネス/8→タイム会員/70→法人個人/他→オプション契約)。会員区分名マスタは使わない。
         // startDate は 会員契約.入会届出日(契約の当初開始日)。明細.開始年月日は改定日なので使わない。
         const r = await conn.execute(
@@ -2008,8 +2016,8 @@ export const handler = async (event) => {
            FROM FIT_ADMIN."会員契約" c JOIN FIT_ADMIN."会員契約明細" d ON c.契約SEQ=d.契約SEQ
            JOIN FIT_ADMIN."契約形態" e ON d.契約形態コード=e.契約形態コード
            JOIN FIT_ADMIN."会員番号" b ON c.契約者SEQ=b.契約者SEQ
-           WHERE b.会員番号=:mid AND d.終了年月日=99999999 ORDER BY c.会員区分コード, d.契約形態コード, c.利用開始日`,
-          { mid: Number(memberID) }, o);
+           WHERE b.会員番号=:mid AND d.終了年月日 > :reqDate ORDER BY c.会員区分コード, d.契約形態コード, c.利用開始日`,
+          { mid: Number(memberID), reqDate }, o);
         out.contractInfo = r.rows || [];
       } else if (infoType === "2") {
         // 支払情報: 直近7ヶ月(当月-6)の 会員入金歴。金額=請求額、入金日NULL=未入金は 9999-12-31。
