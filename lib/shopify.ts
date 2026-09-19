@@ -59,6 +59,51 @@ export function verifyWebhookHmac(rawBody: string, hmacHeader: string | null): b
   }
 }
 
+/**
+ * Customer Account UI Extension のセッショントークン(JWT/HS256)検証。
+ * アプリの Client secret(APP_SECRET) で署名検証し、ログイン顧客IDを返す。
+ * - `sub` = 顧客の gid（アプリに read_customers 権限がある時のみ付与される）
+ * - `dest` = ストアURL。SHOP_DOMAIN と一致するか確認。
+ * 失敗時は null。設計: docs/shopify-loyalty-integration.md §4.1c
+ */
+export function verifySessionToken(token: string): { customerId: string; dest: string } | null {
+  if (!APP_SECRET || !token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [headerB64, payloadB64, sigB64] = parts;
+
+  // 署名検証（HS256）
+  const expected = crypto.createHmac("sha256", APP_SECRET).update(`${headerB64}.${payloadB64}`).digest();
+  let provided: Buffer;
+  try {
+    provided = Buffer.from(sigB64, "base64url");
+  } catch {
+    return null;
+  }
+  if (
+    expected.length !== provided.length ||
+    !crypto.timingSafeEqual(new Uint8Array(expected), new Uint8Array(provided))
+  ) {
+    return null;
+  }
+
+  // ペイロード検証
+  let payload: any;
+  try {
+    payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (typeof payload.exp === "number" && now >= payload.exp) return null;
+  if (typeof payload.nbf === "number" && now < payload.nbf - 5) return null;
+  if (SHOP_DOMAIN && payload.dest && !String(payload.dest).includes(SHOP_DOMAIN)) return null;
+
+  const sub = payload.sub ? String(payload.sub) : "";
+  if (!sub) return null; // 未ログイン、または read_customers 権限なし
+  return { customerId: sub, dest: String(payload.dest || "") };
+}
+
 function timingSafeEqualHex(a: string, b: string): boolean {
   try {
     const ba = new Uint8Array(Buffer.from(a, "hex"));
