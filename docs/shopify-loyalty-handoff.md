@@ -64,6 +64,28 @@
 
 ---
 
+## 追記(2026-09-19)：マイページ内 会員番号登録UI（R1：Customer Account UI Extension）
+背景：New customer accounts は登録ページ/マイページがShopify占有でLiquid/テーマ改修不可。Classicは2026-02廃止で選べない。
+そこで「マイページの中で会員番号を登録／連携済みはカード表示」を**純正のUI Extension**で実装。
+
+実装済みファイル：
+- 拡張：`fit365-loyalty/extensions/loyalty-account/`（`shopify.extension.toml` / `package.json` / `tsconfig.json` / `src/ProfileBlock.tsx`）
+  - ターゲット `customer-account.profile.block.render`（Profileページのブロック）
+  - 未連携→10桁の会員番号フォーム／連携済→ランクバッジ＋会員番号＋保有ポイント
+  - セッショントークン(JWT)を付けて自前バックエンドを叩くだけの構成（Customer Account API仕様変動に非依存）
+- バックエンド：`knowbie-frontend/app/api/shopify/loyalty/account-link/route.ts`（GET=状態/POST=連携/OPTIONS=CORS）
+  - `lib/shopify.ts` に `verifySessionToken()` 追加（HS256・APP_SECRETで署名検証、`sub`=顧客gid）
+  - CPSS照合＋メタフィールド書込は既存ヘルパー(`fetchLoyalty`/`setLoyaltyMetafields`)を再利用
+
+デプロイ手順（コード完了、以下は環境作業。すべてユーザー実施）：
+1. `ProfileBlock.tsx` の `BACKEND` を本番knowbie URLに合わせる（現状 feat-loyalty-cpss のAmplify URL）
+2. 拡張は **customerスコープを持つ minefit-loyalty アプリ**(client_id f300f735…)で配布すること。`sub`取得に `read_customers` 必須。test用(b92bb6…)は不可
+3. バックエンドの `SHOPIFY_APP_PROXY_SECRET` は **その minefit-loyalty アプリの API secret key** であること（JWT署名検証に使用）
+4. `cd fit365-loyalty && shopify app deploy -c minefit-loyalty`（依存は初回 `shopify app dev`/`pnpm install` で解決）
+5. アプリを minefit-test にインストール後、管理画面 **設定＞顧客アカウント＞Customize** で Profileページに「会員情報」ブロックを配置
+6. 動作確認：会員でログイン→マイページ(Profile)にブロック→未連携ならフォーム→10桁入力→カードに切替
+   - `api_version` は 2025-10、拡張の依存は `@shopify/ui-extensions*` 2025.10.x で作成（必要なら合わせて更新可）
+
 ## テスト環境の後片付け（任意）
 - ローカルで起動中の `knowbie-frontend npm run dev` / `cloudflared` / `shopify app dev` は停止してOK
 - 試行錯誤で増えた Dev Dashboard のアプリ（minefit-loyalty など）は不要なら削除可
