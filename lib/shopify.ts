@@ -13,6 +13,10 @@ const ADMIN_TOKEN = process.env.SHOPIFY_ADMIN_API_TOKEN || "";
 const API_VERSION = process.env.SHOPIFY_API_VERSION || "2025-01";
 // App Proxy / Webhook の署名検証に使うアプリのシークレット（Client secret）。
 const APP_SECRET = process.env.SHOPIFY_APP_PROXY_SECRET || "";
+// Customer Account UI Extension(minefit-loyalty アプリ)のセッショントークン検証用。
+// App Proxy とは別アプリなので secret / client_id を分ける（未設定なら APP_SECRET にフォールバック）。
+const LOYALTY_APP_SECRET = process.env.SHOPIFY_LOYALTY_APP_SECRET || APP_SECRET;
+const LOYALTY_APP_CLIENT_ID = process.env.SHOPIFY_LOYALTY_APP_CLIENT_ID || "";
 
 export const LOYALTY_NAMESPACE = "loyalty";
 
@@ -61,19 +65,19 @@ export function verifyWebhookHmac(rawBody: string, hmacHeader: string | null): b
 
 /**
  * Customer Account UI Extension のセッショントークン(JWT/HS256)検証。
- * アプリの Client secret(APP_SECRET) で署名検証し、ログイン顧客IDを返す。
+ * minefit-loyalty アプリの Client secret で署名検証し、ログイン顧客IDを返す。
  * - `sub` = 顧客の gid（アプリに read_customers 権限がある時のみ付与される）
- * - `dest` = ストアURL。SHOP_DOMAIN と一致するか確認。
+ * - `aud` = アプリの client_id。LOYALTY_APP_CLIENT_ID と一致するか確認（ストア非依存＝test/本番どちらでも可）。
  * 失敗時は null。設計: docs/shopify-loyalty-integration.md §4.1c
  */
 export function verifySessionToken(token: string): { customerId: string; dest: string } | null {
-  if (!APP_SECRET || !token) return null;
+  if (!LOYALTY_APP_SECRET || !token) return null;
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [headerB64, payloadB64, sigB64] = parts;
 
   // 署名検証（HS256）
-  const expected = crypto.createHmac("sha256", APP_SECRET).update(`${headerB64}.${payloadB64}`).digest();
+  const expected = crypto.createHmac("sha256", LOYALTY_APP_SECRET).update(`${headerB64}.${payloadB64}`).digest();
   let provided: Buffer;
   try {
     provided = Buffer.from(sigB64, "base64url");
@@ -97,7 +101,12 @@ export function verifySessionToken(token: string): { customerId: string; dest: s
   const now = Math.floor(Date.now() / 1000);
   if (typeof payload.exp === "number" && now >= payload.exp) return null;
   if (typeof payload.nbf === "number" && now < payload.nbf - 5) return null;
-  if (SHOP_DOMAIN && payload.dest && !String(payload.dest).includes(SHOP_DOMAIN)) return null;
+  // aud(=client_id)で検証。設定があれば厳格に、無ければ dest でストア確認にフォールバック。
+  if (LOYALTY_APP_CLIENT_ID) {
+    if (String(payload.aud) !== LOYALTY_APP_CLIENT_ID) return null;
+  } else if (SHOP_DOMAIN && payload.dest && !String(payload.dest).includes(SHOP_DOMAIN)) {
+    return null;
+  }
 
   const sub = payload.sub ? String(payload.sub) : "";
   if (!sub) return null; // 未ログイン、または read_customers 権限なし

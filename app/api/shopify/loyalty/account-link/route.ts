@@ -1,12 +1,13 @@
 // app/api/shopify/loyalty/account-link/route.ts
-// Customer Account UI Extension（マイページ内の「会員情報」）から呼ばれる。
-// App Proxy ではなくセッショントークン(JWT)で顧客を確定する点が link-account との違い。
-//   GET  … 現在の連携状態を返す（カード or フォームの出し分けに使用）
-//   POST … 会員番号を CPSS 照合 → メタフィールド直書き（連携確定）
-//   OPTIONS … CORS プリフライト（拡張は null origin の Web Worker から fetch する）
-// 設計: docs/shopify-loyalty-integration.md §4.1c
+// Customer Account UI Extension（マイページ内の「会員情報」）から呼ばれる CPSS 照合エンドポイント。
+// 方式A: メタフィールドの読み書きは拡張が Customer Account API で顧客自身の権限で行うため、
+// このバックエンドは「会員番号が CPSS に実在するか照合して rank/points を返すだけ」。
+// → Shopify Admin トークン不要（このorgが静的トークンを出せない制約を回避）。
+//   POST … 会員番号を検証し CPSS 照合。存在すれば rank/rank_name/points を返す。
+//   OPTIONS … CORS プリフライト（拡張は null origin の Web Worker から fetch する）。
+// 認証: minefit-loyalty アプリのセッショントークン(JWT)。設計: docs/shopify-loyalty-integration.md §4.1c
 import { NextResponse } from "next/server";
-import { verifySessionToken, setLoyaltyMetafields, getLoyaltyMetafields } from "@/lib/shopify";
+import { verifySessionToken } from "@/lib/shopify";
 import { fetchLoyalty, isValidMemberId } from "@/lib/loyaltyCpss";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "POST,OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
   "Access-Control-Max-Age": "86400",
 };
@@ -32,24 +33,6 @@ export async function OPTIONS() {
   return new Response(null, { status: 204, headers: CORS });
 }
 
-export async function GET(req: Request) {
-  const claims = verifySessionToken(bearer(req));
-  if (!claims) return json({ ok: false, error: "unauthorized" }, 401);
-  try {
-    const mf = await getLoyaltyMetafields(claims.customerId);
-    return json({
-      ok: true,
-      linked: Boolean(mf.member_id),
-      member_id: mf.member_id ?? null,
-      rank: mf.rank ?? null,
-      rank_name: mf.rank_name ?? null,
-      points: mf.points ?? null,
-    });
-  } catch {
-    return json({ ok: false, error: "shopify_error" }, 502);
-  }
-}
-
 export async function POST(req: Request) {
   const claims = verifySessionToken(bearer(req));
   if (!claims) return json({ ok: false, error: "unauthorized" }, 401);
@@ -65,7 +48,7 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "invalid member_id" }, 400);
   }
 
-  // CPSS 実在チェック
+  // CPSS 実在チェック（Shopify には触れない）
   let info;
   try {
     info = await fetchLoyalty(memberId);
@@ -73,25 +56,13 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "cpss_unavailable" }, 502);
   }
   if (!info.exists) {
-    return json({ ok: true, linked: false, reason: "not_found" });
+    return json({ ok: true, exists: false, reason: "not_found" });
   }
 
-  // ログイン顧客へメタフィールド直書き
-  try {
-    await setLoyaltyMetafields(claims.customerId, {
-      member_id: memberId,
-      rank: info.rank ?? undefined,
-      rank_name: info.rankName ?? undefined,
-      points: info.balance ?? undefined,
-      synced_at: new Date().toISOString(),
-    });
-  } catch {
-    return json({ ok: false, error: "shopify_error" }, 502);
-  }
-
+  // 実在。書き込みは拡張側（Customer Account API）が顧客権限で行う。
   return json({
     ok: true,
-    linked: true,
+    exists: true,
     member_id: memberId,
     rank: info.rank,
     rank_name: info.rankName,
