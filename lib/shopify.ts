@@ -16,7 +16,9 @@ const APP_SECRET = process.env.SHOPIFY_APP_PROXY_SECRET || "";
 // Customer Account UI Extension(minefit-loyalty アプリ)のセッショントークン検証用。
 // App Proxy とは別アプリなので secret / client_id を分ける（未設定なら APP_SECRET にフォールバック）。
 const LOYALTY_APP_SECRET = process.env.SHOPIFY_LOYALTY_APP_SECRET || APP_SECRET;
-const LOYALTY_APP_CLIENT_ID = process.env.SHOPIFY_LOYALTY_APP_CLIENT_ID || "";
+// minefit-loyalty アプリの client_id（公開値。aud 検証用）。env 未設定ならこの既定を使う。
+const LOYALTY_APP_CLIENT_ID =
+  process.env.SHOPIFY_LOYALTY_APP_CLIENT_ID || "f300f735bdf80352e273526af992f973";
 
 export const LOYALTY_NAMESPACE = "loyalty";
 
