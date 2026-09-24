@@ -54,15 +54,20 @@ export function verifyAppProxySignature(url: URL): boolean {
 
 /** Webhook HMAC 検証（raw body の base64 HMAC-SHA256 と X-Shopify-Hmac-Sha256 を比較）。 */
 export function verifyWebhookHmac(rawBody: string, hmacHeader: string | null): boolean {
-  if (!APP_SECRET || !hmacHeader) return false;
-  const digest = crypto.createHmac("sha256", APP_SECRET).update(rawBody, "utf8").digest("base64");
-  try {
-    const a = new Uint8Array(Buffer.from(digest));
-    const b = new Uint8Array(Buffer.from(hmacHeader));
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch {
-    return false;
+  if (!hmacHeader) return false;
+  // webhookを作成したアプリのsecretで署名される。minefit-loyalty(LOYALTY_APP_SECRET)/App Proxy(APP_SECRET) 両対応。
+  const secrets = [LOYALTY_APP_SECRET, APP_SECRET].filter((s, i, a) => s && a.indexOf(s) === i);
+  for (const secret of secrets) {
+    const digest = crypto.createHmac("sha256", secret).update(rawBody, "utf8").digest("base64");
+    try {
+      const a = new Uint8Array(Buffer.from(digest));
+      const b = new Uint8Array(Buffer.from(hmacHeader));
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+    } catch {
+      /* 次の secret を試す */
+    }
   }
+  return false;
 }
 
 /**
@@ -132,13 +137,41 @@ export function customerGid(id: string | number): string {
   return s.startsWith("gid://") ? s : `gid://shopify/Customer/${s}`;
 }
 
+// Dev Dashboard アプリは静的Adminトークンを出せないため、client_credentials grant で
+// 短命(24h)Adminトークンを取得しキャッシュする。静的 SHOPIFY_ADMIN_API_TOKEN があればそれを優先。
+let cachedAdminToken: { token: string; exp: number } | null = null;
+async function getAdminAccessToken(): Promise<string> {
+  if (ADMIN_TOKEN) return ADMIN_TOKEN;
+  const now = Date.now();
+  if (cachedAdminToken && cachedAdminToken.exp > now + 60_000) return cachedAdminToken.token;
+  if (!SHOP_DOMAIN || !LOYALTY_APP_CLIENT_ID || !LOYALTY_APP_SECRET) {
+    throw new Error("Admin token config missing (SHOP_DOMAIN/LOYALTY_APP_CLIENT_ID/LOYALTY_APP_SECRET)");
+  }
+  const res = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: LOYALTY_APP_CLIENT_ID,
+      client_secret: LOYALTY_APP_SECRET,
+    }).toString(),
+  });
+  const j = await res.json();
+  if (!res.ok || !j.access_token) {
+    throw new Error(`client_credentials failed: ${JSON.stringify(j)}`);
+  }
+  cachedAdminToken = { token: j.access_token, exp: now + Number(j.expires_in || 86399) * 1000 };
+  return cachedAdminToken.token;
+}
+
 async function adminGraphql<T = any>(query: string, variables: Record<string, any>): Promise<T> {
-  if (!SHOP_DOMAIN || !ADMIN_TOKEN) throw new Error("Shopify Admin API not configured");
+  if (!SHOP_DOMAIN) throw new Error("Shopify Admin API not configured");
+  const token = await getAdminAccessToken();
   const res = await fetch(`https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Shopify-Access-Token": ADMIN_TOKEN,
+      "X-Shopify-Access-Token": token,
     },
     body: JSON.stringify({ query, variables }),
   });
