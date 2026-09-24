@@ -13,6 +13,15 @@ import { fetchLoyalty, isValidMemberId } from "@/lib/loyaltyCpss";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// テスト用の会員番号→ランク対応（CPSSを経由せず固定値を返す）。
+// 各ランクの表示・割引をテスト/デモするための番号。※本番運用時は削除 or 環境変数でガードする。
+const TEST_MEMBERS: Record<string, { rank: string; rankName: string; balance: number }> = {
+  "1000000001": { rank: "0001", rankName: "ブロンズ", balance: 450 },
+  "1000000002": { rank: "0002", rankName: "シルバー", balance: 1200 },
+  "1000000003": { rank: "0003", rankName: "ゴールド", balance: 5000 },
+  "1000000004": { rank: "0004", rankName: "プラチナ", balance: 12000 },
+};
+
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
@@ -46,6 +55,19 @@ export async function POST(req: Request) {
   const memberId = String(body.member_id || "").trim();
   if (!isValidMemberId(memberId)) {
     return json({ ok: false, error: "invalid member_id" }, 400);
+  }
+
+  // テスト用会員番号は CPSS を経由せず固定ランクを返す
+  const test = TEST_MEMBERS[memberId];
+  if (test) {
+    return json({
+      ok: true,
+      exists: true,
+      member_id: memberId,
+      rank: test.rank,
+      rank_name: test.rankName,
+      points: test.balance,
+    });
   }
 
   // CPSS 実在チェック（Shopify には触れない）
