@@ -5,7 +5,7 @@ import Link from "next/link";
 
 type Row = {
   clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string;
-  granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active" | "true"; memberCount: number; balTrueAt?: string | null;
+  granted: number; used: number; expired: number; balance: number; balanceTotal?: number; balanceWithdrawn?: number; balanceSource: "exta_active" | "fund" | "rolling" | "active" | "true"; memberCount: number; activeMembers?: number | null; balTrueAt?: string | null;
 };
 type AreaRow = { area: string; granted: number; used: number; expired: number; balance: number; stores: number };
 type MonthPoint = { ym: string; granted: number; used: number; balance: number };
@@ -120,7 +120,7 @@ export default function PointsAccountingPage() {
       footer = ["合計", viewTotals.granted, viewTotals.used, viewTotals.expired, viewTotals.balance, viewTotals.stores];
     } else {
       header = ["店舗コード", "店舗名", "ブランド", "エリア", `取得(${from}〜${to})`, `使用(${from}〜${to})`, "失効(累計)", "残高", "残高種別", "会員数"];
-      body = filtered.map((r) => [r.clubCode, r.clubName, r.brand, r.area, r.granted, r.used, r.expired, r.balance, r.balanceSource === "fund" ? "真残高" : r.balanceSource === "active" ? "退会者除外" : "13ヶ月近似", r.memberCount]);
+      body = filtered.map((r) => [r.clubCode, r.clubName, r.brand, r.area, r.granted, r.used, r.expired, r.balance, r.balanceSource === "exta_active" ? "在籍のみ(正)" : r.balanceSource === "fund" ? "真残高" : r.balanceSource === "active" ? "退会者除外" : "13ヶ月近似", r.memberCount]);
       footer = ["合計", "", "", "", viewTotals.granted, viewTotals.used, viewTotals.expired, viewTotals.balance, "", ""];
     }
     const lines = [header, ...body, footer].map((row) => row.map(esc).join(","));
@@ -164,8 +164,8 @@ export default function PointsAccountingPage() {
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", margin: "0 0 4px" }}>ポイント会計ダッシュボード</h1>
           <p style={{ color: "#64748b", fontSize: 12, marginBottom: 8 }}>
-            各店舗のポイント取得・使用・失効・残高を会計向けに集計します。残高は<b>退会者を除外</b>（退会日以降は計上しない）した直近13ヶ月ローリングを既定とし、
-            原資取込済みの店は真残高（発行−消費−失効）、未集計の店は退会者除外前のローリング近似（≈）で表示します。
+            各店舗のポイント取得・使用・失効・残高を会計向けに集計します。残高は<b>在籍会員のみ</b>（退会者を除外）の
+            <b>EXTA正方式</b>（付与−利用−EXTA失効。会員実残高に収束）を既定表示します。退会者ぶん（総額の約1/4）は除外。行にカーソルを当てると総額・退会者ぶんも確認できます。
           </p>
         </div>
         <button onClick={() => { setImpOpen(true); setImpMsg(""); setImpMonth(to); }} style={{ ...btn, background: "#334155", color: "#fff" }}>原資インポート</button>
@@ -254,9 +254,10 @@ export default function PointsAccountingPage() {
                   <td style={{ ...td, textAlign: "left", color: "#64748b", fontSize: 12 }}>{r.area}</td>
                   <td style={td}>{yen(r.granted)}</td><td style={td}>{yen(r.used)}</td>
                   <td style={{ ...td, color: "#dc2626" }}>{yen(r.expired)}</td>
-                  <td style={{ ...td, fontWeight: 800, color: r.balanceSource === "true" ? "#0369a1" : "#0f766e" }} title={r.balanceSource === "true" ? `真残高(会員実残高の合算・退会者除外) ${r.balTrueAt ? new Date(r.balTrueAt).toLocaleString("ja-JP") : ""}` : r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : r.balanceSource === "active" ? "退会者除外の残高(退会日以降は計上しない・直近13ヶ月ローリング)" : "13ヶ月ローリング近似(直近13ヶ月の取得-使用・退会者除外前)"}>
+                  <td style={{ ...td, fontWeight: 800, color: r.balanceSource === "true" ? "#0369a1" : "#0f766e" }} title={r.balanceSource === "exta_active" ? `在籍会員のみの残高(EXTA正方式・退会者除外)。総額(退会含む)=${yen(r.balanceTotal ?? r.balance)}pt / うち退会者ぶん=${yen(r.balanceWithdrawn ?? 0)}pt` : r.balanceSource === "true" ? `真残高(会員実残高の合算・退会者除外) ${r.balTrueAt ? new Date(r.balTrueAt).toLocaleString("ja-JP") : ""}` : r.balanceSource === "fund" ? "真残高(発行-消費-失効)" : r.balanceSource === "active" ? "退会者除外の残高(退会日以降は計上しない・直近13ヶ月ローリング)" : "13ヶ月ローリング近似(直近13ヶ月の取得-使用・退会者除外前)"}>
                     {yen(r.balance)}
                     {r.balanceSource === "rolling" && <span style={{ fontSize: 10, color: "#f59e0b", marginLeft: 3 }}>≈</span>}
+                    {r.balanceSource === "exta_active" && r.balanceWithdrawn ? <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 3 }} title={`退会者ぶん ${yen(r.balanceWithdrawn)}pt は除外`}>◆</span> : null}
                     {r.balanceSource === "true" && <span style={{ fontSize: 10, color: "#0369a1", marginLeft: 3 }} title="真残高(確定)">✓</span>}
                   </td>
                   <td style={{ ...td, color: "#64748b" }}>{yen(r.memberCount)}</td>

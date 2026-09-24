@@ -117,12 +117,12 @@ export async function GET(req: Request) {
   }
 
   // 店舗ごとに: 期間内 granted/used、to まで累積残高、対象月末の会員数
-  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceSource: "fund" | "rolling" | "active" | "true"; memberCount: number; balActive?: number | null; balTrue?: number | null; balTrueAt?: string | null };
+  type Row = { clubCode: string; clubName: string; brand: "FIT365" | "JOYFIT"; area: string; block: string; granted: number; used: number; expired: number; balance: number; balanceTotal: number; balanceWithdrawn: number; balanceSource: "exta_active" | "fund" | "rolling" | "active" | "true"; memberCount: number; activeMembers?: number | null; balActive?: number | null; balTrue?: number | null; balTrueAt?: string | null; balExtaActive?: number | null; balExtaTotal?: number | null };
   const byClub = new Map<string, Row>();
-  // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used, balActive合計, balActiveあり}
-  const monthAgg = new Map<string, { granted: number; used: number; balActive: number; hasActive: boolean }>();
-  // 月×店 残高マトリクス用: clubCode -> ym -> {g,u,ba}
-  const clubMonth = new Map<string, Map<string, { g: number; u: number; ba: number | null }>>();
+  // 月次推移(全店/ブランドフィルタ後)の元データ: ym -> {granted, used, balActive合計, balActiveあり, balExtaActive合計, hasExta}
+  const monthAgg = new Map<string, { granted: number; used: number; balActive: number; hasActive: boolean; balExtaActive: number; hasExta: boolean }>();
+  // 月×店 残高マトリクス用: clubCode -> ym -> {g,u,ba,bxa}
+  const clubMonth = new Map<string, Map<string, { g: number; u: number; ba: number | null; bxa: number | null }>>();
   const inBrand = (b: "FIT365" | "JOYFIT") => !(brandFilter === "FIT365" || brandFilter === "JOYFIT") || b === brandFilter;
 
   for (const it of items) {
@@ -135,53 +135,70 @@ export async function GET(req: Request) {
     const g = num(it.granted);
     const u = num(it.used);
 
-    // balanceActive(退会者除外の残高。集計側で店×月に保存済みなら優先採用)
+    // balanceActive(退会者除外の旧ローリング。フォールバック用)
     const baRaw = (it as any).balanceActive;
     const ba = baRaw != null && Number.isFinite(Number(baRaw)) ? Number(baRaw) : null;
+    // EXTA正方式(2026-09-18): balanceExtaActive=在籍会員のみ残高(退会者除外・最優先)、balanceExta=総額(退会含む)
+    const bxaRaw = (it as any).balanceExtaActive;
+    const bxa = bxaRaw != null && Number.isFinite(Number(bxaRaw)) ? Math.max(0, Number(bxaRaw)) : null;
+    const bxtRaw = (it as any).balanceExta;
+    const bxt = bxtRaw != null && Number.isFinite(Number(bxtRaw)) ? Math.max(0, Number(bxtRaw)) : null;
 
-    // 月次推移(全期間・ブランドフィルタ後)。balActiveがある月は退会者除外を優先。
-    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false };
+    // 月次推移(全期間・ブランドフィルタ後)。EXTA在籍のみ>balActive を優先。
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false, balExtaActive: 0, hasExta: false };
     ma.granted += g; ma.used += u;
     if (ba != null) { ma.balActive += ba; ma.hasActive = true; }
+    if (bxa != null) { ma.balExtaActive += bxa; ma.hasExta = true; }
     monthAgg.set(ym, ma);
 
     // 月×店 マトリクス用
     let cm = clubMonth.get(clubCode);
     if (!cm) { cm = new Map(); clubMonth.set(clubCode, cm); }
-    cm.set(ym, { g, u, ba });
+    cm.set(ym, { g, u, ba, bxa });
 
     // 店舗別
     let row = byClub.get(clubCode);
     if (!row) {
       const al = areaLookup[clubCode] || { area: "", block: "", territory: "" };
-      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceSource: "rolling", memberCount: 0, balActive: null, balTrue: null, balTrueAt: null };
+      row = { clubCode, clubName: nameByClub.get(clubCode) || clubCode, brand, area: al.area || "未分類", block: al.block || "", granted: 0, used: 0, expired: 0, balance: 0, balanceTotal: 0, balanceWithdrawn: 0, balanceSource: "rolling", memberCount: 0, activeMembers: null, balActive: null, balTrue: null, balTrueAt: null, balExtaActive: null, balExtaTotal: null };
       byClub.set(clubCode, row);
     }
     if (ym >= rollStart && ym <= to) row.balance += g - u; // フォールバック用: 直近13ヶ月Σ(付与−利用)
     if (ym >= from && ym <= to) { row.granted += g; row.used += u; }
     if (ym === to) {
       row.memberCount = num(it.memberCount);
-      row.balActive = ba; // 対象月末のbalanceActive(退会者除外ローリング)
+      row.activeMembers = (it as any).activeMembers != null ? num((it as any).activeMembers) : null;
+      row.balActive = ba; // 対象月末のbalanceActive(旧ローリング)
+      row.balExtaActive = bxa; // 対象月末の在籍のみ残高(EXTA正方式)
+      row.balExtaTotal = bxt;  // 総額(退会含む)
       const bt = (it as any).balanceTrue; // オンデマンド真残高(現在月のみ)
       if (bt != null && Number.isFinite(Number(bt))) { row.balTrue = Number(bt); row.balTrueAt = (it as any).balanceTrueAt ?? null; }
+      const exRaw = (it as any).expiredExta;
+      if (exRaw != null && Number.isFinite(Number(exRaw)) && bxa != null) row.expired = Math.round(Number(exRaw));
     }
   }
 
-  // 残高の確定: 真残高(オンデマンド)を最優先 → 退会者除外ローリング(0丸め) → 原資 → ローリング総額(0丸め)。
-  const clampNonNeg = (n: number) => (n < 0 ? 0 : n); // ローリング近似はマイナスに振れうるので残高は0未満にしない
+  // 残高の確定: EXTA在籍のみ(退会者除外)を最優先 → 真残高 → 退会者除外ローリング → 原資 → ローリング総額。
+  const clampNonNeg = (n: number) => (n < 0 ? 0 : n);
   for (const row of byClub.values()) {
-    if (row.balTrue != null) { row.balance = row.balTrue; row.balanceSource = "true"; continue; }
-    if (row.balActive != null) { row.balance = clampNonNeg(row.balActive); row.balanceSource = "active"; continue; }
+    if (row.balExtaActive != null) {
+      row.balance = clampNonNeg(row.balExtaActive);           // 在籍のみ(経理の現役負債)
+      row.balanceTotal = clampNonNeg(row.balExtaTotal ?? row.balExtaActive); // 総額(退会含む)
+      row.balanceWithdrawn = clampNonNeg(row.balanceTotal - row.balance);    // 退会者ぶん
+      row.balanceSource = "exta_active"; continue;
+    }
+    if (row.balTrue != null) { row.balance = row.balTrue; row.balanceTotal = row.balTrue; row.balanceSource = "true"; continue; }
+    if (row.balActive != null) { row.balance = clampNonNeg(row.balActive); row.balanceTotal = row.balance; row.balanceSource = "active"; continue; }
     const f = fund.get(row.clubCode);
-    if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceSource = "fund"; continue; }
-    row.balance = clampNonNeg(row.balance); // ローリング総額フォールバックも0丸め
+    if (f) { row.expired = f.expired; row.balance = f.balance; row.balanceTotal = f.balance; row.balanceSource = "fund"; continue; }
+    row.balance = clampNonNeg(row.balance); row.balanceTotal = row.balance; // ローリング総額フォールバック
   }
 
   const rows = [...byClub.values()].sort((a, b) => b.balance - a.balance || a.clubCode.localeCompare(b.clubCode));
 
   const totals = rows.reduce(
-    (t, r) => { t.granted += r.granted; t.used += r.used; t.expired += r.expired; t.balance += r.balance; return t; },
-    { granted: 0, used: 0, expired: 0, balance: 0, stores: 0 }
+    (t, r) => { t.granted += r.granted; t.used += r.used; t.expired += r.expired; t.balance += r.balance; t.balanceTotal += r.balanceTotal; t.balanceWithdrawn += r.balanceWithdrawn; return t; },
+    { granted: 0, used: 0, expired: 0, balance: 0, balanceTotal: 0, balanceWithdrawn: 0, stores: 0 }
   );
   totals.stores = rows.length;
   const fundStores = rows.filter((r) => r.balanceSource === "fund").length;
@@ -201,10 +218,12 @@ export async function GET(req: Request) {
   const start12 = addMonths(to, -11);
   for (let i = 0; i < 12; i++) {
     const ym = addMonths(start12, i);
-    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false };
+    const ma = monthAgg.get(ym) || { granted: 0, used: 0, balActive: 0, hasActive: false, balExtaActive: 0, hasExta: false };
     let bal;
-    if (ma.hasActive) {
-      bal = ma.balActive; // 退会者除外(集計側 balanceActive の全店合計)
+    if (ma.hasExta) {
+      bal = ma.balExtaActive; // EXTA在籍のみ(集計側 balanceExtaActive の全店合計)
+    } else if (ma.hasActive) {
+      bal = ma.balActive; // 旧: 退会者除外ローリング
     } else {
       const rs = addMonths(ym, -(ROLLING_MONTHS - 1));
       bal = 0;
@@ -227,7 +246,8 @@ export async function GET(req: Request) {
       for (const M of monthsCols) {
         if (!cm) { balances[M] = null; continue; }
         const cur = cm.get(M);
-        if (cur?.ba != null) { balances[M] = clampNonNeg(cur.ba); continue; } // 退会者除外
+        if (cur?.bxa != null) { balances[M] = clampNonNeg(cur.bxa); continue; } // EXTA在籍のみ(最優先)
+        if (cur?.ba != null) { balances[M] = clampNonNeg(cur.ba); continue; } // 旧: 退会者除外ローリング
         // フォールバック: 直近13ヶ月ローリング(その店のΣ(g-u))
         const rs = addMonths(M, -(ROLLING_MONTHS - 1));
         let bal = 0, seen = false;
@@ -236,8 +256,12 @@ export async function GET(req: Request) {
       }
       return { clubCode: r.clubCode, clubName: r.clubName, brand: r.brand, area: r.area, balances };
     });
-    return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", matrix: { months: monthsCols, rows: matrixRows }, note: "残高=退会者除外(balanceActive)優先/無い月は13ヶ月ローリング・マイナスは0丸め。過去月は近似(CPSSに過去残高APIが無いため)" });
+    return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", matrix: { months: monthsCols, rows: matrixRows }, note: "残高=EXTA在籍のみ(退会者除外)優先/無い月は旧ローリング・マイナスは0丸め" });
   }
 
-  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, activeStores, trueStores, balanceMethod: "真残高(オンデマンド) 優先 → 退会者除外ローリング(0丸め) → fund → 13ヶ月ローリング" });
+  const extaActiveStores = rows.filter((r) => r.balanceSource === "exta_active").length;
+  const balanceMethod = extaActiveStores > 0
+    ? "EXTA在籍のみ(退会者除外・真残高に収束) 優先 → 真残高 → 旧ローリング → fund → 13ヶ月ローリング"
+    : "真残高(オンデマンド) 優先 → 退会者除外ローリング(0丸め) → fund → 13ヶ月ローリング";
+  return NextResponse.json({ ok: true, from, to, brand: brandFilter || "ALL", rows, totals, byArea, monthly, fundStores, activeStores, trueStores, extaActiveStores, balanceMethod });
 }
