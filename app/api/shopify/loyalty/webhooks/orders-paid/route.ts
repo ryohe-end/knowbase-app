@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { PointTransaction } from "@/types/pointTransaction";
-import { verifyWebhookHmac, getLoyaltyMetafields, setLoyaltyMetafields } from "@/lib/shopify";
+import { verifyWebhookHmac, getLoyaltyMetafields, setLoyaltyMetafields, getProductsTags } from "@/lib/shopify";
 import { grantPoint, usePoint, cpssShopId, isValidMemberId } from "@/lib/loyaltyCpss";
 import { resolveHomeClub } from "@/lib/clubScope";
 
@@ -20,6 +20,9 @@ export const dynamic = "force-dynamic";
 const REGION = process.env.AWS_REGION || "us-east-1";
 const PT_TABLE = process.env.DYNAMO_POINT_TRANSACTIONS_TABLE || "yamauchi-PointTransactions";
 const POINT_RATE = Number(process.env.LOYALTY_POINT_RATE || "0.01");
+// プライベートブランド(PB)加算: 指定タグの商品は PB_RATE で付与（通常商品は POINT_RATE）。
+const PB_TAG = (process.env.LOYALTY_PB_TAG || "private-brand").toLowerCase();
+const PB_RATE = Number(process.env.LOYALTY_PB_POINT_RATE || "0.03");
 const EC_CLUBCODE = process.env.CPSS_EC_CLUBCODE || "";
 
 const ddb = DynamoDBDocumentClient.from(
@@ -27,10 +30,26 @@ const ddb = DynamoDBDocumentClient.from(
   { marshallOptions: { removeUndefinedValues: true } }
 );
 
-// 付与対象額: 税・送料を除いた小計。JPY は小数なしなので floor で確定。
-function eligibleAmount(order: any): number {
-  const sub = Number(order?.subtotal_price ?? order?.current_subtotal_price ?? 0);
-  return Number.isFinite(sub) && sub > 0 ? sub : 0;
+// 付与ポイント算出。PBタグ商品は PB_RATE(3%)、それ以外は POINT_RATE で付与。
+// 対象額は各明細の（単価×数量−明細割引）＝税・送料を除いた実額。JPYは小数なしなので floor。
+async function computeGrantPoints(
+  order: any
+): Promise<{ point: number; pbAmount: number; baseAmount: number }> {
+  const lines = Array.isArray(order?.line_items) ? order.line_items : [];
+  const productIds = lines.map((l: any) => l?.product_id).filter(Boolean);
+  const tagsByProduct = await getProductsTags(productIds);
+  let pbAmount = 0;
+  let baseAmount = 0;
+  for (const l of lines) {
+    const gross = Number(l?.price ?? 0) * Number(l?.quantity ?? 0);
+    const disc = Number(l?.total_discount ?? 0);
+    const amt = Math.max(0, gross - disc);
+    const tags = (tagsByProduct[String(l?.product_id)] || []).map((t) => String(t).toLowerCase());
+    if (tags.includes(PB_TAG)) pbAmount += amt;
+    else baseAmount += amt;
+  }
+  const point = Math.floor(pbAmount * PB_RATE) + Math.floor(baseAmount * POINT_RATE);
+  return { point, pbAmount, baseAmount };
 }
 
 // カート属性 loyalty_points_used は注文の note_attributes に入る。利用ポイント(=円)を取り出す。
@@ -112,9 +131,18 @@ export async function POST(req: Request) {
     }
   }
 
-  // --- (2) ポイント付与 ---
-  const amount = eligibleAmount(order);
-  const point = Math.floor(amount * POINT_RATE);
+  // --- (2) ポイント付与（PBタグ商品=PB_RATE / 通常=POINT_RATE） ---
+  let point = 0;
+  let pbAmount = 0;
+  try {
+    const calc = await computeGrantPoints(order);
+    point = calc.point;
+    pbAmount = calc.pbAmount;
+  } catch (e) {
+    // 商品タグ取得失敗（Admin API一時障害）は再送に委ねる（冪等なので二重付与にならない）
+    console.error("[shopify orders-paid] product tag fetch failed:", orderId, e);
+    return NextResponse.json({ ok: false, error: "tag_fetch_failed" }, { status: 500 });
+  }
   if (point <= 0) {
     if (latestBalance !== undefined) {
       try { await setLoyaltyMetafields(customerId, { points: latestBalance, synced_at: ts }); } catch {}
@@ -158,7 +186,7 @@ export async function POST(req: Request) {
     type: "earned",
     points: point,
     reason: "その他",
-    note: `EC購入 ${order?.name ?? orderId}`,
+    note: `EC購入 ${order?.name ?? orderId}${pbAmount > 0 ? " (PB3%対象含む)" : ""}`,
     occurredAt: ts,
     operatorId: "system:shopify",
     operatorName: "Shopify EC",

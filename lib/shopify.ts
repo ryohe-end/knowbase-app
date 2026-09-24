@@ -204,6 +204,29 @@ export async function setLoyaltyMetafields(
   if (errs?.length) throw new Error(`metafieldsSet failed: ${JSON.stringify(errs)}`);
 }
 
+/**
+ * 商品ID配列 → タグ一覧のマップ（{ "123": ["private-brand", ...] }）。
+ * 注文Webhookの line_items には商品タグが含まれないため、付与判定用に取得する。
+ */
+export async function getProductsTags(
+  productIds: (string | number)[]
+): Promise<Record<string, string[]>> {
+  const ids = [...new Set(productIds.map((v) => String(v)).filter((v) => v && v !== "null"))];
+  if (ids.length === 0) return {};
+  const gids = ids.map((id) => (id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`));
+  const data = await adminGraphql<{ nodes: ({ id: string; tags: string[] } | null)[] }>(
+    `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Product { id tags } } }`,
+    { ids: gids }
+  );
+  const out: Record<string, string[]> = {};
+  for (const n of data.nodes ?? []) {
+    if (!n?.id) continue;
+    const numeric = n.id.split("/").pop() as string;
+    out[numeric] = Array.isArray(n.tags) ? n.tags : [];
+  }
+  return out;
+}
+
 /** email から顧客ID(数値文字列)を1件解決。見つからなければ null。 */
 export async function findCustomerIdByEmail(email: string): Promise<string | null> {
   const data = await adminGraphql<{ customers: { edges: { node: { id: string } }[] } }>(
