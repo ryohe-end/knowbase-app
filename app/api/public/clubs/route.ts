@@ -26,18 +26,21 @@ export const dynamic = "force-dynamic";
 async function fetchClubDetails(): Promise<Map<string, any>> {
   try {
     const r = await query(
-      `SELECT club_code__c AS code, latitude__c, longitude__c,
-              COALESCE(link_url__c, '') AS link_url,
-              COALESCE(business_hours, '') AS business_hours,
-              COALESCE(regular_holiday, '') AS regular_holiday,
-              COALESCE(staff_hours, '') AS staff_hours,
-              COALESCE(phone_number, '') AS phone_number,
-              COALESCE(temp_closed_dates, '') AS temp_closed_dates,
-              COALESCE(pre_open_date, '') AS pre_open_date,
-              COALESCE(grand_open_date, '') AS grand_open_date,
-              detail_ext__c
-         FROM club__c
-        WHERE COALESCE(isdeleted, false) = false AND club_code__c IS NOT NULL`
+      `SELECT c.club_code__c AS code, c.latitude__c, c.longitude__c,
+              COALESCE(c.link_url__c, '') AS link_url,
+              COALESCE(c.business_hours, '') AS business_hours,
+              COALESCE(c.regular_holiday, '') AS regular_holiday,
+              COALESCE(c.staff_hours, '') AS staff_hours,
+              COALESCE(c.phone_number, '') AS phone_number,
+              COALESCE(c.temp_closed_dates, '') AS temp_closed_dates,
+              COALESCE(c.pre_open_date, '') AS pre_open_date,
+              COALESCE(c.grand_open_date, '') AS grand_open_date,
+              COALESCE(c.addressit__c, '') AS address,   -- 住所(全文)
+              COALESCE(r.name, '') AS district,          -- 地区(club_region__c マスタ名)
+              c.detail_ext__c
+         FROM club__c c
+         LEFT JOIN club_region__c r ON r.sfid = c.club_region_sfid__c
+        WHERE COALESCE(c.isdeleted, false) = false AND c.club_code__c IS NOT NULL`
     );
     const m = new Map<string, any>();
     for (const row of r.rows) m.set(String(row.code), row);
@@ -67,6 +70,10 @@ function detailOf(d: any) {
     tempClosedDates: d?.temp_closed_dates ? String(d.temp_closed_dates).split(",").map((x: string) => x.trim()).filter(Boolean) : [], // 臨時休館日(特定日)
     preOpenDate: s(d?.pre_open_date),
     grandOpenDate: s(d?.grand_open_date),
+    // 住所/都道府県/地区(club__c.addressit__c + club_region__c)。都道府県は住所先頭から抽出。
+    address: s(d?.address),
+    prefecture: (() => { const m = String(d?.address || "").match(/^(北海道|東京都|京都府|大阪府|.{2,3}県)/); return m ? m[1] : null; })(),
+    district: s(d?.district),
     // 拡張項目(アプリ基本設定「店舗詳細」で入力)
     postalCode: s(ext.postalCode),
     access: s(ext.access),

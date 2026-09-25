@@ -24,6 +24,9 @@ export async function GET(req: Request) {
       code: r.CODE,
       name: r.NAME,
       memberKubun: r.KUBUN, // 1=会費(本会員) / 7=スタッフ / 70=法人個人
+      // 日割り: ルール固定。主契約(会員区分1/7/70)=日割りあり(true)、オプション(区分90等)=なし(false)。
+      //   本APIは主契約(1/7/70)を返すため既定 true。オプション一覧を別APIで返す際は false 固定。
+      prorated: r.KUBUN === 1 || r.KUBUN === 7 || r.KUBUN === 70,
       termMonths: r.TERM, // 契約形態マスタ「有効期限」(契約期間/月数相当)
       flags: {
         school: r.SCHOOL_FLAG === 1,

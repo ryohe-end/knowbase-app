@@ -57,11 +57,15 @@ export async function GET(req: Request) {
   if (!clubCode) return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
   const history = (sp.get("history") || "").trim();
   const asOf = (sp.get("asOf") || "").trim();
+  const asOfFrom = (sp.get("asOfFrom") || "").trim(); // 範囲指定(YYYYMM)。半年CP等でその期間に有効な会費版を全取得
+  const asOfTo = (sp.get("asOfTo") || "").trim();
 
   try {
     const params: Record<string, string> = { type: "club-fees", clubCode };
     if (history) params.history = history;
     if (asOf) params.asOf = asOf;
+    if (asOfFrom) params.asOfFrom = asOfFrom;
+    if (asOfTo) params.asOfTo = asOfTo;
     const data = await callMemberSearch(params);
     const fees = (data?.fees || []).map((r: any) => {
       const rate = normalizeTaxRate(r.TAX_RATE); // 0.10 形式に正規化。未紐付けは null
@@ -71,7 +75,8 @@ export async function GET(req: Request) {
         formName: r.FORM_NAME, // 契約形態名
         feeApplyKubun: r.FEE_APPLY_KUBUN, // 会費適用区分コード
         applyHeadcount: r.APPLY_HEADCOUNT, // 適用人数
-        applyYearMonth: r.APPLY_YYYYMM, // 適用年月 (YYYYMM 数値)
+        applyYearMonth: r.APPLY_YYYYMM, // 適用年月 (YYYYMM 数値。この版が有効になる年月)
+        nextApplyYearMonth: r.NEXT_YYYYMM ?? null, // 次版の適用年月(=この版の有効終了の翌月)。null=最新版で以降ずっと有効
         isLatest: r.APPLY_YYYYMM === r.MAX_YYYYMM, // このキーで最新の適用年月か
         taxCode: r.TAX_CODE ?? null, // 税コード (契約会費金額.税コード)
         taxRate: rate, // 税率 (0.10 形式)。税テーブル未紐付けなら null
@@ -87,6 +92,8 @@ export async function GET(req: Request) {
       ok: true,
       clubCode: String(data?.clubCode ?? clubCode),
       asOf: data?.asOf ?? null,
+      asOfFrom: data?.asOfFrom ?? null,
+      asOfTo: data?.asOfTo ?? null,
       history: !!data?.history,
       count: fees.length,
       fees,

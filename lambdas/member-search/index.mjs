@@ -1216,9 +1216,23 @@ export const handler = async (event) => {
     const history = /^(1|true|yes)$/i.test(String(params.history || ""));
     const asOfRaw = String(params.asOf || "").trim();
     const asOf = /^\d{6}$/.test(asOfRaw) ? parseInt(asOfRaw, 10) : null;
+    // 範囲指定(asOfFrom〜asOfTo, YYYYMM): その期間に有効な会費の版をすべて返す(半年CP等)。
+    const fromRaw = String(params.asOfFrom || "").trim();
+    const toRaw = String(params.asOfTo || "").trim();
+    const asOfFrom = /^\d{6}$/.test(fromRaw) ? parseInt(fromRaw, 10) : null;
+    const asOfTo = /^\d{6}$/.test(toRaw) ? parseInt(toRaw, 10) : null;
+    const rangeMode = asOfFrom != null && asOfTo != null;
     const binds = { club: clubCode };
     let where = "t.クラブコード = :club";
-    if (asOf != null) { where += " AND t.適用年月 <= :asOf"; binds.asOf = asOf; }
+    if (rangeMode) { where += " AND t.適用年月 <= :asofto"; binds.asofto = asOfTo; }
+    else if (asOf != null) { where += " AND t.適用年月 <= :asOf"; binds.asOf = asOf; }
+    // 税率は「その版の適用年月時点で有効な税率」を紐付ける(t.適用年月 BETWEEN z.適用開始月 AND z.適用終了月)。
+    //   消費税8%→10%(201910〜)のように税率が期間管理されているため、過去年月の版には当時の税率が付く。
+    // 各版の有効終了 = 次版の適用年月(NEXT_YYYYMM)。範囲判定にも使用。
+    let outerFilter;
+    if (rangeMode) outerFilter = "WHERE APPLY_YYYYMM <= :asofto AND (NEXT_YYYYMM IS NULL OR NEXT_YYYYMM > :asoffrom)";
+    else outerFilter = history ? "" : "WHERE RN = 1";
+    if (rangeMode) binds.asoffrom = asOfFrom;
     const sql = `
       SELECT * FROM (
         SELECT t.クラブコード AS CLUB_CODE, t.契約形態コード AS FORM_CODE, e.契約形態名 AS FORM_NAME,
@@ -1226,20 +1240,21 @@ export const handler = async (event) => {
                t.入会金 AS ENROLLMENT_FEE, t.事務手続料金 AS ADMIN_FEE, t.月会費 AS MONTHLY_FEE,
                p.税コード AS TAX_CODE, z.税率 AS TAX_RATE,
                ROW_NUMBER() OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月 DESC) AS RN,
-               MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM
+               MAX(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数) AS MAX_YYYYMM,
+               LEAD(t.適用年月) OVER (PARTITION BY t.契約形態コード, t.会費適用区分コード, t.適用人数 ORDER BY t.適用年月) AS NEXT_YYYYMM
         FROM FIT_ADMIN.契約会費金額 t
         LEFT JOIN FIT_ADMIN.契約形態 e ON e.契約形態コード = t.契約形態コード
         LEFT JOIN FIT_ADMIN."商品" p ON p.商品コード = e.会費商品コード
-        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = p.税コード AND z.適用終了月 = 999999
+        LEFT JOIN FIT_ADMIN."税" z ON z.税コード = p.税コード AND t.適用年月 BETWEEN z.適用開始月 AND z.適用終了月
         WHERE ${where}
-      ) ${history ? "" : "WHERE RN = 1"}
+      ) ${outerFilter}
       ORDER BY FORM_CODE, FEE_APPLY_KUBUN, APPLY_HEADCOUNT, APPLY_YYYYMM DESC`;
     let conn;
     try {
       const pool = await getPool();
       conn = await pool.getConnection();
-      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: history ? 20000 : 3000 });
-      return resp(200, { ok: true, clubCode, asOf, history, count: (r.rows || []).length, fees: r.rows || [] });
+      const r = await conn.execute(sql, binds, { outFormat: oracledb.OUT_FORMAT_OBJECT, maxRows: (history || rangeMode) ? 20000 : 3000 });
+      return resp(200, { ok: true, clubCode, asOf, asOfFrom, asOfTo, history, count: (r.rows || []).length, fees: r.rows || [] });
     } catch (e) { return resp(500, { error: e.message }); }
     finally { if (conn) { try { await conn.close(); } catch (_) {} } }
   }
