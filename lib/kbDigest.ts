@@ -108,7 +108,7 @@ export async function getConfig(): Promise<DigestConfig> {
 export async function saveConfig(patch: Partial<DigestConfig>): Promise<DigestConfig> {
   const cur = await getConfig();
   const next = { ...cur, ...patch };
-  await ddb.send(new PutCommand({ TableName: DIGEST_TABLE, Item: { id: "config", ...next } }));
+  await ddb.send(new PutCommand({ TableName: DIGEST_TABLE, Item: { ...next, id: "config" } }));
   return next;
 }
 
