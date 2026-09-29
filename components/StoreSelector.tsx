@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type StoreEntry = {
   clubCode: string;
@@ -42,6 +43,7 @@ type Props = {
 };
 
 export default function StoreSelector({ basePath, title, backHref, backLabel }: Props) {
+  const router = useRouter();
   const [stores, setStores] = useState<StoreEntry[]>([]);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -241,7 +243,11 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
               </thead>
               <tbody>
                 {filtered.map((store) => (
-                  <tr key={store.clubCode} className={!store.isActive ? "inactive-row" : ""}>
+                  <tr
+                    key={store.clubCode}
+                    className={!store.isActive ? "inactive-row sl-row" : "sl-row"}
+                    onClick={() => router.push(`${basePath}?clubCode=${store.clubCode}`)}
+                  >
                     <td><code className="sl-code">{store.clubCode}</code></td>
                     <td className="sl-td-name">{store.clubName}</td>
                     <td>
@@ -317,7 +323,8 @@ export default function StoreSelector({ basePath, title, backHref, backLabel }: 
         .sl-checkbox-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; white-space: nowrap; padding: 0 4px; }
         .sl-checkbox { width: 16px; height: 16px; accent-color: #3b82f6; cursor: pointer; }
 
-        .sl-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 4px 16px rgba(0,0,0,0.02); }
+        .sl-table-wrap { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; overflow-x: auto; overflow-y: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.02), 0 4px 16px rgba(0,0,0,0.02); }
+        .sl-row { cursor: pointer; }
         .sl-table { width: 100%; border-collapse: collapse; }
         .sl-table th { background: #f8fafc; text-align: left; padding: 12px 20px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #e2e8f0; }
         .sl-table td { padding: 14px 20px; font-size: 13px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
