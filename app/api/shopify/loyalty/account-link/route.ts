@@ -14,13 +14,23 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // テスト用の会員番号→ランク対応（CPSSを経由せず固定値を返す）。
-// 各ランクの表示・割引をテスト/デモするための番号。※本番運用時は削除 or 環境変数でガードする。
+// 各ランクの表示・割引をテスト/デモするための番号。
+// 本番では無効。有効化条件は isTestMembersAllowed() を参照。
 const TEST_MEMBERS: Record<string, { rank: string; rankName: string; balance: number }> = {
   "1000000001": { rank: "0001", rankName: "ブロンズ", balance: 450 },
   "1000000002": { rank: "0002", rankName: "シルバー", balance: 1200 },
   "1000000003": { rank: "0003", rankName: "ゴールド", balance: 5000 },
   "1000000004": { rank: "0004", rankName: "プラチナ", balance: 12000 },
 };
+
+// テスト会員番号を受け付けるか。
+// 本番(既定)では無効。以下のいずれかで有効:
+//  - 環境変数 LOYALTY_ALLOW_TEST_MEMBERS === "true"（feat/検証環境で明示的にON）
+//  - リクエスト元ストアがテストストア(minefit-loyalty-test)である（共有バックエンドでもテスト店だけ許可）
+function isTestMembersAllowed(dest: string): boolean {
+  if (process.env.LOYALTY_ALLOW_TEST_MEMBERS === "true") return true;
+  return /minefit-loyalty-test\.myshopify\.com/i.test(dest || "");
+}
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -57,8 +67,8 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "invalid member_id" }, 400);
   }
 
-  // テスト用会員番号は CPSS を経由せず固定ランクを返す
-  const test = TEST_MEMBERS[memberId];
+  // テスト用会員番号は CPSS を経由せず固定ランクを返す（本番では無効）
+  const test = isTestMembersAllowed(claims.dest) ? TEST_MEMBERS[memberId] : undefined;
   if (test) {
     return json({
       ok: true,
