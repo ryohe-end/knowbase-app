@@ -33,11 +33,12 @@ const ddb = DynamoDBDocumentClient.from(
 // 付与ポイント算出。PBタグ商品は PB_RATE(3%)、それ以外は POINT_RATE で付与。
 // 対象額は各明細の（単価×数量−明細割引）＝税・送料を除いた実額。JPYは小数なしなので floor。
 async function computeGrantPoints(
-  order: any
+  order: any,
+  shop?: string
 ): Promise<{ point: number; pbAmount: number; baseAmount: number }> {
   const lines = Array.isArray(order?.line_items) ? order.line_items : [];
   const productIds = lines.map((l: any) => l?.product_id).filter(Boolean);
-  const tagsByProduct = await getProductsTags(productIds);
+  const tagsByProduct = await getProductsTags(productIds, shop);
   let pbAmount = 0;
   let baseAmount = 0;
   for (const l of lines) {
@@ -73,6 +74,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false }, { status: 400 });
   }
 
+  // envは feat/本番で共通=複数ストアのため、管理API呼び出し先は webhook の発火ストアを使う。
+  const shop = req.headers.get("x-shopify-shop-domain") || undefined;
+
   const customerId = order?.customer?.id;
   const orderId = order?.id;
   if (!customerId || !orderId) return NextResponse.json({ ok: true, skipped: "no customer/order" });
@@ -80,7 +84,7 @@ export async function POST(req: Request) {
   // 会員番号連携済みか
   let memberId: string | undefined;
   try {
-    memberId = (await getLoyaltyMetafields(customerId)).member_id;
+    memberId = (await getLoyaltyMetafields(customerId, shop)).member_id;
   } catch {
     return NextResponse.json({ ok: false, error: "shopify_error" }, { status: 500 }); // 再送で回復
   }
@@ -135,7 +139,7 @@ export async function POST(req: Request) {
   let point = 0;
   let pbAmount = 0;
   try {
-    const calc = await computeGrantPoints(order);
+    const calc = await computeGrantPoints(order, shop);
     point = calc.point;
     pbAmount = calc.pbAmount;
   } catch (e) {
@@ -145,7 +149,7 @@ export async function POST(req: Request) {
   }
   if (point <= 0) {
     if (latestBalance !== undefined) {
-      try { await setLoyaltyMetafields(customerId, { points: latestBalance, synced_at: ts }); } catch {}
+      try { await setLoyaltyMetafields(customerId, { points: latestBalance, synced_at: ts }, shop); } catch {}
     }
     return NextResponse.json({ ok: true, used: usedPoints, granted: 0, balance: latestBalance });
   }
@@ -173,7 +177,7 @@ export async function POST(req: Request) {
     await setLoyaltyMetafields(customerId, {
       points: latestBalance,
       synced_at: ts,
-    });
+    }, shop);
   } catch (e) {
     console.error("[shopify orders-paid] metafield update failed (grant OK):", orderId, e);
   }

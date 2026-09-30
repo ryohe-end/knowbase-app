@@ -139,15 +139,17 @@ export function customerGid(id: string | number): string {
 
 // Dev Dashboard アプリは静的Adminトークンを出せないため、client_credentials grant で
 // 短命(24h)Adminトークンを取得しキャッシュする。静的 SHOPIFY_ADMIN_API_TOKEN があればそれを優先。
-let cachedAdminToken: { token: string; exp: number } | null = null;
-async function getAdminAccessToken(): Promise<string> {
+// ストアごとにトークンをキャッシュ（envは feat/本番で共通=複数ストアのため shop 単位で保持）。
+const cachedAdminTokens: Record<string, { token: string; exp: number }> = {};
+async function getAdminAccessToken(shop: string = SHOP_DOMAIN): Promise<string> {
   if (ADMIN_TOKEN) return ADMIN_TOKEN;
   const now = Date.now();
-  if (cachedAdminToken && cachedAdminToken.exp > now + 60_000) return cachedAdminToken.token;
-  if (!SHOP_DOMAIN || !LOYALTY_APP_CLIENT_ID || !LOYALTY_APP_SECRET) {
-    throw new Error("Admin token config missing (SHOP_DOMAIN/LOYALTY_APP_CLIENT_ID/LOYALTY_APP_SECRET)");
+  const cached = cachedAdminTokens[shop];
+  if (cached && cached.exp > now + 60_000) return cached.token;
+  if (!shop || !LOYALTY_APP_CLIENT_ID || !LOYALTY_APP_SECRET) {
+    throw new Error("Admin token config missing (shop/LOYALTY_APP_CLIENT_ID/LOYALTY_APP_SECRET)");
   }
-  const res = await fetch(`https://${SHOP_DOMAIN}/admin/oauth/access_token`, {
+  const res = await fetch(`https://${shop}/admin/oauth/access_token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -160,14 +162,14 @@ async function getAdminAccessToken(): Promise<string> {
   if (!res.ok || !j.access_token) {
     throw new Error(`client_credentials failed: ${JSON.stringify(j)}`);
   }
-  cachedAdminToken = { token: j.access_token, exp: now + Number(j.expires_in || 86399) * 1000 };
-  return cachedAdminToken.token;
+  cachedAdminTokens[shop] = { token: j.access_token, exp: now + Number(j.expires_in || 86399) * 1000 };
+  return cachedAdminTokens[shop].token;
 }
 
-async function adminGraphql<T = any>(query: string, variables: Record<string, any>): Promise<T> {
-  if (!SHOP_DOMAIN) throw new Error("Shopify Admin API not configured");
-  const token = await getAdminAccessToken();
-  const res = await fetch(`https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`, {
+async function adminGraphql<T = any>(query: string, variables: Record<string, any>, shop: string = SHOP_DOMAIN): Promise<T> {
+  if (!shop) throw new Error("Shopify Admin API not configured");
+  const token = await getAdminAccessToken(shop);
+  const res = await fetch(`https://${shop}/admin/api/${API_VERSION}/graphql.json`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -191,14 +193,15 @@ export type LoyaltyMetafields = {
 };
 
 /** 顧客の loyalty.* メタフィールドを取得。 */
-export async function getLoyaltyMetafields(customerId: string | number): Promise<LoyaltyMetafields> {
+export async function getLoyaltyMetafields(customerId: string | number, shop?: string): Promise<LoyaltyMetafields> {
   const data = await adminGraphql<{
     customer: { metafields: { edges: { node: { key: string; value: string } }[] } } | null;
   }>(
     `query($id:ID!,$ns:String!){
       customer(id:$id){ metafields(namespace:$ns, first:10){ edges{ node{ key value } } } }
     }`,
-    { id: customerGid(customerId), ns: LOYALTY_NAMESPACE }
+    { id: customerGid(customerId), ns: LOYALTY_NAMESPACE },
+    shop
   );
   const out: LoyaltyMetafields = {};
   for (const e of data.customer?.metafields.edges ?? []) {
@@ -212,7 +215,8 @@ export async function getLoyaltyMetafields(customerId: string | number): Promise
 /** 顧客の loyalty.* メタフィールドを upsert。 */
 export async function setLoyaltyMetafields(
   customerId: string | number,
-  fields: LoyaltyMetafields
+  fields: LoyaltyMetafields,
+  shop?: string
 ): Promise<void> {
   const ownerId = customerGid(customerId);
   const typeFor = (k: string) => (k === "points" ? "number_integer" : k === "synced_at" ? "date_time" : "single_line_text_field");
@@ -231,7 +235,8 @@ export async function setLoyaltyMetafields(
     `mutation($metafields:[MetafieldsSetInput!]!){
       metafieldsSet(metafields:$metafields){ userErrors{ field message } }
     }`,
-    { metafields }
+    { metafields },
+    shop
   );
   const errs = data.metafieldsSet.userErrors;
   if (errs?.length) throw new Error(`metafieldsSet failed: ${JSON.stringify(errs)}`);
@@ -242,14 +247,16 @@ export async function setLoyaltyMetafields(
  * 注文Webhookの line_items には商品タグが含まれないため、付与判定用に取得する。
  */
 export async function getProductsTags(
-  productIds: (string | number)[]
+  productIds: (string | number)[],
+  shop?: string
 ): Promise<Record<string, string[]>> {
   const ids = [...new Set(productIds.map((v) => String(v)).filter((v) => v && v !== "null"))];
   if (ids.length === 0) return {};
   const gids = ids.map((id) => (id.startsWith("gid://") ? id : `gid://shopify/Product/${id}`));
   const data = await adminGraphql<{ nodes: ({ id: string; tags: string[] } | null)[] }>(
     `query($ids:[ID!]!){ nodes(ids:$ids){ ... on Product { id tags } } }`,
-    { ids: gids }
+    { ids: gids },
+    shop
   );
   const out: Record<string, string[]> = {};
   for (const n of data.nodes ?? []) {
