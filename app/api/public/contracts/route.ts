@@ -10,6 +10,10 @@ import { requirePublicApiKey } from "@/lib/publicApiAuth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// 主契約の会員区分コード (1=フィットネス/7=スタッフ/8=タイム/70=法人個人)。
+// これ以外(例: 90=オプション=ロッカー類)はオプション扱い。日割り判定に使用。
+const MAIN_KUBUN = new Set([1, 7, 8, 70]);
+
 export async function GET(req: Request) {
   const authErr = requirePublicApiKey(req);
   if (authErr) return authErr;
@@ -47,6 +51,13 @@ export async function GET(req: Request) {
       sortNo: r.SORT_NO,
       recentSignups: r.RECENT_COUNT, // 直近sinceMonthsの新規契約数
       latestSignupDate: r.LATEST_JOIN, // 直近の入会届出日(YYYYMMDD)
+      // 日割り(9/17 寺崎): 主契約=あり / オプション=なし の固定ルール。会員区分コードで判定。
+      prorated: MAIN_KUBUN.has(Number(r.KUBUN)),
+      // 以下は FIT_ADMIN.契約形態 マスタに該当列が存在せず、現状は常に null。
+      // knowbie 側オーバーレイ(knowbie-club-contract-settings)で整備予定(値定義は要確定)。
+      description: null,         // 説明文 (9/17 寺崎) — マスタに列なし(名称のみ)
+      isPreOpenContract: null,   // プレオープンを表現する契約か (9/17 寺崎) — マスタに判別列なし
+      familyAllowed: null,       // 家族会員を作れる契約か (9/17 寺崎) — マスタに列なし
     }));
     return NextResponse.json({
       ok: true,
@@ -60,6 +71,14 @@ export async function GET(req: Request) {
         method: "recent-signups", // 直近入会実績に基づく近似
         approximate: true,
         note: "契約可能かどうかの権威マスタではなく、直近入会実績に基づく近似。募集開始直後/停止直後は実態とずれる場合がある。",
+      },
+      // 9/17 寺崎 要望への対応状況(フィールド注記)。
+      fieldNotes: {
+        prorated: "日割り。主契約=true / オプション=false の固定ルール(会員区分コードで判定)。",
+        description: "説明文。契約形態マスタに列が無く(名称のみ)現状 null。整備するには knowbie 側オーバーレイでの入力が必要。",
+        isPreOpenContract: "プレオープン契約か。マスタに判別列が無く現状 null。要・判別元の定義。",
+        familyAllowed: "家族会員可否。マスタに列が無く現状 null。要・オーバーレイ整備。",
+        options: "オプション(会員区分90=ロッカー類等)は本APIには未収録。主契約への紐づけ/法人・プレミアム・家族スコープはマスタに存在しないため、提供には仕様の再整合が必要。",
       },
       count: contracts.length,
       contracts,
