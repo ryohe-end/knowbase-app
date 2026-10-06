@@ -32,6 +32,23 @@ function isTestMembersAllowed(dest: string): boolean {
   return /minefit-loyalty-test\.myshopify\.com/i.test(dest || "");
 }
 
+// ===== 本番確認用 会員番号（go-live検証後に、このブロックごと削除すること）=====
+// 本番ストア(wx1kdt-fj)でのみ有効な、確認用の固定会員番号。各ランクの会員価格・ランク割引・
+// ポイント表示を本番で確認するため。当てにくい10桁番号なので実顧客が偶然入力する可能性は低いが、
+// 共有バックエンドのため本番ストア限定にガードし、検証が済んだら必ず削除する。
+// ※ CPSSを経由せず固定ランクを返す（実在番号と衝突しないよう 90... 始まりを採用）。
+const PROD_VERIFY_MEMBERS: Record<string, { rank: string; rankName: string; balance: number }> = {
+  "9072461508": { rank: "0001", rankName: "ブロンズ", balance: 450 },
+  "9072483617": { rank: "0002", rankName: "シルバー", balance: 1200 },
+  "9072519264": { rank: "0003", rankName: "ゴールド", balance: 5000 },
+  "9072537891": { rank: "0004", rankName: "プラチナ", balance: 12000 },
+};
+// 本番確認用番号を受け付けるストア（本番のみ）。
+function isProdVerifyAllowed(dest: string): boolean {
+  return /wx1kdt-fj\.myshopify\.com/i.test(dest || "");
+}
+// ===== 本番確認用ここまで =====
+
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST,OPTIONS",
@@ -67,16 +84,20 @@ export async function POST(req: Request) {
     return json({ ok: false, error: "invalid member_id" }, 400);
   }
 
-  // テスト用会員番号は CPSS を経由せず固定ランクを返す（本番では無効）
-  const test = isTestMembersAllowed(claims.dest) ? TEST_MEMBERS[memberId] : undefined;
-  if (test) {
+  // 固定会員番号は CPSS を経由せず固定ランクを返す。
+  //  - TEST_MEMBERS: テストストア/フラグ環境のみ（本番では無効）
+  //  - PROD_VERIFY_MEMBERS: 本番ストアのみ（go-live検証用・検証後に削除）
+  const fixed =
+    (isTestMembersAllowed(claims.dest) ? TEST_MEMBERS[memberId] : undefined) ||
+    (isProdVerifyAllowed(claims.dest) ? PROD_VERIFY_MEMBERS[memberId] : undefined);
+  if (fixed) {
     return json({
       ok: true,
       exists: true,
       member_id: memberId,
-      rank: test.rank,
-      rank_name: test.rankName,
-      points: test.balance,
+      rank: fixed.rank,
+      rank_name: fixed.rankName,
+      points: fixed.balance,
     });
   }
 
