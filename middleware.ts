@@ -28,7 +28,8 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (path.startsWith("/admin") && !session.isAdmin) {
+  // /admin 配下と、BIの静的レポート(/bi/ 配下: 例 enjoy-points.html)は admin 限定。
+  if ((path.startsWith("/admin") || path.startsWith("/bi/")) && !session.isAdmin) {
     url.pathname = "/";
     return NextResponse.redirect(url);
   }
