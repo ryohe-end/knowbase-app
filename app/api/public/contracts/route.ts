@@ -6,6 +6,7 @@
 import { NextResponse } from "next/server";
 import { callMemberSearch } from "@/lib/unpaid";
 import { requirePublicApiKey } from "@/lib/publicApiAuth";
+import { loadClubContractOverlay } from "@/lib/clubContractSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,12 @@ export async function GET(req: Request) {
 
   try {
     const data = await callMemberSearch({ type: "club-contracts", clubCode, sinceMonths });
-    const contracts = (data?.contracts || []).map((r: any) => ({
+    // 入会管理オーバーレイ(knowbie側入力): プレオープン/家族可否/説明文/募集ON-OFF/違約金。
+    // Oracleマスタに無い項目をクラブ×契約形態で補完する。
+    const overlay = await loadClubContractOverlay(clubCode);
+    const contracts = (data?.contracts || []).map((r: any) => {
+      const ov = overlay[String(r.CODE)] || {};
+      return ({
       code: r.CODE,
       name: r.NAME,
       memberKubun: r.KUBUN, // 1=会費(本会員) / 7=スタッフ / 70=法人個人
@@ -53,12 +59,15 @@ export async function GET(req: Request) {
       latestSignupDate: r.LATEST_JOIN, // 直近の入会届出日(YYYYMMDD)
       // 日割り(9/17 寺崎): 主契約=あり / オプション=なし の固定ルール。会員区分コードで判定。
       prorated: MAIN_KUBUN.has(Number(r.KUBUN)),
-      // 以下は FIT_ADMIN.契約形態 マスタに該当列が存在せず、現状は常に null。
-      // knowbie 側オーバーレイ(knowbie-club-contract-settings)で整備予定(値定義は要確定)。
-      description: null,         // 説明文 (9/17 寺崎) — マスタに列なし(名称のみ)
-      isPreOpenContract: null,   // プレオープンを表現する契約か (9/17 寺崎) — マスタに判別列なし
-      familyAllowed: null,       // 家族会員を作れる契約か (9/17 寺崎) — マスタに列なし
-    }));
+      // 以下は FIT_ADMIN.契約形態 マスタに列が無く、入会管理オーバーレイ(knowbie入力)から補完。
+      // 未入力(オーバーレイに無い)は null = 未整備。
+      description: ov.description ?? null,            // 説明文 (9/17 寺崎)
+      isPreOpenContract: ov.isPreOpenContract ?? null, // プレオープン契約か (9/17 寺崎)
+      familyAllowed: ov.familyAllowed ?? null,       // 家族会員可否 (9/17 寺崎)
+      recruiting: ov.enabled ?? null,                 // 募集ON/OFF(契約別)。未設定=null
+      penalty: ov.penalty ?? null,                    // 違約金(円)。未設定=null
+    });
+    });
     return NextResponse.json({
       ok: true,
       clubCode: String(data?.clubCode ?? clubCode),
