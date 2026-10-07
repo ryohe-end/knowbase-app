@@ -23,11 +23,15 @@ export async function GET(req: Request) {
   if (!clubCode) return NextResponse.json({ ok: false, error: "clubCode is required" }, { status: 400 });
   const sinceMonths = (sp.get("sinceMonths") || "12").trim();
 
+  // オプション一覧(会員区分90)を含めるか。既定で含める。options=0 で抑止。
+  const withOptions = (sp.get("options") || "") !== "0";
   try {
-    const data = await callMemberSearch({ type: "club-contracts", clubCode, sinceMonths });
     // 入会管理オーバーレイ(knowbie側入力): プレオープン/家族可否/説明文/募集ON-OFF/違約金。
-    // Oracleマスタに無い項目をクラブ×契約形態で補完する。
-    const overlay = await loadClubContractOverlay(clubCode);
+    const [data, optData, overlay] = await Promise.all([
+      callMemberSearch({ type: "club-contracts", clubCode, sinceMonths }),
+      withOptions ? callMemberSearch({ type: "club-options", clubCode }) : Promise.resolve({ options: [] }),
+      loadClubContractOverlay(clubCode),
+    ]);
     const contracts = (data?.contracts || []).map((r: any) => {
       const ov = overlay[String(r.CODE)] || {};
       return ({
@@ -68,6 +72,21 @@ export async function GET(req: Request) {
       penalty: ov.penalty ?? null,                    // 違約金(円)。未設定=null
     });
     });
+    // オプション一覧(会員区分90)。フラット(クラブ別)。主契約への紐づけ/スコープはマスタに無い。
+    const options = (optData?.options || []).map((o: any) => ({
+      code: o.CODE,
+      name: o.NAME,
+      memberKubun: o.KUBUN, // 90=オプション
+      productCodes: {
+        deposit: o.DEPOSIT_PID,
+        enrollment: o.ENROLL_PID,
+        adminFee: o.ADMIN_FEE_PID,
+        monthlyFee: o.FEE_PID,
+        annualFee: o.ANNUAL_FEE_PID,
+      },
+      sortNo: o.SORT_NO,
+      prorated: false, // オプションは日割りなし(固定ルール)
+    }));
     return NextResponse.json({
       ok: true,
       clubCode: String(data?.clubCode ?? clubCode),
@@ -84,13 +103,17 @@ export async function GET(req: Request) {
       // 9/17 寺崎 要望への対応状況(フィールド注記)。
       fieldNotes: {
         prorated: "日割り。主契約=true / オプション=false の固定ルール(会員区分コードで判定)。",
-        description: "説明文。契約形態マスタに列が無く(名称のみ)現状 null。整備するには knowbie 側オーバーレイでの入力が必要。",
-        isPreOpenContract: "プレオープン契約か。マスタに判別列が無く現状 null。要・判別元の定義。",
-        familyAllowed: "家族会員可否。マスタに列が無く現状 null。要・オーバーレイ整備。",
-        options: "オプション(会員区分90=ロッカー類等)は本APIには未収録。主契約への紐づけ/法人・プレミアム・家族スコープはマスタに存在しないため、提供には仕様の再整合が必要。",
+        description: "説明文。契約形態マスタに列が無く、入会管理オーバーレイ(knowbie入力)から補完。未入力=null。",
+        isPreOpenContract: "プレオープン契約か。マスタに判別列が無く、オーバーレイ入力。未入力=null。",
+        familyAllowed: "家族会員可否。マスタに列が無く、オーバーレイ入力。未入力=null。",
+        recruiting: "募集ON/OFF(契約別)。オーバーレイ入力。未入力=null(近似導出に委ねる)。",
+        penalty: "違約金(円)。オーバーレイ入力。未入力=null。",
+        options: "オプション(会員区分90)のフラット一覧(クラブ別)。options=0 で抑止可。主契約への紐づけ/法人・プレミアム・家族スコープはマスタに存在しないため本APIでは未表現(必要ならオーバーレイ整備で対応)。",
       },
       count: contracts.length,
       contracts,
+      optionCount: options.length,
+      options,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "member_search_error" }, { status: 502 });
