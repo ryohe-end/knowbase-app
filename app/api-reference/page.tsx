@@ -189,7 +189,7 @@ export default function ApiReferencePage() {
         <tbody>
           <tr><td style={s.td}><code style={s.code}>clubCode</code></td><td style={s.td}>クラブ（店舗）コード</td></tr>
           <tr><td style={s.td}><code style={s.code}>formCode</code> / <code style={s.code}>formName</code></td><td style={s.td}>契約形態コード / 契約形態名</td></tr>
-          <tr><td style={s.td}><code style={s.code}>feeApplyKubun</code></td><td style={s.td}>会費適用区分コード（契約会費金額.会費適用区分コードを透過。取り得る値・意味はマスタ定義に準拠）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>feeApplyKubun</code></td><td style={s.td}>会費適用区分コード。<code style={s.code}>1</code>,<code style={s.code}>2</code>=新規月会費会員 / <code style={s.code}>3</code>=既存月会費会員 / <code style={s.code}>4</code>=既存年一括会費会員（マスタ定義）。<b>実データは <code style={s.code}>1</code>,<code style={s.code}>2</code> のみ</b></td></tr>
           <tr><td style={s.td}><code style={s.code}>applyHeadcount</code></td><td style={s.td}>適用人数</td></tr>
           <tr><td style={s.td}><code style={s.code}>applyYearMonth</code></td><td style={s.td}>適用年月（YYYYMM の数値）</td></tr>
           <tr><td style={s.td}><code style={s.code}>isLatest</code></td><td style={s.td}>この単位で最新の適用年月なら true</td></tr>
@@ -261,7 +261,8 @@ export default function ApiReferencePage() {
 
       {/* 契約形態 */}
       <h2 style={s.h2}>4. 契約形態（クラブ別 契約可能な契約）</h2>
-      <p style={s.p}>指定クラブで<b>現在契約できる契約形態</b>（レギュラー / 法人 / スタッフ 等）を、会員区分・契約期間・各種フラグ・関連商品コードつきで返します。契約形態マスタはクラブ非依存のため、<b>直近 <code style={s.code}>sinceMonths</code> ヶ月に実際に入会があった契約形態</b>から「そのクラブで契約可能な契約」を導出します。クラブ一覧の <code style={s.code}>formCodes</code> 絞り込みで使う <code style={s.code}>formCode</code> の意味（契約形態名）を引く用途にも使えます。</p>
+      <p style={s.p}>指定クラブで<b>現在契約できる契約形態</b>（レギュラー / 法人 / スタッフ 等）を、会員区分・契約期間・各種フラグ・関連商品コードつきで返します。契約形態マスタはクラブ非依存のため、<b>直近 <code style={s.code}>sinceMonths</code> ヶ月に実際に入会があった契約形態</b>から「そのクラブで契約可能な契約」を導出します。</p>
+      <div style={s.note}><b>3分割の対応：</b>① <b>主契約一覧</b>＝この応答の <code style={s.code}>contracts[]</code>（会員区分 1/7/8/70）。② <b>オプション一覧</b>＝同じ応答の <code style={s.code}>options[]</code>（会員区分 90）。③ <b>入会金一覧</b>＝会費API <code style={s.code}>/fees</code> の <code style={s.code}>enrollmentFee</code>/<code style={s.code}>adminFee</code>（税抜・税込）。オプションの「どの主契約に／誰に提供するか」はマスタに無いため knowbase 入力（<code style={s.code}>availableForContracts</code>・<code style={s.code}>scope</code>）で補完します。</div>
       <Endpoint method="GET" path="/api/public/contracts?clubCode={クラブコード}" />
       <h3 style={s.h3}>クエリパラメータ</h3>
       <table style={s.table}>
@@ -290,15 +291,32 @@ export default function ApiReferencePage() {
       "monthlyUses": 0,
       "yearlyUses": 0,
       "productCodes": {
-        "deposit": "10001",
-        "enrollment": "10002",
-        "adminFee": "10003",
-        "monthlyFee": "10004",
-        "annualFee": null
+        "deposit": "10001", "enrollment": "10002", "adminFee": "10003",
+        "monthlyFee": "10004", "annualFee": null
       },
       "sortNo": 10,
       "recentSignups": 42,
-      "latestSignupDate": "20260810"
+      "latestSignupDate": "20260810",
+      "prorated": true,
+      "description": "いつでも使えるレギュラー会員",
+      "isPreOpenContract": false,
+      "familyAllowed": true,
+      "recruiting": true,
+      "penalty": null
+    }
+  ],
+  "optionCount": 2,
+  "options": [
+    {
+      "code": 9063,
+      "name": "契約ロッカー",
+      "memberKubun": 90,
+      "productCodes": { "deposit": "90001", "enrollment": null, "adminFee": null, "monthlyFee": "90002", "annualFee": null },
+      "sortNo": 9063,
+      "prorated": false,
+      "description": null,
+      "scope": "all",
+      "availableForContracts": ["10", "20"]
     }
   ]
 }`}</pre>
@@ -307,7 +325,7 @@ export default function ApiReferencePage() {
         <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
         <tbody>
           <tr><td style={s.td}><code style={s.code}>code</code> / <code style={s.code}>name</code></td><td style={s.td}>契約形態コード / 名称（クラブ一覧の <code style={s.code}>formCodes</code> と対応）</td></tr>
-          <tr><td style={s.td}><code style={s.code}>memberKubun</code></td><td style={s.td}>会員区分（<code style={s.code}>1</code>=本会員(会費) / <code style={s.code}>7</code>=スタッフ / <code style={s.code}>70</code>=法人個人）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>memberKubun</code></td><td style={s.td}>会員区分コード。<b>主契約の判別キー</b>。<code style={s.code}>1</code>=フィットネス(本会員) / <code style={s.code}>7</code>=スタッフ / <code style={s.code}>8</code>=タイム / <code style={s.code}>70</code>=法人個人 ＝主契約。<code style={s.code}>90</code>=オプション（<code style={s.code}>options[]</code> に収録）</td></tr>
           <tr><td style={s.td}><code style={s.code}>termMonths</code></td><td style={s.td}>契約期間（月）。<code style={s.code}>0</code>=期間の定めなし（月契約）</td></tr>
           <tr><td style={s.td}><code style={s.code}>flags.school</code></td><td style={s.td}>スクール契約</td></tr>
           <tr><td style={s.td}><code style={s.code}>flags.groupDiscount</code></td><td style={s.td}>家族/団体割引の対象</td></tr>
@@ -318,7 +336,27 @@ export default function ApiReferencePage() {
           <tr><td style={s.td}><code style={s.code}>sortNo</code></td><td style={s.td}>表示順</td></tr>
           <tr><td style={s.td}><code style={s.code}>recentSignups</code></td><td style={s.td}>直近 <code style={s.code}>sinceMonths</code> の新規契約数（多い＝現役の契約形態）</td></tr>
           <tr><td style={s.td}><code style={s.code}>latestSignupDate</code></td><td style={s.td}>直近の入会届出日（<code style={s.code}>YYYYMMDD</code>）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>prorated</code></td><td style={s.td}><b>日割り</b>。主契約=<code style={s.code}>true</code> / オプション=<code style={s.code}>false</code> の固定ルール（会員区分で判定・可変にしない）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>description</code></td><td style={s.td}>説明文（knowbase入力）。未入力=<code style={s.code}>null</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>isPreOpenContract</code></td><td style={s.td}>プレオープンを表現する契約か（knowbase入力）。未入力=<code style={s.code}>null</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>familyAllowed</code></td><td style={s.td}>家族会員を作れる契約か（knowbase入力）。未入力=<code style={s.code}>null</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>recruiting</code></td><td style={s.td}>募集ON/OFF（契約別・knowbase入力）。未入力=<code style={s.code}>null</code>（近似導出に委ねる）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>penalty</code></td><td style={s.td}>違約金（円・knowbase入力）。未入力=<code style={s.code}>null</code></td></tr>
           <tr><td style={s.td}><code style={s.code}>derivation</code></td><td style={s.td}>導出方法メタ。<code style={s.code}>method</code>=recent-signups / <code style={s.code}>approximate</code>=true（近似である旨）</td></tr>
+        </tbody>
+      </table>
+
+      <h3 style={s.h3}>オプション一覧 <code style={s.code}>options[]</code></h3>
+      <p style={s.p}>同じ応答にクラブのオプション（会員区分<code style={s.code}>90</code>＝契約ロッカー・オンラインレッスン・栄養カウンセリング・タンニング 等）をフラットに同梱します（<code style={s.code}>?options=0</code> で抑止）。件数は <code style={s.code}>optionCount</code>。</p>
+      <table style={s.table}>
+        <thead><tr><th style={s.th}>フィールド</th><th style={s.th}>説明</th></tr></thead>
+        <tbody>
+          <tr><td style={s.td}><code style={s.code}>code</code> / <code style={s.code}>name</code></td><td style={s.td}>オプションの契約形態コード / 名称</td></tr>
+          <tr><td style={s.td}><code style={s.code}>memberKubun</code></td><td style={s.td}><code style={s.code}>90</code>（オプション）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>productCodes.*</code></td><td style={s.td}>保証金 / 入会金 / 事務手数料 / 月会費 / 年会費 の商品コード</td></tr>
+          <tr><td style={s.td}><code style={s.code}>prorated</code></td><td style={s.td}><code style={s.code}>false</code>（オプションは日割りなし）</td></tr>
+          <tr><td style={s.td}><code style={s.code}>scope</code></td><td style={s.td}>提供スコープ（knowbase入力）。<code style={s.code}>all</code>=全員 / <code style={s.code}>corporate</code>=法人のみ / <code style={s.code}>premium</code>=プレミアムのみ / <code style={s.code}>family</code>=家族のみ。未入力=<code style={s.code}>all</code></td></tr>
+          <tr><td style={s.td}><code style={s.code}>availableForContracts</code></td><td style={s.td}>提供先の主契約コード配列（knowbase入力）。<code style={s.code}>null</code>=全主契約に提供</td></tr>
         </tbody>
       </table>
       <div style={s.note}>※「契約可能」の判定は直近 <code style={s.code}>sinceMonths</code> ヶ月の入会実績ベースの<b>近似</b>です（<code style={s.code}>derivation.approximate=true</code>）。募集開始直後の契約形態は実績が無く返らず、募集停止直後の契約形態は実績が残り返る場合があります。「募集中の契約形態」を厳密に表す権威マスタが提供されれば、実績代理からそのマスタ参照へ置き換えます。</div>
