@@ -73,20 +73,27 @@ export async function GET(req: Request) {
     });
     });
     // オプション一覧(会員区分90)。フラット(クラブ別)。主契約への紐づけ/スコープはマスタに無い。
-    const options = (optData?.options || []).map((o: any) => ({
-      code: o.CODE,
-      name: o.NAME,
-      memberKubun: o.KUBUN, // 90=オプション
-      productCodes: {
-        deposit: o.DEPOSIT_PID,
-        enrollment: o.ENROLL_PID,
-        adminFee: o.ADMIN_FEE_PID,
-        monthlyFee: o.FEE_PID,
-        annualFee: o.ANNUAL_FEE_PID,
-      },
-      sortNo: o.SORT_NO,
-      prorated: false, // オプションは日割りなし(固定ルール)
-    }));
+    const options = (optData?.options || []).map((o: any) => {
+      const ov = overlay[String(o.CODE)] || {};
+      return {
+        code: o.CODE,
+        name: o.NAME,
+        memberKubun: o.KUBUN, // 90=オプション
+        productCodes: {
+          deposit: o.DEPOSIT_PID,
+          enrollment: o.ENROLL_PID,
+          adminFee: o.ADMIN_FEE_PID,
+          monthlyFee: o.FEE_PID,
+          annualFee: o.ANNUAL_FEE_PID,
+        },
+        sortNo: o.SORT_NO,
+        prorated: false, // オプションは日割りなし(固定ルール)
+        description: ov.description ?? null,
+        // 提供先/スコープは knowbase 入力(オーバーレイ)。未入力=全主契約/全員。
+        availableForContracts: Array.isArray(ov.availableForContracts) && ov.availableForContracts.length > 0 ? ov.availableForContracts : null,
+        scope: ov.scope ?? "all",
+      };
+    });
     return NextResponse.json({
       ok: true,
       clubCode: String(data?.clubCode ?? clubCode),

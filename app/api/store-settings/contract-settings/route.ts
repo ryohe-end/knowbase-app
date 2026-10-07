@@ -21,8 +21,11 @@ export async function GET(req: Request) {
   if (!isClubInScope(user, clubCode)) return NextResponse.json({ ok: false, error: "この店舗は担当外です" }, { status: 403 });
 
   try {
-    const data = await callMemberSearch({ type: "club-contracts", clubCode, sinceMonths: "24" });
-    const settings = await listClubContractSettings(clubCode);
+    const [data, optData, settings] = await Promise.all([
+      callMemberSearch({ type: "club-contracts", clubCode, sinceMonths: "24" }),
+      callMemberSearch({ type: "club-options", clubCode }),
+      listClubContractSettings(clubCode),
+    ]);
     const ovMap: Record<string, any> = {};
     for (const s of settings) ovMap[String(s.contractFormCode)] = s;
     const contracts = (data?.contracts || []).map((r: any) => {
@@ -39,7 +42,21 @@ export async function GET(req: Request) {
         updatedAt: ov.updatedAt ?? null,
       };
     });
-    return NextResponse.json({ ok: true, clubCode, count: contracts.length, contracts });
+    const options = (optData?.options || []).map((o: any) => {
+      const ov = ovMap[String(o.CODE)] || {};
+      return {
+        contractFormCode: String(o.CODE),
+        name: o.NAME,
+        enabled: typeof ov.enabled === "boolean" ? ov.enabled : null,
+        scope: ov.scope ?? "all",
+        availableForContracts: Array.isArray(ov.availableForContracts) ? ov.availableForContracts : [],
+        description: ov.description ?? "",
+        updatedAt: ov.updatedAt ?? null,
+      };
+    });
+    // 主契約選択肢(availableForContracts 用): 主契約のみ(会員区分 1/7/8/70)。
+    const mainContracts = contracts.filter((c: any) => [1, 7, 8, 70].includes(Number(c.memberKubun))).map((c: any) => ({ code: c.contractFormCode, name: c.name }));
+    return NextResponse.json({ ok: true, clubCode, count: contracts.length, contracts, options, mainContracts });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "member_search_error" }, { status: 502 });
   }
@@ -58,6 +75,8 @@ export async function POST(req: Request) {
   const penaltyRaw = body?.penalty;
   const penalty = penaltyRaw === "" || penaltyRaw == null ? null : Number(penaltyRaw);
   if (penalty != null && !Number.isFinite(penalty)) return NextResponse.json({ ok: false, error: "penalty は数値で指定してください" }, { status: 400 });
+  const validScopes = ["all", "corporate", "premium", "family"];
+  const scope = validScopes.includes(String(body?.scope)) ? (body.scope as any) : undefined;
 
   try {
     await putClubContractSetting({
@@ -68,6 +87,9 @@ export async function POST(req: Request) {
       familyAllowed: typeof body?.familyAllowed === "boolean" ? body.familyAllowed : undefined,
       description: body?.description != null ? String(body.description).slice(0, 2000) : undefined,
       penalty,
+      // オプション向け: 提供先主契約(配列)・スコープ
+      availableForContracts: Array.isArray(body?.availableForContracts) ? body.availableForContracts.map(String) : undefined,
+      scope,
       updatedAt: new Date().toISOString(),
       updatedBy: user.email || user.userId,
     });

@@ -12,20 +12,26 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }), 
   marshallOptions: { removeUndefinedValues: true },
 });
 
+// オプション提供スコープ。all=全員 / corporate=法人のみ / premium=プレミアムのみ / family=家族のみ。
+export type OptionScope = "all" | "corporate" | "premium" | "family";
+
 export interface ClubContractSetting {
   clubCode: string;            // PK
-  contractFormCode: string;    // SK (契約形態コード)
+  contractFormCode: string;    // SK (契約形態コード)。主契約・オプション共通
   enabled?: boolean;           // 募集ON/OFF (契約別)。未設定=null扱い(不明)
   isPreOpenContract?: boolean; // プレオープンを表現する契約か
   familyAllowed?: boolean;     // 家族会員を作れる契約か
   description?: string;        // 説明文
   penalty?: number | null;     // 違約金(円)。未設定=null
+  // --- オプション(会員区分90)向け ---
+  availableForContracts?: string[]; // そのオプションを提供する主契約コード配列。空/未設定=全主契約
+  scope?: OptionScope;              // 提供スコープ。未設定=all(全員)
   updatedAt?: string;
   updatedBy?: string;
 }
 
 // 公開APIへ merge する overlay 値(キー=contractFormCode)。
-export type OverlayValue = Pick<ClubContractSetting, "enabled" | "isPreOpenContract" | "familyAllowed" | "description" | "penalty">;
+export type OverlayValue = Pick<ClubContractSetting, "enabled" | "isPreOpenContract" | "familyAllowed" | "description" | "penalty" | "availableForContracts" | "scope">;
 
 // クラブの全 overlay を contractFormCode→値 のマップで返す(無ければ空マップ)。
 export async function loadClubContractOverlay(clubCode: string): Promise<Record<string, OverlayValue>> {
@@ -43,6 +49,8 @@ export async function loadClubContractOverlay(clubCode: string): Promise<Record<
         familyAllowed: it.familyAllowed,
         description: it.description,
         penalty: it.penalty ?? null,
+        availableForContracts: Array.isArray(it.availableForContracts) ? it.availableForContracts : undefined,
+        scope: it.scope,
       };
     }
     return map;
@@ -74,6 +82,8 @@ export async function putClubContractSetting(s: ClubContractSetting): Promise<vo
       ...(typeof s.familyAllowed === "boolean" ? { familyAllowed: s.familyAllowed } : {}),
       ...(s.description != null ? { description: String(s.description) } : {}),
       ...(s.penalty != null ? { penalty: Number(s.penalty) } : {}),
+      ...(Array.isArray(s.availableForContracts) ? { availableForContracts: s.availableForContracts.map(String) } : {}),
+      ...(s.scope ? { scope: s.scope } : {}),
       updatedAt: s.updatedAt,
       updatedBy: s.updatedBy,
     },

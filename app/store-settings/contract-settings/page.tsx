@@ -43,8 +43,12 @@ function TriToggle({ value, onChange }: { value: boolean | null; onChange: (v: b
   );
 }
 
+type OptRow = { contractFormCode: string; name: string; scope: string; availableForContracts: string[]; description: string; enabled: boolean | null };
+
 function Editor({ clubCode }: { clubCode: string }) {
   const [rows, setRows] = useState<Row[]>([]);
+  const [opts, setOpts] = useState<OptRow[]>([]);
+  const [mains, setMains] = useState<{ code: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [savingCode, setSavingCode] = useState<string | null>(null);
@@ -55,7 +59,7 @@ function Editor({ clubCode }: { clubCode: string }) {
     setLoading(true); setErr(null);
     fetch(`/api/store-settings/contract-settings?clubCode=${encodeURIComponent(clubCode)}`)
       .then((r) => r.json())
-      .then((d) => { if (!alive) return; if (d.ok) setRows(d.contracts || []); else setErr(d.error || "取得に失敗しました"); })
+      .then((d) => { if (!alive) return; if (d.ok) { setRows(d.contracts || []); setOpts(d.options || []); setMains(d.mainContracts || []); } else setErr(d.error || "取得に失敗しました"); })
       .catch(() => alive && setErr("取得に失敗しました"))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
@@ -63,6 +67,21 @@ function Editor({ clubCode }: { clubCode: string }) {
 
   const patch = (code: string, p: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.contractFormCode === code ? { ...r, ...p } : r)));
+  const patchOpt = (code: string, p: Partial<OptRow>) =>
+    setOpts((rs) => rs.map((r) => (r.contractFormCode === code ? { ...r, ...p } : r)));
+
+  const saveOption = useCallback(async (o: OptRow) => {
+    setSavingCode(o.contractFormCode); setMsg(null);
+    try {
+      const res = await fetch("/api/store-settings/contract-settings", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clubCode, contractFormCode: o.contractFormCode, scope: o.scope, availableForContracts: o.availableForContracts, description: o.description }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.ok) throw new Error(d.error || "保存に失敗しました");
+      setMsg(`オプション「${o.name}」を保存しました`);
+    } catch (e: any) { setMsg(e?.message || "保存に失敗しました"); } finally { setSavingCode(null); }
+  }, [clubCode]);
 
   const save = useCallback(async (row: Row) => {
     setSavingCode(row.contractFormCode); setMsg(null);
@@ -137,6 +156,63 @@ function Editor({ clubCode }: { clubCode: string }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {!loading && !err && opts.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: "24px 0 2px" }}>オプション（会員区分90）</h2>
+          <p style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>
+            提供スコープと対象主契約を入力します。公開API <code>/contracts</code> の <code>options[]</code> に反映されます（対象主契約=未選択は全主契約）。
+          </p>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", borderRadius: 10, overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc", textAlign: "left" }}>
+                  <th style={{ padding: "10px 12px" }}>オプション</th>
+                  <th style={{ padding: "10px 12px" }}>提供スコープ</th>
+                  <th style={{ padding: "10px 12px" }}>対象主契約（未選択=全て）</th>
+                  <th style={{ padding: "10px 12px" }}>説明文</th>
+                  <th style={{ padding: "10px 12px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {opts.map((o) => (
+                  <tr key={o.contractFormCode} style={{ borderTop: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "8px 12px" }}>
+                      <div style={{ fontWeight: 600 }}>{o.name}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8" }}>#{o.contractFormCode}</div>
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <select value={o.scope} onChange={(e) => patchOpt(o.contractFormCode, { scope: e.target.value })}
+                        style={{ padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12 }}>
+                        <option value="all">全員</option>
+                        <option value="corporate">法人のみ</option>
+                        <option value="premium">プレミアムのみ</option>
+                        <option value="family">家族のみ</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <select multiple value={o.availableForContracts} onChange={(e) => patchOpt(o.contractFormCode, { availableForContracts: Array.from(e.target.selectedOptions).map((x) => x.value) })}
+                        style={{ minWidth: 200, height: 72, border: "1px solid #d1d5db", borderRadius: 6, fontSize: 11.5 }}>
+                        {mains.map((m) => <option key={m.code} value={m.code}>{m.name}（#{m.code}）</option>)}
+                      </select>
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <input value={o.description} onChange={(e) => patchOpt(o.contractFormCode, { description: e.target.value })}
+                        style={{ width: 200, padding: "6px 8px", border: "1px solid #d1d5db", borderRadius: 6, fontSize: 12 }} placeholder="説明文" />
+                    </td>
+                    <td style={{ padding: "8px 12px" }}>
+                      <button type="button" onClick={() => saveOption(o)} disabled={savingCode === o.contractFormCode}
+                        style={{ fontSize: 12, fontWeight: 700, padding: "6px 14px", borderRadius: 7, border: "none", color: "#fff", background: "#2563eb", cursor: "pointer", opacity: savingCode === o.contractFormCode ? 0.6 : 1 }}>
+                        {savingCode === o.contractFormCode ? "保存中…" : "保存"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
       {msg && <div style={{ marginTop: 12, fontSize: 13, color: "#0d9488" }}>{msg}</div>}
     </div>
