@@ -52,12 +52,20 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const allRows = Array.isArray(payload?.rows) ? payload.rows : [];
 
-  // 委託先そろい判定: 6委託先が全て存在するか。1つでも欠ければ ready=false(抽出不可)。
-  const present = new Set(rows.map((r: any) => String(r?.委託先名 ?? "").trim()));
-  const missing = REQUIRED_ITAKUSAKI.filter((x) => !present.has(x));
+  // りそな除外オプション: りそな未着でも他の委託先で抽出できるようにする。
+  // 除外時は りそな を必須判定から外し、りそな行も抽出結果から除く。
+  const excludeResona = req.nextUrl.searchParams.get("excludeResona") === "1";
+  const required = excludeResona ? REQUIRED_ITAKUSAKI.filter((x) => x !== "りそな") : REQUIRED_ITAKUSAKI;
+  const rows = excludeResona
+    ? allRows.filter((r: any) => String(r?.委託先名 ?? "").trim() !== "りそな")
+    : allRows;
+
+  // 委託先そろい判定: 必須委託先が全て存在するか。1つでも欠ければ ready=false(抽出不可)。
+  const present = new Set(allRows.map((r: any) => String(r?.委託先名 ?? "").trim()));
+  const missing = required.filter((x) => !present.has(x));
   const ready = rows.length > 0 && missing.length === 0;
 
-  return NextResponse.json({ ok: true, ym, ready, missing, required: REQUIRED_ITAKUSAKI, rows });
+  return NextResponse.json({ ok: true, ym, ready, missing, required, excludeResona, rows });
 }

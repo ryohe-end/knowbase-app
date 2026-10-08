@@ -71,6 +71,8 @@ export default function MonthlyFurikaePage() {
   // 揃って初めて抽出可。ready=false のとき missing に未着の委託先が入る。
   const [ready, setReady] = useState(false);
   const [missing, setMissing] = useState<string[]>([]);
+  // りそな未着でも他の委託先で抽出するためのオプション(りそなを必須判定・抽出から除外)。
+  const [excludeResona, setExcludeResona] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -114,7 +116,7 @@ export default function MonthlyFurikaePage() {
     setReady(false);
     setMissing([]);
     try {
-      const res = await fetch(`/api/accounting/monthly-furikae?ym=${ym}`, { cache: "no-store" });
+      const res = await fetch(`/api/accounting/monthly-furikae?ym=${ym}&excludeResona=${excludeResona ? "1" : "0"}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
         setError(json?.message || json?.error || `取得に失敗しました (${res.status})`);
@@ -169,6 +171,10 @@ export default function MonthlyFurikaePage() {
             <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>対象月（振替年月）</span>
             <input type="month" value={month} onChange={(e) => setMonth(e.target.value)} style={{ padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, color: "#0f172a" }} />
           </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#475569", fontWeight: 600, cursor: "pointer", paddingBottom: 9 }} title="りそなが未着でも、他の委託先だけで抽出します（りそな分は除外）">
+            <input type="checkbox" checked={excludeResona} onChange={(e) => setExcludeResona(e.target.checked)} style={{ width: 15, height: 15, accentColor: "#0f766e", cursor: "pointer" }} />
+            りそなを除外して抽出
+          </label>
           <button onClick={load} disabled={loading} style={{ padding: "10px 20px", background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: loading ? "default" : "pointer", opacity: loading ? 0.6 : 1 }}>
             {loading ? "確認中…" : "集計を表示"}
           </button>
@@ -184,11 +190,11 @@ export default function MonthlyFurikaePage() {
           </div>
         ) : ready ? (
           <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 24, color: "#15803d", fontSize: 12, lineHeight: 1.6 }}>
-            ✓ <strong>{y}年{m}月</strong>は6委託先すべて揃っています。ダウンロード可能です。
+            ✓ <strong>{y}年{m}月</strong>は{excludeResona ? "りそなを除く委託先が揃っています（りそな分は除外して抽出）" : "6委託先すべて揃っています"}。ダウンロード可能です。
           </div>
         ) : (
           <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "12px 16px", marginBottom: 24, color: "#b45309", fontSize: 12, lineHeight: 1.6 }}>
-            ⚠️ <strong>{y}年{m}月</strong>はまだ<strong>全委託先が揃っていません</strong>（未着：<strong>{missing.length ? missing.join("・") : "データ無し"}</strong>）。全て揃うまでダウンロードできません（概ね翌月4日までに揃います）。
+            ⚠️ <strong>{y}年{m}月</strong>はまだ<strong>必須委託先が揃っていません</strong>（未着：<strong>{missing.length ? missing.join("・") : "データ無し"}</strong>）。全て揃うまでダウンロードできません（概ね翌月4日までに揃います）。{!excludeResona && missing.includes("りそな") && <span><br />※ 未着が<strong>りそなのみ</strong>なら、上の「<strong>りそなを除外して抽出</strong>」にチェックして「集計を表示」すると、りそなを除いて出せます。</span>}
           </div>
         )}
 
